@@ -24,11 +24,13 @@ import type { CockpitSystemSummary } from "./cockpit-types.js";
 import type { ActionProposal, ProposalQueueItem } from "./proposals/index.js";
 import { generateProposals, type GateEnv } from "./proposals/index.js";
 import type { SourceDiagnosticsReport } from "./sources/index.js";
+import { buildFreshnessReport, type FreshnessReport } from "./freshness-surface.js";
 
 export type CockpitIntent =
   | "system_status"
   | "fitness_status"
   | "ops_status"
+  | "freshness_status"
   | "build_agent"
   | "improve_agent"
   | "strategy_review"
@@ -143,6 +145,22 @@ export function detectCockpitIntent(request: string): { intent: CockpitIntent; m
   m = has(t, "pending proposals", "show proposals", "list proposals", "show pending proposals", "proposal queue", "saved proposals", "my proposals");
   if (m.length) return { intent: "proposal_list", matchedKeywords: m };
 
+  // 0a.7 Freshness / sync control (explicit) — before read-model + ops/fitness so
+  // "is my data fresh?", "what needs refreshing?", and "why is ops stale?" land here.
+  m = has(
+    t,
+    "what needs refreshing", "needs refreshing", "need refreshing", "needs a refresh", "what should i refresh",
+    "refresh plan", "sync repair", "sync plan", "repair plan", "refresh ops", "refresh the data",
+    "is my data fresh", "is data fresh", "is the data fresh", "are we fresh", "data fresh",
+    "data freshness", "freshness", "freshness status", "sync status", "sync health", "fix stale"
+  );
+  if (m.length) return { intent: "freshness_status", matchedKeywords: m };
+  if (has(t, "why").length && has(t, "stale").length) return { intent: "freshness_status", matchedKeywords: ["why", "stale"] };
+  if (has(t, "stale").length && has(t, "fix", "refresh", "repair").length) return { intent: "freshness_status", matchedKeywords: ["stale", "fix"] };
+  if (has(t, "refresh").length && has(t, "ops", "fitness", "factory", "data", "system", "sync", "everything").length) {
+    return { intent: "freshness_status", matchedKeywords: ["refresh", ...has(t, "ops", "fitness", "factory", "data", "system", "sync")] };
+  }
+
   // 0b. Read-model / source diagnostics (explicit) — must beat fitness/ops status.
   m = has(t, "read model status", "read-model status", "read model", "read-model", "sources connected", "sources are connected", "what sources", "which sources", "connected sources", "data is stale", "what data is stale", "what's stale", "whats stale", "stale data", "data stale", "source status");
   if (m.length) return { intent: "read_model_status", matchedKeywords: m };
@@ -205,6 +223,8 @@ const SUGGESTED_COMMANDS = [
   "What's my system status?",
   "How is my fitness agent today?",
   "Show read model status",
+  "Is my data fresh?",
+  "What needs refreshing?",
   "Why is my fitness panel missing data?",
   "Anything urgent in ops?",
   "What should I build next?",
@@ -216,6 +236,23 @@ const SUGGESTED_COMMANDS = [
   "Give me a CTO review",
 ];
 
+// ─── Freshness helpers (Phase 15C) ───────────────────────────────────────────
+
+/** Build the freshness/sync report from the routing context (pure, read-only). */
+function freshnessFromCtx(ctx: IntentRouterContext): FreshnessReport {
+  const now = ctx.now ?? ctx.diagnostics?.generatedAt ?? ctx.panels[0]?.generatedAt ?? "";
+  return buildFreshnessReport({
+    panels: ctx.panels,
+    now,
+    ...(ctx.diagnostics ? { diagnostics: ctx.diagnostics } : {}),
+  });
+}
+
+/** One-line freshness verdict suitable for embedding in other status answers. */
+function freshnessVerdictLine(r: FreshnessReport): string {
+  return `Data freshness: ${r.verdict.toUpperCase()} — ${r.verdictReason}`;
+}
+
 // ─── Per-intent answer builders ──────────────────────────────────────────────
 
 function answerSystemStatus(ctx: IntentRouterContext): CockpitIntentResult {
@@ -225,25 +262,30 @@ function answerSystemStatus(ctx: IntentRouterContext): CockpitIntentResult {
   const s = ctx.systemSummary;
   const integ = ctx.integration;
   const llm = ctx.llm?.provider ? `${ctx.llm.provider}/${ctx.llm.mode}` : "deterministic fallback";
+  const fr = freshnessFromCtx(ctx);
 
   const lines = [
     `Cockpit: ${s.cardCount} cards, ${s.missingSourceCount} missing source(s), ${s.reportCount} local report(s).`,
+    freshnessVerdictLine(fr),
     `Factory: ${factory?.status ?? "unknown"} — ${factory?.highlights[0] ?? "modules present"}.`,
     `Ops Agent: ${ops?.status ?? "unconfigured"}${ops?.highlights.length ? ` — ${ops.highlights[0]}` : ""}.`,
     `Fitness Agent: ${fitness?.status ?? "unconfigured"}${fitness?.highlights.length ? ` — ${fitness.highlights[0]}` : ""}.`,
     `LLM gateway: ${llm}.`,
     integ ? `Read-models: ${integ.readModelsEnabled} enabled; agents ${integ.agentsDetected}/${integ.agentsConfigured} detected/configured (config ${integ.configPresent ? "present" : "absent"}).` : `Read-models: see Fitness/Ops panels.`,
   ];
+  if (fr.staleReason) lines.push(`Freshness note: ${fr.staleReason}`);
 
-  const highlights: string[] = [];
+  const highlights: string[] = [`Freshness: ${fr.verdict.toUpperCase()}.`];
   if (factory?.status === "available") highlights.push("Factory is available locally.");
   for (const p of [ops, fitness]) for (const h of p?.highlights ?? []) highlights.push(`${p!.title}: ${h}`);
 
   const gaps: string[] = [];
+  if (fr.staleDomains.length) gaps.push(`Stale: ${fr.staleDomains.join(", ")}.`);
   if (s.missingSourceCount > 0) gaps.push(`${s.missingSourceCount} missing command-center source(s).`);
   for (const p of [fitness, ops, factory]) for (const g of topN(p?.missingSetupSteps ?? [], 1)) gaps.push(`${p!.title}: ${g}`);
 
   const nextSteps = uniqueNonEmpty([
+    fr.verdict !== "green" ? fr.safeNextStep : undefined,
     ...[fitness, ops, factory].map((p) => p?.nextAction),
     s.nextRecommendedCommand,
   ]);
@@ -387,6 +429,16 @@ function answerOps(ctx: IntentRouterContext): CockpitIntentResult {
     riskFlags?.status === "ok" ? `Risk flags: ${endDot(riskFlags.value)}` : null,
   ].filter((x): x is string => !!x);
 
+  // ── Stale-specific guidance (Phase 15C) — preserve the structure above ──
+  if (clickupStale) {
+    const staleSince =
+      sync?.lastUpdated ?? updates?.lastUpdated ?? field(p, "active_cards")?.lastUpdated ?? null;
+    lines.push(
+      `Caution: ops data is stale${staleSince ? ` (last ClickUp activity ${staleSince})` : ""} — don't make important operational decisions from it.`
+    );
+    lines.push("To refresh: re-run the ClickUp import manually, then re-check ops status (HartOS will not run the import for you).");
+  }
+
   // ── Highlights: lead with the verdict, then real card signals ──
   const highlights = uniqueNonEmpty([`Verdict: ${verdict.toUpperCase()}.`, ...p.highlights]);
 
@@ -490,22 +542,58 @@ function answerReadModelStatus(ctx: IntentRouterContext): CockpitIntentResult {
   const t = ctx.request.toLowerCase();
   const focus = t.includes("fitness") ? "fitness" : t.includes("ops") || t.includes("operation") ? "ops" : t.includes("factory") || t.includes("build") ? "factory" : null;
   const domains = focus ? d.domains.filter((x) => x.domain === focus) : d.domains;
+  const fr = freshnessFromCtx(ctx);
 
   const lines = [
+    freshnessVerdictLine(fr),
     `Read-model config: ${d.configPresent ? `present (${d.configPath})` : "absent"}.`,
     `Configured: ${d.configuredSources.join(", ") || "none"}. Enabled: ${d.enabledSources.join(", ") || "none"}. Disabled: ${d.disabledSources.join(", ") || "none"}.`,
     `Missing env: ${d.missingSources.join(", ") || "none"}. Stale: ${d.staleSources.join(", ") || "none"}. Rejected (unsafe): ${d.rejectedSources.join(", ") || "none"}.`,
+    `Latest read-model check: ${fr.generatedAt || "unknown"}.`,
   ];
   for (const dom of domains) {
     lines.push(`${dom.domain}: ${dom.status} (${dom.resolvedFields} field(s), freshness=${dom.freshness}) — ${dom.note}`);
   }
+  if (fr.staleReason) lines.push(`Why stale: ${fr.staleReason}`);
 
-  const highlights: string[] = [];
+  const highlights: string[] = [`Freshness: ${fr.verdict.toUpperCase()}.`];
   if (d.rejectedSources.length) highlights.push(`Rejected unsafe key(s) for: ${d.rejectedSources.join(", ")} — use a read-only anon key.`);
   if (d.staleSources.length) highlights.push(`Stale data for: ${d.staleSources.join(", ")}.`);
   const gaps = domains.filter((x) => x.status !== "live").map((x) => `${x.domain}: ${x.status}`);
-  const nextSteps = uniqueNonEmpty(domains.map((x) => x.setupStep));
+  const nextSteps = uniqueNonEmpty([fr.verdict !== "green" ? fr.safeNextStep : undefined, ...domains.map((x) => x.setupStep)]);
   return base("read_model_status", "Read-model status", lines.join("\n"), highlights, gaps, nextSteps, false);
+}
+
+/** Phase 15C — dedicated freshness / sync control answer. */
+function answerFreshness(ctx: IntentRouterContext): CockpitIntentResult {
+  const r = freshnessFromCtx(ctx);
+  const domainLine = (dom: typeof r.domains[number]): string =>
+    `- ${dom.domain[0]!.toUpperCase()}${dom.domain.slice(1)}: ${dom.state}${dom.lastUpdated ? ` (updated ${dom.lastUpdated})` : ""} — ${dom.reason}`;
+
+  const lines: string[] = [
+    `System freshness: ${r.verdict.toUpperCase()}. ${r.verdictReason}`,
+    ...r.domains.map(domainLine),
+  ];
+  if (r.staleReason) lines.push(`Why: ${r.staleReason}`);
+  // ClickUp import / sync health.
+  lines.push(
+    `ClickUp sync: ${r.clickup.stale ? "STALE" : "current"}; last import/activity ${r.clickup.lastImportAt ?? "unknown"}${
+      r.clickup.cardsImported ? `, ${r.clickup.cardsImported} cards imported` : ""
+    }${r.clickup.importStatus ? `, status: ${r.clickup.importStatus}` : ""}.`
+  );
+  lines.push(`What to verify next: confirm the import job ran (check the timestamp above), then re-run \`npm run read-models:status\`.`);
+  lines.push(`Safe to do manually: ${r.safeNextStep}`);
+  lines.push("Not executable: HartOS will NOT run the ClickUp import or any sync for you — there is no execution path. It can only draft a refresh plan on request.");
+  if (r.clickup.stale) lines.push("Caution: ops data is stale — do not make important operational decisions from it until refreshed.");
+
+  const highlights = uniqueNonEmpty([
+    `Freshness: ${r.verdict.toUpperCase()}.`,
+    r.staleDomains.length ? `Stale: ${r.staleDomains.join(", ")}.` : undefined,
+    r.unavailableDomains.length ? `Unavailable: ${r.unavailableDomains.join(", ")}.` : undefined,
+  ]);
+  const gaps = uniqueNonEmpty(r.domains.filter((dom) => dom.state !== "fresh").map((dom) => `${dom.domain}: ${dom.state} — ${dom.reason}`));
+  const nextSteps = uniqueNonEmpty([r.safeNextStep, "npm run read-models:status", ...r.domains.map((dom) => dom.safeNextStep)]);
+  return base("freshness_status", "Freshness / sync", lines.join("\n"), highlights, gaps, nextSteps, false);
 }
 
 function answerProposalList(ctx: IntentRouterContext): CockpitIntentResult {
@@ -615,6 +703,7 @@ export function routeCockpitIntent(ctx: IntentRouterContext): CockpitIntentResul
     case "system_status": result = answerSystemStatus(ctx); break;
     case "fitness_status": result = answerFitness(ctx); break;
     case "ops_status": result = answerOps(ctx); break;
+    case "freshness_status": result = answerFreshness(ctx); break;
     case "build_agent": result = answerBuild(ctx); break;
     case "improve_agent": result = answerImprove(ctx); break;
     case "strategy_review": result = answerStrategy(ctx); break;
