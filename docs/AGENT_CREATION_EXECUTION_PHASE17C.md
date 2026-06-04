@@ -1,8 +1,10 @@
 # Phase 17C — Agent-Creation Execution Architecture (DESIGN GATE — no code)
 
-**Status: design proposal for Hart's approval. This phase writes no execution code.**
+**Status: APPROVED by Hart (2026-06-05). This phase writes no execution code.**
 Its only deliverable is *this document*: a written execution architecture with explicit
-gates, so 17D/18A/18B build against a decided design instead of improvising one.
+gates, so 17D/18A/18B build against a decided design instead of improvising one. The §11
+open questions are now resolved (local-CLI-only · separate durable spec id · no-expiry
+authorization · always-PR), unblocking 17D.
 
 > Doctrine carried forward from 17A: **propose, don't act**; **pure & Worker-safe planning**;
 > **plan-level, not execution**; **no Factory-artifact fork into CC**. 17C does not weaken any
@@ -125,7 +127,9 @@ into a partial mutation. Read-only steps never require a gate. This is exactly t
 
   The Worker can move a proposal to `approved_for_execution` but **can never set `executing`/`executed`** —
   those transitions are writable only by the Node executor process. `executeProposal()` in the cockpit
-  stays a hard-capped throw.
+  stays a hard-capped throw. Per Hart's §11 decision, `approved_for_execution` does **not** time-box: it
+  remains valid until consumed or **explicitly revoked**, so the cockpit must surface an explicit revoke
+  action + the authorization's age (staleness will not self-clear).
 
 - **Key 2 — Host gates (env vars).** Even with `approved_for_execution`, nothing mutates unless the Node
   host has the relevant gates open (§3). Hart sets these on the host he controls; they are never in the
@@ -219,7 +223,7 @@ Cockpit: "Create a tax agent"
        (B) Factory scaffolds real files into a workdir ......... 17D: local-only artifacts (no push)
        (C) Engine compiles ProvisionPlan; runProvisionEngine with gates CLOSED → dry-run report
   → Hart reviews artifacts/report ............................. second approval point
-  → 18A: scaffold → branch → open PR → Hart reviews real code → merge   (still no provider mutation)
+  → 18A: scaffold → branch → open PR → Hart reviews real code → merge   (ALWAYS PR; no local-commit bypass; still no provider mutation)
   → 18B: open provider gates one at a time (ALLOW_*); each step: dry-run → apply → ledger → smoke → rollback-ready
   → NEVER auto-deploy; production needs CONFIRM_PRODUCTION_DEPLOY + per-provider + per-action gates
 ```
@@ -238,13 +242,18 @@ reversible-first ordering (17C-4); spec storage location (17C-5); the end-to-end
 - ❌ `executeProposal()` stays a hard-capped throw; the Worker remains `executable:false`.
 - ❌ No Factory `AgentConfig`/scaffold fork into CC.
 
-## 11. Open questions for Hart (decide before 17D)
-1. **Executor host for v1:** local CLI on your machine only, or also a CI runner? (Recommendation: local-only
-   first; CI later behind the same two-key model.)
-2. **Spec id scheme:** reuse the proposal id, or a separate durable spec id that survives proposal expiry?
-3. **`approved_for_execution` expiry:** should execution authorization time-box (e.g. 24h) like other proposal
-   states, forcing re-approval if stale?
-4. **PR mode default (18A):** always PR, or allow a local-commit-only mode for throwaway/experimental agents?
+## 11. Resolved decisions (Hart, 2026-06-05 — gates 17D)
+These were the open questions; Hart has now decided them, so 17D builds against fixed answers.
+
+1. **Executor host for v1 → LOCAL CLI ONLY.** Execution runs only on Hart's machine, secrets in local env.
+   No CI executor in v1; a CI runner may be added later behind the *same* two-key model. (Reinforces §1/§6.)
+2. **Spec id scheme → SEPARATE DURABLE SPEC ID.** A spec id distinct from the proposal id; it survives
+   proposal expiry/rejection and is the stable execution reference. (Refines §8 / 17C-5.)
+3. **`approved_for_execution` expiry → NO EXPIRY.** Execution authorization does **not** time-box; it stays
+   valid until used or **explicitly revoked**. (17D/18A must therefore provide an explicit revoke path and
+   show authorization age in the cockpit, since staleness will not self-clear — see §4.)
+4. **PR mode default (18A) → ALWAYS PR.** Every scaffold goes scaffold → branch → PR → Hart review → merge.
+   No local-commit-only bypass; real code is always reviewed before it lands. (Hardens §6 / §9.)
 
 ---
 
