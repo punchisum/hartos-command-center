@@ -29,3 +29,15 @@ export {
 export type { LocalScaffoldBuildOptions, LocalScaffoldBuildResult } from "./local-scaffold-build.js";
 export { realLocalGit, type LocalGitOps } from "./local-git.js";
 export { realFactoryScaffold, type ScaffoldFn, type ScaffoldRequest, type ScaffoldOutcome } from "./scaffold-via-factory.js";
+
+// ─── Phase 18B — controlled GitHub PR mode (first external mutation, gated) ────
+export {
+  runGithubPrMode,
+  runGithubPrRollback,
+  GithubPrPreconditionError,
+  PUSH_GATE,
+  PR_GATE,
+  REMOTE_ROLLBACK_GATE,
+} from "./run-github-pr.js";
+export type { GithubPrOptions, GithubPrResult, GithubPrRollbackResult } from "./run-github-pr.js";
+export { realGitHubPrOps, type GitHubPrOps } from "./github-pr.js";
