@@ -11,6 +11,14 @@ name = "hartos-command-center"
 main = "dist/src/runtime/cloudflare-cockpit-worker.js"
 compatibility_date = "2026-06-03"
 
+# REQUIRED (Phase 16D). The Worker import graph references node:fs, node:path,
+# and node:fs/promises (and Buffer) — never CALLED on the hosted request path,
+# but present in the graph via the shared read-model/cockpit modules. Without
+# this flag `wrangler deploy` warns the Worker "may throw errors at runtime";
+# with it, the bundle is clean (verified via `wrangler deploy --dry-run`) and
+# the Worker loads and serves under workerd. Do NOT remove this flag.
+compatibility_flags = ["nodejs_compat"]
+
 [vars]
 APP_ENV = "production"
 

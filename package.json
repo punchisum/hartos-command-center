@@ -24,7 +24,7 @@
     "migrations:apply": "npm run build && node dist/scripts/apply-supabase-migrations.js",
     "deploy:staging": "npm run build && APP_ENV=staging node dist/scripts/promote.js",
     "deploy:production": "npm run build && APP_ENV=production node dist/scripts/promote.js",
-    "promote:production": "npm run build && APP_ENV=production node dist/scripts/promote.js",
+    "promote:production": "npm run build && node dist/scripts/promote-production.js",
     "release:report": "npm run build && node dist/scripts/release-report.js",
     "rollback:plan": "npm run build && node dist/scripts/rollback-plan.js",
     "deployment:check": "npm run build && node dist/scripts/check-deployment-readiness.js",
@@ -36,7 +36,6 @@
     "launch:plan": "npm run build && node dist/scripts/launch-plan.js",
     "launch:verify": "npm run build && node dist/scripts/launch-verify.js",
     "launch:report": "npm run build && node dist/scripts/launch-report.js",
-    "promote:production": "npm run build && node dist/scripts/promote-production.js",
     "launch:production": "npm run build && node dist/scripts/launch-production.js",
     "production:check": "npm run build && node dist/scripts/production-check.js",
     "production:smoke": "npm run build && node dist/scripts/production-smoke.js",
@@ -101,10 +100,12 @@
     "dev:cloudflare": "npm run build && node dist/scripts/cockpit-cloudflare-dev.js",
     "deploy:cloudflare": "npm run build && node dist/scripts/cockpit-cloudflare-deploy.js",
     "smoke:hosted": "npm run build && node dist/scripts/cockpit-cloudflare-smoke.js",
-    "smoke:cloudflare": "npm run build && node dist/scripts/cockpit-cloudflare-smoke.js"
+    "smoke:cloudflare": "npm run build && node dist/scripts/cockpit-cloudflare-smoke.js",
+    "cockpit:cloudflare:bundle-check": "npm run build && wrangler deploy --dry-run --outdir .wrangler/bundle-check --config wrangler.cockpit.toml"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "wrangler": "^4.98.0"
   }
 }

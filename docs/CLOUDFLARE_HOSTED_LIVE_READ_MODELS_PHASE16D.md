@@ -62,12 +62,40 @@ provider returns null and the Worker serves the existing safe placeholder.
 - Only the deployed `get_*` RPCs are allowlisted; anything else is refused.
 - No filesystem and no `process.cwd()` on the hosted path.
 
+## Worker bundling — VERIFIED (`nodejs_compat` required + sufficient)
+
+The Worker import graph references `node:fs` (10 files), `node:fs/promises` (11),
+and `node:path` (13) via the shared read-model/cockpit modules, plus `Buffer`
+(in `isServiceRoleKey`). These are **never called on the hosted request path**
+(registry is injected; `process.cwd`/fs guarded), but they are present in the
+graph. Verified with the real bundler/runtime (no deploy):
+
+- `wrangler deploy --dry-run` **without** `nodejs_compat` → bundles, but warns
+  *"node:path/node:fs … your Worker may throw errors at runtime unless you enable
+  nodejs_compat."*
+- `wrangler deploy --dry-run` **with** `compatibility_flags = ["nodejs_compat"]`
+  → clean bundle, **zero warnings** (224 KiB / 52 KiB gzip).
+- `wrangler dev` (real **workerd** runtime, local, no deploy) with the flag →
+  Worker loads and serves: `/health` 200, `/api/state` 200 `mode:"hosted"`; the
+  live read-model path executed and **degraded gracefully** (ops `rpc_unavailable`,
+  fitness `rpc_missing_env`) without crashing. The `node:fs` imports did not
+  break module evaluation or request handling.
+
+**Required wrangler config** (already in `wrangler.cockpit.toml.example`):
+
+```toml
+main = "dist/src/runtime/cloudflare-cockpit-worker.js"
+compatibility_date = "2026-06-03"
+compatibility_flags = ["nodejs_compat"]   # REQUIRED — do not remove
+```
+
+Reproduce anytime with: `npm run cockpit:cloudflare:bundle-check`
+(runs `wrangler deploy --dry-run` against `wrangler.cockpit.toml`; never deploys).
+
 ## Known follow-ups (NOT in 16D)
 
-- **Worker bundling / `nodejs_compat`**: the read-model module graph still
-  statically imports `node:fs`/`node:path` (never *called* on the hosted path) and
-  `isServiceRoleKey` uses `Buffer`. Real deployment needs the `nodejs_compat`
-  flag, or a follow-up to strip these from the hosted import graph. **Do not
-  deploy until verified.**
+- Optional: strip `node:fs` from the hosted graph entirely (fs-free read-model /
+  panel entry points) so the flag becomes belt-and-suspenders rather than load-
+  bearing. Not required — `nodejs_compat` is confirmed sufficient.
 - Optional short-TTL KV cache of last-good live results (fallback + latency).
 - **Phase 16E**: backport this pattern into `hartos-agent-factory` templates.
