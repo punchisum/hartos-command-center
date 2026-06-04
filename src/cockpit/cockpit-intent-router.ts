@@ -24,10 +24,11 @@ import type { CockpitSystemSummary } from "./cockpit-types.js";
 import type { ActionProposal, ProposalQueueItem } from "./proposals/index.js";
 import { generateProposals, type GateEnv } from "./proposals/index.js";
 import type { SourceDiagnosticsReport } from "./sources/index.js";
-import { buildFreshnessReport, type FreshnessReport } from "./freshness-surface.js";
+import { buildFreshnessReport, type FreshnessReport, type FreshnessVerdict } from "./freshness-surface.js";
 
 export type CockpitIntent =
   | "system_status"
+  | "daily_brief"
   | "fitness_status"
   | "ops_status"
   | "freshness_status"
@@ -144,6 +145,18 @@ export function detectCockpitIntent(request: string): { intent: CockpitIntent; m
   if (m.length || ((has(t, "dry run", "dry-run", "dryrun", "simulate").length) && has(t, "proposal").length)) return { intent: "proposal_dryrun", matchedKeywords: m.length ? m : ["dry-run", "proposal"] };
   m = has(t, "pending proposals", "show proposals", "list proposals", "show pending proposals", "proposal queue", "saved proposals", "my proposals");
   if (m.length) return { intent: "proposal_list", matchedKeywords: m };
+
+  // 0a.5 Daily Command Brief (Phase 16) — the morning "what matters today" roll-up.
+  // Must beat freshness/ops/fitness/system so "what needs my attention today" lands here.
+  m = has(
+    t,
+    "daily command brief", "command brief", "daily brief", "morning brief", "todays brief", "today's brief",
+    "what needs my attention today", "what needs my attention", "needs my attention",
+    "what should i focus on today", "what should i focus on", "what should i work on today",
+    "what should i prioritise", "what should i prioritize", "attention today", "focus today",
+    "what's on my plate", "whats on my plate", "what matters today", "brief me"
+  );
+  if (m.length) return { intent: "daily_brief", matchedKeywords: m };
 
   // 0a.7 Freshness / sync control (explicit) — before read-model + ops/fitness so
   // "is my data fresh?", "what needs refreshing?", and "why is ops stale?" land here.
@@ -332,6 +345,10 @@ export function computeOpsVerdict(signals: {
 
 function plural(n: number, one: string, many = `${one}s`): string {
   return n === 1 ? one : many;
+}
+
+function capitalize(s: string): string {
+  return s.length ? s[0]!.toUpperCase() + s.slice(1) : s;
 }
 
 function joinClauses(parts: string[]): string {
@@ -596,6 +613,148 @@ function answerFreshness(ctx: IntentRouterContext): CockpitIntentResult {
   return base("freshness_status", "Freshness / sync", lines.join("\n"), highlights, gaps, nextSteps, false);
 }
 
+// ─── Daily Command Brief (Phase 16) ──────────────────────────────────────────
+
+export interface OpsSignals {
+  active: number | null;
+  urgent: number;
+  blocked: number;
+  waiting: number;
+  stale: number;
+  noNextAction: number;
+  clickupStale: boolean;
+}
+
+/**
+ * Pure extraction of the ops attention signals from the ops panel. Only counts
+ * fields that resolved to a real value; never fabricates numbers. Shared by the
+ * daily brief so the ops verdict it shows matches the dedicated ops answer.
+ */
+export function extractOpsSignals(panel: DomainPanel | undefined): OpsSignals {
+  const numFromField = (key: string): number | null => {
+    const f = field(panel, key);
+    if (!f || f.status !== "ok") return null;
+    const n = Number(f.value);
+    return Number.isFinite(n) ? n : null;
+  };
+  const n0 = (key: string): number => numFromField(key) ?? 0;
+  const STALE_PROBE_FIELDS = ["active_cards", "urgent", "blocked", "waiting", "stale", "clickup_sync", "latest_updates"];
+  return {
+    active: numFromField("active_cards"),
+    urgent: n0("urgent"),
+    blocked: n0("blocked"),
+    waiting: n0("waiting"),
+    stale: n0("stale"),
+    noNextAction: n0("no_next_action"),
+    clickupStale: STALE_PROBE_FIELDS.some((k) => field(panel, k)?.freshness === "stale"),
+  };
+}
+
+/** Worst of two traffic-light verdicts (red > amber > green). */
+function worstVerdict(a: FreshnessVerdict, b: OpsVerdict): FreshnessVerdict {
+  const rank = { green: 0, amber: 1, red: 2 } as const;
+  return rank[a] >= rank[b] ? a : (b as FreshnessVerdict);
+}
+
+/**
+ * Phase 16 — the hosted Daily Command Brief. A grounded morning roll-up:
+ * overall verdict, the single main action, the top 3 attention items, and a
+ * compact Fitness / Ops / Factory-Proposal / Freshness line. Invents nothing;
+ * honest about stale ops and (in hosted mode) unavailable Factory reports.
+ * Creates ZERO proposals (status intent).
+ */
+function answerDailyBrief(ctx: IntentRouterContext): CockpitIntentResult {
+  const fitnessP = panelById(ctx.panels, "fitness");
+  const opsP = panelById(ctx.panels, "ops");
+  const factoryP = panelById(ctx.panels, "factory");
+  const fr = freshnessFromCtx(ctx);
+  const ops = extractOpsSignals(opsP);
+  const opsVerdict = opsP ? computeOpsVerdict(ops) : "amber";
+  const overall = worstVerdict(fr.verdict, opsVerdict);
+  const verdictWord = overall.charAt(0).toUpperCase() + overall.slice(1);
+
+  // ── attention items (most important first), grounded only ──
+  const attention: string[] = [];
+  if (ops.blocked > 0) attention.push(`Ops: ${ops.blocked} blocked/at-risk ${plural(ops.blocked, "card")}.`);
+  if (ops.urgent > 0) attention.push(`Ops: ${ops.urgent} urgent ${plural(ops.urgent, "card")}.`);
+  if (ops.waiting > 0) attention.push(`Ops: ${ops.waiting} ${plural(ops.waiting, "card")} waiting on Hart.`);
+  if (ops.clickupStale || fr.clickup.stale) {
+    attention.push(`Ops/ClickUp data is stale${fr.clickup.lastImportAt ? ` (last activity ${fr.clickup.lastImportAt})` : ""} — refresh before deciding.`);
+  }
+  if (ops.stale > 0) attention.push(`Ops: ${ops.stale} stale ${plural(ops.stale, "card")}.`);
+  if (ops.noNextAction > 0) attention.push(`Ops: ${ops.noNextAction} ${plural(ops.noNextAction, "card")} without a next action.`);
+  for (const d of fr.domains) {
+    if (d.domain !== "ops" && d.state !== "fresh") attention.push(`${capitalize(d.domain)}: ${d.state} — ${d.reason}`);
+  }
+  if (fitnessP && field(fitnessP, "recovery")?.status === "ok") {
+    const rec = field(fitnessP, "recovery")!.value;
+    if (/low|red|poor|under/i.test(rec)) attention.push(`Fitness: recovery is ${rec} — adjust training load.`);
+  }
+  const top3 = topN(attention, 3);
+
+  // ── the single main action ──
+  let mainAction: string;
+  if (ops.blocked > 0) mainAction = `Triage the ${ops.blocked} blocked/at-risk ops ${plural(ops.blocked, "card")} first.`;
+  else if (ops.urgent > 0) mainAction = `Action the ${ops.urgent} urgent ops ${plural(ops.urgent, "card")}.`;
+  else if (ops.clickupStale || fr.clickup.stale) mainAction = `Refresh Ops/ClickUp (re-run the import manually), then re-check ops${ops.waiting > 0 ? ` and clear the ${ops.waiting} ${plural(ops.waiting, "card")} waiting on Hart` : ""}.`;
+  else if (ops.waiting > 0) mainAction = `Clear the ${ops.waiting} ops ${plural(ops.waiting, "card")} waiting on Hart.`;
+  else if (overall !== "green") mainAction = fr.safeNextStep;
+  else mainAction = "Nothing urgent — keep monitoring; pick the highest-leverage build when you have time.";
+
+  // ── compact per-area lines ──
+  const factoryReportsAvailable = factoryP
+    ? factoryP.fields.some((f) => /report|verification/i.test(f.key) && f.status === "ok")
+    : false;
+  const queue = ctx.proposalQueue ?? [];
+  const pendingProposals = queue.filter((p) => p.status === "draft" || p.status === "pending_approval").length;
+  const factoryProposalLine = `Factory: ${
+    factoryReportsAvailable ? "local reports available" : "local reports unavailable in hosted mode"
+  }; proposals: ${queue.length} total${pendingProposals ? `, ${pendingProposals} pending` : ""} (all non-executable / dry-run only).`;
+
+  const fitnessLine = fitnessP
+    ? `Fitness: recovery ${field(fitnessP, "recovery")?.value ?? "unknown"}; today ${field(fitnessP, "training_plan")?.value ?? "unknown"}; calories ${field(fitnessP, "calories")?.value ?? "unknown"}, protein ${field(fitnessP, "protein")?.value ?? "unknown"}.`
+    : "Fitness: panel unavailable (configure the fitness agent).";
+  const opsLine = opsP
+    ? `Ops: ${opsVerdict.toUpperCase()} — ${ops.active != null ? `${ops.active} active, ` : ""}${ops.urgent} urgent, ${ops.blocked} blocked/risk, ${ops.waiting} waiting on Hart${ops.clickupStale ? "; ClickUp data is stale" : ""}.`
+    : "Ops: panel unavailable (configure the ops agent).";
+  const freshnessLine = `Freshness: ${fr.verdict.toUpperCase()} — ${fr.domains.map((d) => `${capitalize(d.domain)} ${d.state}`).join(", ")}.`;
+
+  // ── known gaps (honest; do not invent) ──
+  const gaps = uniqueNonEmpty([
+    ...fr.domains.filter((d) => d.state !== "fresh").map((d) => `${capitalize(d.domain)}: ${d.state} — ${d.reason}`),
+    !factoryReportsAvailable ? "Factory: local reports are unavailable in hosted mode (snapshot only)." : undefined,
+    ...(opsP?.gaps ?? []).filter((g) => /missing source|not wired/i.test(g)).slice(0, 1),
+  ]);
+
+  const lines: string[] = [
+    `Command Brief: ${verdictWord}.`,
+    `Main action: ${mainAction}`,
+    "",
+    "Top attention items:",
+    ...(top3.length ? top3.map((a, i) => `${i + 1}. ${a}`) : ["1. Nothing needs your attention right now."]),
+    "",
+    fitnessLine,
+    opsLine,
+    factoryProposalLine,
+    freshnessLine,
+  ];
+  if (fr.clickup.stale) lines.push("Caution: ops data is stale — don't make important ops decisions until you refresh ClickUp.");
+  lines.push("Note: the hosted cockpit is read-only — it cannot run imports, deploys, or any action for you.");
+  if (gaps.length) lines.push(`Known gaps: ${gaps.join(" ")}`);
+
+  const highlights = uniqueNonEmpty([
+    `Overall: ${overall.toUpperCase()}.`,
+    `Main action: ${mainAction}`,
+    ...top3,
+  ]);
+  const nextSteps = uniqueNonEmpty([
+    mainAction,
+    overall !== "green" ? fr.safeNextStep : undefined,
+    "Ask: \"Is my data fresh?\" or \"Anything urgent in ops?\" for detail.",
+  ]);
+  return base("daily_brief", "Daily Command Brief", lines.join("\n"), highlights, topN(gaps, 5), nextSteps, false);
+}
+
 function answerProposalList(ctx: IntentRouterContext): CockpitIntentResult {
   const q = ctx.proposalQueue ?? [];
   if (q.length === 0) {
@@ -701,6 +860,7 @@ export function routeCockpitIntent(ctx: IntentRouterContext): CockpitIntentResul
   let result: CockpitIntentResult;
   switch (intent) {
     case "system_status": result = answerSystemStatus(ctx); break;
+    case "daily_brief": result = answerDailyBrief(ctx); break;
     case "fitness_status": result = answerFitness(ctx); break;
     case "ops_status": result = answerOps(ctx); break;
     case "freshness_status": result = answerFreshness(ctx); break;

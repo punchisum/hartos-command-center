@@ -1,0 +1,37 @@
+# .dev.vars.example — Cloudflare local dev variables for the hosted cockpit.
+# Copy to .dev.vars (GITIGNORED — never commit). wrangler loads .dev.vars in
+# `wrangler dev`. NEVER put real secrets in this example file.
+#
+# Deploy gates (all must be true for a real cockpit deploy; default false):
+ALLOW_AUTO_PROVISION=false
+CONFIRM_CLOUDFLARE_DEPLOY=false
+ALLOW_CLOUDFLARE_COCKPIT_DEPLOY=false
+#
+# Cloudflare deploy target (placeholders only — no real account id/domain):
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_PROJECT_NAME=test-agent-cockpit
+CLOUDFLARE_WORKER_NAME=test-agent-cockpit
+CLOUDFLARE_COCKPIT_URL=
+#
+# Optional: explicit CORS allowed origin (default-denied if unset):
+CLOUDFLARE_COCKPIT_ALLOWED_ORIGIN=
+#
+# Hosted access gate (Phase 16). Production REQUIRES a token (fails closed).
+# Set the real token with `wrangler secret put HARTOS_COCKPIT_ACCESS_TOKEN`.
+HARTOS_COCKPIT_ACCESS_TOKEN=
+# Local-only: skip auth during `wrangler dev` (ignored in production):
+HARTOS_COCKPIT_DEV_AUTH_BYPASS=true
+# Optional: force auth even outside production:
+HARTOS_COCKPIT_REQUIRE_AUTH=false
+#
+# LLM gateway (OpenAI only when network gate is true; default deterministic):
+HARTOS_LLM_PROVIDER=deterministic
+HARTOS_LLM_ENABLE_NETWORK=false
+OPENAI_API_KEY=
+#
+# Read-only Supabase read models (disabled unless configured; read-only keys):
+HARTOS_OPS_SUPABASE_URL=
+HARTOS_OPS_SUPABASE_READONLY_KEY=
+HARTOS_FITNESS_SUPABASE_URL=
+HARTOS_FITNESS_SUPABASE_READONLY_KEY=

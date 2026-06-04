@@ -1,0 +1,39 @@
+# wrangler.cockpit.toml.example — Hosted read-only Command Center cockpit (Phase 16)
+#
+# Copy to wrangler.cockpit.toml (gitignored) and deploy with:
+#   npx wrangler deploy --config wrangler.cockpit.toml
+#
+# The cockpit is READ-ONLY: no provider/Supabase/ClickUp/Telegram writes, no
+# action execution, no service-role keys in the browser. Secrets are set with
+# `wrangler secret put` — NEVER written into this file.
+
+name = "hartos-command-center"
+main = "dist/src/runtime/cloudflare-cockpit-worker.js"
+compatibility_date = "2026-06-03"
+
+[vars]
+APP_ENV = "production"
+
+# Non-secret read-model endpoints (read-only anon/read keys go in secrets below).
+HARTOS_OPS_SUPABASE_URL = ""
+HARTOS_FITNESS_SUPABASE_URL = ""
+
+# Optional: restrict cross-origin access (default-denied when unset).
+# CLOUDFLARE_COCKPIT_ALLOWED_ORIGIN = "https://cockpit.example.com"
+
+# ── Secrets — set these with Wrangler, never commit them ──────────────────────
+#   wrangler secret put HARTOS_COCKPIT_ACCESS_TOKEN --config wrangler.cockpit.toml
+#   wrangler secret put HARTOS_OPS_SUPABASE_READONLY_KEY --config wrangler.cockpit.toml
+#   wrangler secret put HARTOS_FITNESS_SUPABASE_READONLY_KEY --config wrangler.cockpit.toml
+#
+# Use ONLY read-only anon keys for Supabase. NEVER set a service-role key here.
+#
+# Fail-closed behaviour:
+#   - APP_ENV=production REQUIRES HARTOS_COCKPIT_ACCESS_TOKEN. With no token the
+#     Worker fails closed: every protected route returns 401 and the UI shows a
+#     LOCKED page.
+#   - For local dev only, set HARTOS_COCKPIT_DEV_AUTH_BYPASS=true in .dev.vars to
+#     skip auth (ignored in production).
+#
+# Put a strong cockpit URL behind Cloudflare Access (Zero Trust) before sharing —
+# see docs/CLOUDFLARE_ACCESS_SETUP.md.

@@ -1,0 +1,24 @@
+{
+  "_comment": "Example read-model config for the HOSTED cockpit (Phase 16). Copy to read-models.hosted.json (gitignored) OR provide the same values via Worker env/secrets. Use ONLY read-only anon keys — NEVER a service-role key. The browser never receives any key; the Worker calls Supabase RPCs server-side.",
+  "fitness": {
+    "enabled": true,
+    "type": "supabase_rpc",
+    "urlEnv": "HARTOS_FITNESS_SUPABASE_URL",
+    "keyEnv": "HARTOS_FITNESS_SUPABASE_READONLY_KEY",
+    "keyKind": "anon_readonly",
+    "allowedRpcs": ["fitness_read_model"]
+  },
+  "ops": {
+    "enabled": true,
+    "type": "supabase_rpc",
+    "urlEnv": "HARTOS_OPS_SUPABASE_URL",
+    "keyEnv": "HARTOS_OPS_SUPABASE_READONLY_KEY",
+    "keyKind": "anon_readonly",
+    "allowedRpcs": ["ops_read_model"]
+  },
+  "_safety": {
+    "serviceRoleAllowed": false,
+    "writeAllowed": false,
+    "note": "If a hosted read-model would require a service-role key, stop and report — do not ship. Read-only anon keys only."
+  }
+}
