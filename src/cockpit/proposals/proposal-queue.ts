@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { containsSecret } from "../../llm/redaction.js";
 import type { ActionProposal, ProposalAuditEvent, ProposalQueueItem, ProposalQueueStatus } from "./proposal-types.js";
+import { EXECUTOR_ONLY_STATUSES } from "./proposal-types.js";
 import { simulateProposal } from "./proposal-simulator.js";
 import { type GateEnv } from "./gates.js";
 
@@ -144,6 +145,78 @@ export async function markSimulatedApproved(cwd: string, ref: ProposalRef, now: 
   });
 }
 
+// ─── Phase 17C/17D — two-key execution authorization (Key 1, cockpit-settable) ──
+
+/** A durable spec id, distinct from the proposal id, that survives proposal expiry/rejection. */
+export function deriveSpecId(item: ProposalQueueItem): string {
+  return `spec-${safeName(item.id)}`;
+}
+
+/**
+ * Phase 17C Key 1 — authorize the Node executor to act on this proposal.
+ *
+ * Transition: `simulated_approved → approved_for_execution`. This is the ONLY new state the
+ * cockpit/Worker may set on the execution path; it assigns a durable `specId` (17C-5 / §11 Q2)
+ * and records `executionAuthorizedAt` for age display (§11 Q3 — no auto-expiry). Authorization
+ * ALONE creates nothing: real mutation also needs Key 2 (host gates) + the human-invoked Node
+ * executor. `executeProposal()` still throws. Only transitions from `simulated_approved`; any
+ * other current status is left unchanged with a denied audit event.
+ */
+export async function approveForExecution(cwd: string, ref: ProposalRef, now: string): Promise<ProposalQueueItem | null> {
+  return update(cwd, ref, (item) => {
+    if (item.status !== "simulated_approved") {
+      item.updatedAt = now;
+      item.auditEvents.push(
+        audit("approve_for_execution_denied", now, `requires status=simulated_approved, was ${item.status}`)
+      );
+      return;
+    }
+    item.status = "approved_for_execution";
+    item.specId = item.specId ?? deriveSpecId(item);
+    item.executionAuthorizedAt = now;
+    item.updatedAt = now;
+    item.auditEvents.push(
+      audit("approved_for_execution", now, `specId=${item.specId} — Key 1 only; needs host gates (Key 2) + Node executor`)
+    );
+  });
+}
+
+/**
+ * Phase 17C §11 Q3 — explicitly revoke execution authorization (there is no auto-expiry).
+ * Transition: `approved_for_execution → simulated_approved`. The durable `specId` is kept (it
+ * outlives authorization); `executionAuthorizedAt` is cleared. Only transitions from
+ * `approved_for_execution`; otherwise unchanged with a denied audit event.
+ */
+export async function revokeExecutionApproval(cwd: string, ref: ProposalRef, now: string): Promise<ProposalQueueItem | null> {
+  return update(cwd, ref, (item) => {
+    if (item.status !== "approved_for_execution") {
+      item.updatedAt = now;
+      item.auditEvents.push(
+        audit("revoke_execution_denied", now, `requires status=approved_for_execution, was ${item.status}`)
+      );
+      return;
+    }
+    item.status = "simulated_approved";
+    item.executionAuthorizedAt = null;
+    item.updatedAt = now;
+    item.auditEvents.push(audit("execution_authorization_revoked", now, "explicit revoke — authorization does not auto-expire"));
+  });
+}
+
+/** Age (ms) of the current execution authorization, or null when not authorized. Pure. */
+export function executionAuthorizationAgeMs(item: ProposalQueueItem, now: string): number | null {
+  if (item.status !== "approved_for_execution" || !item.executionAuthorizedAt) return null;
+  const age = Date.parse(now) - Date.parse(item.executionAuthorizedAt);
+  return Number.isFinite(age) ? Math.max(0, age) : null;
+}
+
+/** Guard: assert a status is NOT an executor-only state before a cockpit/Worker-side write. */
+export function assertCockpitSettableStatus(status: ProposalQueueStatus): void {
+  if (EXECUTOR_ONLY_STATUSES.includes(status)) {
+    throw new Error(`Status "${status}" is writable only by the Node execution host, never by the cockpit.`);
+  }
+}
+
 /** Append a free-form audit event. */
 export async function appendAudit(cwd: string, ref: ProposalRef, event: string, now: string, detail?: string): Promise<ProposalQueueItem | null> {
   return update(cwd, ref, (item) => {
@@ -247,6 +320,7 @@ export interface ProposalHistory {
   pending_approval: number;
   pending: number;
   simulated_approved: number;
+  approved_for_execution: number;
   rejected: number;
   expired: number;
   active: number;
@@ -266,6 +340,7 @@ export async function proposalHistory(cwd: string): Promise<ProposalHistory> {
     pending_approval,
     pending: active,
     simulated_approved: count("simulated_approved"),
+    approved_for_execution: count("approved_for_execution"),
     rejected: count("rejected"),
     expired: count("expired"),
     active,

@@ -78,8 +78,41 @@ export interface ActionProposal {
 
 // ─── Phase 14B — local proposal queue ────────────────────────────────────────
 
-/** Queue status. NOTE: still no executed state — execution is unsupported. */
-export type ProposalQueueStatus = "draft" | "pending_approval" | "simulated_approved" | "rejected" | "expired";
+/**
+ * Queue status.
+ *
+ * Phase 14B base lifecycle (cockpit/Worker-settable, dry-run only):
+ *   draft → pending_approval → simulated_approved | rejected | expired
+ *
+ * Phase 17C two-key execution lifecycle (see docs/AGENT_CREATION_EXECUTION_PHASE17C.md):
+ *   simulated_approved → approved_for_execution   (Key 1: Hart authorizes the Node executor;
+ *                                                   the cockpit/Worker CAN set this state)
+ *   approved_for_execution → simulated_approved    (explicit revoke — no auto-expiry, per 17C §11)
+ *   approved_for_execution → executing → executed | execution_failed
+ *                                                   (Node executor ONLY — the cockpit/Worker can
+ *                                                    NEVER set these; `executeProposal()` still throws)
+ *
+ * 17D (local scaffold dry-run) operates on an `approved_for_execution` proposal and does NOT
+ * advance it to `executing`/`executed` — it produces local artifacts + a closed-gate provision
+ * dry-run report and records an audit event only. Real execution (executing/executed) is 18B.
+ */
+export type ProposalQueueStatus =
+  | "draft"
+  | "pending_approval"
+  | "simulated_approved"
+  | "approved_for_execution"
+  | "executing"
+  | "executed"
+  | "execution_failed"
+  | "rejected"
+  | "expired";
+
+/** Status transitions writable ONLY by the Node execution host, never by the cockpit/Worker. */
+export const EXECUTOR_ONLY_STATUSES: readonly ProposalQueueStatus[] = [
+  "executing",
+  "executed",
+  "execution_failed",
+];
 
 export interface ProposalAuditEvent {
   at: string;
@@ -92,4 +125,16 @@ export interface ProposalQueueItem extends Omit<ActionProposal, "status"> {
   status: ProposalQueueStatus;
   updatedAt: string;
   auditEvents: ProposalAuditEvent[];
+  /**
+   * Phase 17C-5 / §11 Q2 — a durable spec id, distinct from the proposal id, assigned when the
+   * proposal is authorized for execution. It survives proposal expiry/rejection and is the stable
+   * reference the Node executor + the new agent's repo use. Null until authorized.
+   */
+  specId?: string | null;
+  /**
+   * Phase 17C §11 Q3 — when `approved_for_execution` was granted. Authorization does NOT auto-expire;
+   * this exists so the cockpit can surface authorization AGE (staleness never self-clears — an
+   * explicit revoke is required). Null when not authorized.
+   */
+  executionAuthorizedAt?: string | null;
 }

@@ -26,5 +26,6 @@ cloudflare-cockpit-reports/
 cockpit-reports/
 cockpit-threads/
 cockpit-proposals/
+agent-scaffold-dryrun/
 .wrangler/
 .dev.vars
