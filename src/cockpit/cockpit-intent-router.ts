@@ -23,6 +23,7 @@ import { BUILD_AGENT_EXAMPLES } from "./panels/index.js";
 import type { CockpitSystemSummary } from "./cockpit-types.js";
 import type { ActionProposal, ProposalQueueItem } from "./proposals/index.js";
 import { generateProposals, type GateEnv } from "./proposals/index.js";
+import { planAgentCreation } from "./agent-planner/index.js";
 import type { SourceDiagnosticsReport } from "./sources/index.js";
 import { buildFreshnessReport, type FreshnessReport, type FreshnessVerdict } from "./freshness-surface.js";
 
@@ -496,7 +497,20 @@ function answerBuild(ctx: IntentRouterContext): CockpitIntentResult {
     'npm run hartos:build-plan -- --request="<your request>"',
     `Entry prompts: ${BUILD_AGENT_EXAMPLES.join(" | ")}`,
   ]);
-  return base("build_agent", "Build / new agent", lines.join("\n"), highlights, gaps, nextSteps, true);
+  const result = base("build_agent", "Build / new agent", lines.join("\n"), highlights, gaps, nextSteps, true);
+
+  // Phase 17A — for an explicit "create a <X> agent" request, surface the dry-run
+  // Agent Creation Plan summary and ask for the first missing requirement. The
+  // ranked "what should I build" path is unaffected.
+  const wantsRanked = /what should i build|what to build|build next|what next/i.test(ctx.request);
+  if (!wantsRanked) {
+    const plan = planAgentCreation(ctx.request);
+    result.summary = `${plan.summary}\n\n${result.summary}`;
+    if (plan.draft.clarifyingQuestions.length > 0) {
+      result.clarifyingQuestion = plan.draft.clarifyingQuestions[0]!;
+    }
+  }
+  return result;
 }
 
 function answerImprove(ctx: IntentRouterContext): CockpitIntentResult {

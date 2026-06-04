@@ -13,6 +13,7 @@ export type ProposalDomain = "fitness" | "ops" | "factory" | "system";
 
 export type ProposalActionType =
   | "build_agent_plan"
+  | "agent_creation_plan"
   | "improve_agent_plan"
   | "ops_followup_plan"
   | "fitness_adjustment_plan"

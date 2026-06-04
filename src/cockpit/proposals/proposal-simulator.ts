@@ -18,6 +18,21 @@ function effectFor(proposal: ActionProposal): { wouldHappen: string; dataWouldTo
         dataWouldTouch: ["a new local agent directory (not created)", "hartos-reports/ (build plan)"],
         futureSetup: ["A Factory build-execution gate", "Confirmed strategy + CTO review", "Hart approval of the scaffold target"],
       };
+    case "agent_creation_plan":
+      return {
+        wouldHappen:
+          "Would generate the agent spec (Factory AgentConfig), scaffold the repo from Factory templates, and run the provider provisioning plan. NOTHING is created here — this is a plan only.",
+        dataWouldTouch: [
+          "a new agent repo directory (not created)",
+          "the chosen Factory skills/templates (read-only)",
+          "a provider provisioning plan (dry-run; no GitHub/Supabase/Cloudflare/Telegram writes)",
+        ],
+        futureSetup: [
+          "Hart approval of the spec + scaffold target",
+          "A Factory build-execution gate (does not exist yet)",
+          "Per-provider provisioning gates (ALLOW_AUTO_PROVISION + CONFIRM_* — stay closed)",
+        ],
+      };
     case "improve_agent_plan":
       return {
         wouldHappen: "Would open a change plan against the target agent's files/modules and prepare a test plan.",

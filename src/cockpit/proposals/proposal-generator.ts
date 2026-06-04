@@ -12,6 +12,7 @@ import type { CockpitIntent } from "../cockpit-intent-router.js";
 import type { ActionProposal, ProposalActionType, ProposalDomain, ProposalRisk } from "./proposal-types.js";
 import { simulateProposal } from "./proposal-simulator.js";
 import { proposalsAllowed, executionDisabledReason, type GateEnv } from "./gates.js";
+import { planAgentCreation } from "../agent-planner/index.js";
 
 export interface ProposalOrchestratorContext {
   classification: string;
@@ -128,14 +129,38 @@ export function generateProposals(ctx: ProposalContext): ActionProposal[] {
           proposedPayload: { basis: "panel gaps + capability registry", gaps: o?.capabilityGaps ?? "n/a" },
         }));
       } else {
-        const highRisk = /tax|finance|invoice/i.test(ctx.request) || (o?.domain === "tax" || o?.domain === "finance");
+        // Phase 17A — explicit "create a <X> agent" yields a structured, dry-run
+        // Agent Creation Plan (spec draft + skills + scaffold outline + provider
+        // plan), surfaced as a non-executable proposal. Nothing is created.
+        const plan = planAgentCreation(ctx.request);
         out.push(build(ctx, {
-          domain: "factory", actionType: "build_agent_plan",
-          title: "Build-agent plan draft",
-          description: `Draft a build plan for: ${ctx.request}. Scaffolding is NOT performed.`,
-          expectedEffect: "A build plan report + scaffold target (no repo created, no code written).",
-          riskLevel: highRisk ? "high" : "medium",
-          proposedPayload: { request: ctx.request, classification: o?.classification ?? "unknown", buildPlan: o?.buildPlanSummary ?? "n/a" },
+          domain: "factory", actionType: "agent_creation_plan",
+          title: `Create \`${plan.draft.name}\` — agent creation plan (dry-run)`,
+          description:
+            `Plan-only proposal to create the ${plan.draft.name} agent: ${ctx.request}. ` +
+            `Generates the spec, chooses skills/templates, outlines the repo scaffold and a ` +
+            `provider provisioning plan. NO repo is created, NO provider is called, NO code is written.`,
+          expectedEffect:
+            `A reviewable agent creation plan (spec draft + ${plan.recommendedSkills.length} skills + ` +
+            `scaffold outline + provider plan). Nothing is executed.`,
+          riskLevel: plan.draft.riskLevel,
+          proposedPayload: {
+            request: ctx.request,
+            agentName: plan.draft.name,
+            classification: plan.classification.classification,
+            domain: plan.classification.domain,
+            strategyVerdict: plan.strategy.verdict,
+            readyToPlanScaffold: plan.readyToPlanScaffold,
+            clarifyingQuestions: plan.draft.clarifyingQuestions,
+            recommendedSkills: plan.recommendedSkills,
+            requiredCapabilities: plan.requiredCapabilities,
+            scaffoldPlan: plan.scaffoldPlan,
+            providerPlan: plan.providerPlan,
+            approvalGates: plan.approvalGates,
+            risks: plan.risks,
+            doNotBuild: plan.doNotBuild,
+            summary: plan.summary,
+          },
         }));
       }
       break;
