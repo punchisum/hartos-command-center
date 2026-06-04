@@ -30,8 +30,13 @@ HARTOS_LLM_PROVIDER=deterministic
 HARTOS_LLM_ENABLE_NETWORK=false
 OPENAI_API_KEY=
 #
-# Read-only Supabase read models (disabled unless configured; read-only keys):
+# Read-only Supabase read models (Phase 16D — live Worker-time reads).
+# The URLs are non-secret [vars]; the *_READONLY_KEY values are read-only ANON
+# keys set via `wrangler secret put` (NEVER a service-role key). Fitness RPCs are
+# scoped by (user_id, agent_id) uuids — non-secret identifiers, set as plain vars.
 HARTOS_OPS_SUPABASE_URL=
 HARTOS_OPS_SUPABASE_READONLY_KEY=
 HARTOS_FITNESS_SUPABASE_URL=
 HARTOS_FITNESS_SUPABASE_READONLY_KEY=
+HARTOS_FITNESS_USER_ID=
+HARTOS_FITNESS_AGENT_ID=

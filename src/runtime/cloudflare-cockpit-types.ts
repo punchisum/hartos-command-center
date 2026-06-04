@@ -30,6 +30,14 @@ export interface CockpitWorkerContext {
   /** "hosted" on Cloudflare; informational only. */
   runtimeMode?: string;
   generatedAt?: string;
+  /**
+   * Phase 16D — lazy LIVE read-model resolver. When set (the Cloudflare default
+   * export), it is called at most once per request, AFTER auth, and only for
+   * data routes — so no read happens for /health, login, or unauthenticated
+   * requests. Returns undefined to decline (no env configured / read failed),
+   * in which case the Worker serves the safe placeholder.
+   */
+  liveStateProvider?: () => Promise<CockpitState | undefined>;
 }
 
 /** Result of a deploy-gate check, following the Factory gate doctrine. */

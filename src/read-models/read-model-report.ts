@@ -18,6 +18,7 @@ import {
   isReadModelLive,
   loadReadModelRegistry,
   resolveAvailability,
+  type LoadedReadModelRegistry,
 } from "./read-model-registry.js";
 import { SupabaseReadClient } from "./supabase-read-client.js";
 import { buildOpsReadModelSummary } from "./ops-read-model.js";
@@ -52,17 +53,25 @@ export interface ReadModelRegistryOptions {
   env?: Env;
   /** Inject a client factory (tests). Defaults to a real read-only client. */
   clientFactory?: ClientFactory;
+  /**
+   * Phase 16D — inject a pre-built registry instead of loading it from the
+   * filesystem. The HOSTED Cloudflare cockpit has no filesystem, so it supplies
+   * an in-memory registry here; when provided, no fs access (and no process.cwd)
+   * is touched. The local cockpit leaves this unset and loads from disk.
+   */
+  registry?: LoadedReadModelRegistry;
 }
 
 export async function buildReadModelRegistrySummary(
   options: ReadModelRegistryOptions = {}
 ): Promise<ReadModelRegistrySummary> {
-  const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
   const clientFactory = options.clientFactory ?? defaultClientFactory;
   const now = new Date();
 
-  const registry = await loadReadModelRegistry(cwd);
+  // When a registry is injected (hosted Worker), never touch the filesystem or
+  // process.cwd — both are absent on Cloudflare.
+  const registry = options.registry ?? (await loadReadModelRegistry(options.cwd ?? process.cwd()));
   const availability = registry.readModels.map((c) => resolveAvailability(c, env));
   const summaries: ReadModelSummary[] = [];
 

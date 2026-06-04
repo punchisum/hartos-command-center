@@ -39,6 +39,11 @@ export const COCKPIT_ENV_VARS: string[] = [
   "HARTOS_OPS_SUPABASE_READONLY_KEY",
   "HARTOS_FITNESS_SUPABASE_URL",
   "HARTOS_FITNESS_SUPABASE_READONLY_KEY",
+  // Phase 16D — Fitness RPCs are scoped by (user_id, agent_id) uuids. These are
+  // non-secret identifiers, not credentials, but are required for live Fitness
+  // reads. Without them the Fitness read-model resolves to "missing".
+  "HARTOS_FITNESS_USER_ID",
+  "HARTOS_FITNESS_AGENT_ID",
 ];
 
 export function isSecretName(name: string): boolean {

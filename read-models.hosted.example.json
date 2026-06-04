@@ -1,12 +1,19 @@
 {
-  "_comment": "Example read-model config for the HOSTED cockpit (Phase 16). Copy to read-models.hosted.json (gitignored) OR provide the same values via Worker env/secrets. Use ONLY read-only anon keys — NEVER a service-role key. The browser never receives any key; the Worker calls Supabase RPCs server-side.",
+  "_comment": "Phase 16D reference for the HOSTED cockpit read-models. The hosted Worker does NOT read this file (Cloudflare has no filesystem) — it builds the read-model registry in memory from Worker env (see src/runtime/cloudflare-live-read-models.ts). This file documents the EXACT env vars and the real, deployed read-only RPC allowlists. Use ONLY read-only anon keys — NEVER a service-role key. The browser never receives any key; the Worker calls Supabase RPCs server-side.",
   "fitness": {
     "enabled": true,
     "type": "supabase_rpc",
     "urlEnv": "HARTOS_FITNESS_SUPABASE_URL",
     "keyEnv": "HARTOS_FITNESS_SUPABASE_READONLY_KEY",
     "keyKind": "anon_readonly",
-    "allowedRpcs": ["fitness_read_model"]
+    "rpcUserIdEnv": "HARTOS_FITNESS_USER_ID",
+    "rpcAgentIdEnv": "HARTOS_FITNESS_AGENT_ID",
+    "allowedRpcs": [
+      "get_fitness_today_state",
+      "get_fitness_today_nutrition",
+      "get_fitness_recent_workouts",
+      "get_fitness_weekly_summary"
+    ]
   },
   "ops": {
     "enabled": true,
@@ -14,11 +21,17 @@
     "urlEnv": "HARTOS_OPS_SUPABASE_URL",
     "keyEnv": "HARTOS_OPS_SUPABASE_READONLY_KEY",
     "keyKind": "anon_readonly",
-    "allowedRpcs": ["ops_read_model"]
+    "allowedRpcs": [
+      "get_ops_overview",
+      "get_ops_attention_cards",
+      "get_ops_recent_updates",
+      "get_ops_status_counts",
+      "get_ops_risk_flags"
+    ]
   },
   "_safety": {
     "serviceRoleAllowed": false,
     "writeAllowed": false,
-    "note": "If a hosted read-model would require a service-role key, stop and report — do not ship. Read-only anon keys only."
+    "note": "If a hosted read-model would require a service-role key, stop and report — do not ship. Read-only anon keys only. The Worker refuses service-role keys (isServiceRoleKey) by construction."
   }
 }

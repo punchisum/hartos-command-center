@@ -31,7 +31,7 @@ import type { CockpitIntent } from "./cockpit-intent-router.js";
 import type { ActionProposal, ProposalQueueItem } from "./proposals/index.js";
 import type { SourceDiagnosticsReport } from "./sources/index.js";
 
-export type CockpitMode = "local";
+export type CockpitMode = "local" | "hosted";
 
 // ─── Ask HartOS message contract ────────────────────────────────────────────
 

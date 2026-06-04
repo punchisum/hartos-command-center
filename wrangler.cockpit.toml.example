@@ -18,6 +18,11 @@ APP_ENV = "production"
 HARTOS_OPS_SUPABASE_URL = ""
 HARTOS_FITNESS_SUPABASE_URL = ""
 
+# Phase 16D — Fitness RPCs are scoped by (user_id, agent_id) uuids. Non-secret
+# identifiers (not credentials), so they live here as plain vars.
+HARTOS_FITNESS_USER_ID = ""
+HARTOS_FITNESS_AGENT_ID = ""
+
 # Optional: restrict cross-origin access (default-denied when unset).
 # CLOUDFLARE_COCKPIT_ALLOWED_ORIGIN = "https://cockpit.example.com"
 

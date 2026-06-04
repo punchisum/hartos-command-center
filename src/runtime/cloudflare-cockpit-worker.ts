@@ -55,6 +55,7 @@ import {
   renderLockedPage,
 } from "./cloudflare-cockpit-page.js";
 import { routeHosted, freshnessView, readModelStatusView, proposalsView } from "./cloudflare-cockpit-views.js";
+import { resolveHostedCockpitState } from "./cloudflare-live-read-models.js";
 
 export const SUPPORTED_ROUTES = [
   "GET /",
@@ -117,12 +118,17 @@ export async function handleCockpitRequest(
     return unauthorized(cors, auth);
   }
 
+  // Phase 16D — lazily resolve LIVE read-model state once, AFTER auth, and only
+  // for routes that actually render data. /health, OPTIONS, /api/login, and
+  // unauthenticated requests never reach here, so they never trigger a read.
+  const dctx = await ensureLiveState(ctx, pathname);
+
   if (method === "GET") {
     if (pathname === "/" || pathname === "/index.html") {
-      return htmlResponse(ctx.html ?? hostedHtml(ctx), cors);
+      return htmlResponse(dctx.html ?? hostedHtml(dctx), cors);
     }
     if (pathname === "/api/state") {
-      return jsonResponse(200, ctx.state ?? { hosted: true, note: "snapshot not embedded" }, cors);
+      return jsonResponse(200, dctx.state ?? { hosted: true, note: "snapshot not embedded" }, cors);
     }
     if (pathname === "/api/reports") {
       return jsonResponse(200, { reports: ctx.reports ?? [] }, cors);
@@ -131,18 +137,18 @@ export async function handleCockpitRequest(
       return jsonResponse(200, { threads: ctx.threads ?? [] }, cors);
     }
     if (pathname === "/api/freshness") {
-      const fr = freshnessView(ctx.state, nowFor(ctx));
+      const fr = freshnessView(dctx.state, nowFor(dctx));
       return jsonResponse(
         200,
-        fr ?? { available: false, note: "Freshness is unavailable in this snapshot (no live panels embedded)." },
+        fr ?? { available: false, note: "Freshness is unavailable (no live read-model data resolved)." },
         cors
       );
     }
     if (pathname === "/api/read-models/status") {
-      return jsonResponse(200, readModelStatusView(ctx.state), cors);
+      return jsonResponse(200, readModelStatusView(dctx.state), cors);
     }
     if (pathname === "/api/proposals") {
-      return jsonResponse(200, proposalsView(ctx.state), cors);
+      return jsonResponse(200, proposalsView(dctx.state), cors);
     }
     if (pathname === "/api/debug/status") {
       // Safe, redacted metadata ONLY — presence, never values.
@@ -188,7 +194,7 @@ export async function handleCockpitRequest(
     // brief, and freshness questions create ZERO proposals; only explicit
     // proposal/plan language yields non-persisted dry-run drafts.
     if (pathname === "/api/ask") {
-      const result = routeHosted(ctx.state, validation.value, nowFor(ctx));
+      const result = routeHosted(dctx.state, validation.value, nowFor(dctx));
       return jsonResponse(
         200,
         {
@@ -253,6 +259,37 @@ export async function handleCockpitRequest(
 /** Resolve the ISO "now" for freshness — the snapshot's generation time. */
 function nowFor(ctx: CockpitWorkerContext): string {
   return ctx.generatedAt ?? ctx.state?.generatedAt ?? "";
+}
+
+/** Routes that render read-model data; only these trigger a live resolve. */
+const LIVE_DATA_ROUTES = new Set<string>([
+  "/",
+  "/index.html",
+  "/api/state",
+  "/api/freshness",
+  "/api/read-models/status",
+  "/api/proposals",
+  "/api/ask",
+]);
+
+/**
+ * Phase 16D — resolve LIVE read-model state lazily, at most once per request.
+ * Returns the original ctx unchanged when: state is already embedded (tests /
+ * dry-run snapshots), no live provider is set, the route needs no data, the
+ * provider declines (no env configured → null), or the read fails. In every
+ * fallback case the existing safe behaviour is preserved.
+ */
+async function ensureLiveState(ctx: CockpitWorkerContext, pathname: string): Promise<CockpitWorkerContext> {
+  if (ctx.state || !ctx.liveStateProvider || !LIVE_DATA_ROUTES.has(pathname)) return ctx;
+  try {
+    const state = await ctx.liveStateProvider();
+    if (state) {
+      return { ...ctx, state, generatedAt: ctx.generatedAt ?? state.generatedAt };
+    }
+  } catch {
+    // Graceful degradation — fall through to the placeholder behaviour.
+  }
+  return ctx;
 }
 
 /** Render the hosted page from the context's snapshot (no fs at request time). */
@@ -328,11 +365,17 @@ export async function createCockpitWorkerContext(options: { cwd?: string } = {})
 }
 
 /**
- * Default export for Cloudflare. Serves a safe placeholder until a snapshot is
- * baked in at deploy time. /health always works. No filesystem access.
+ * Default export for Cloudflare. Phase 16D — serves LIVE read-model data,
+ * resolved at request time from the Worker env using read-only anon keys, with
+ * graceful per-domain degradation. When no read-model env is configured the
+ * provider returns null and the cockpit falls back to the safe placeholder.
+ * /health always works. No filesystem access at request time.
  */
 export default {
   async fetch(request: Request, env: CloudflareCockpitEnv): Promise<Response> {
-    return handleCockpitRequest(request, env, { runtimeMode: "hosted" });
+    return handleCockpitRequest(request, env, {
+      runtimeMode: "hosted",
+      liveStateProvider: async () => (await resolveHostedCockpitState(env)) ?? undefined,
+    });
   },
 };

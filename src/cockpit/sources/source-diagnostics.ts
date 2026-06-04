@@ -8,7 +8,7 @@
  * claim). Service-role keys are flagged as rejected.
  */
 
-import { loadReadModelRegistry, resolveAvailability } from "../../read-models/read-model-registry.js";
+import { loadReadModelRegistry, resolveAvailability, type LoadedReadModelRegistry } from "../../read-models/read-model-registry.js";
 import type { FitnessRpcStatus, ReadModelSummary } from "../../read-models/read-model-types.js";
 import type { Freshness } from "./source-types.js";
 import type { ResolvedSources } from "./index.js";
@@ -60,12 +60,18 @@ const ENABLE_STEP = (domain: string) =>
   `Enable a ${domain} read-model in read-models.local.json (mode supabase_readonly, read-only anon key) and run \`npm run read-models:status\`.`;
 
 export interface DiagnosticsOptions {
-  cwd: string;
+  /** Optional on the hosted path — when `registry` is injected, fs is untouched. */
+  cwd?: string;
   now: string;
   sources: ResolvedSources;
   env?: Env;
   /** Phase 13.6 — read-model summaries, used to surface precise RPC status. */
   readModelSummaries?: ReadModelSummary[];
+  /**
+   * Phase 16D — inject a pre-built registry (hosted Worker has no filesystem).
+   * When provided, no fs access and no process.cwd lookup occurs.
+   */
+  registry?: LoadedReadModelRegistry;
 }
 
 /** Phase 13.6 — precise, secret-free note for an RPC-backed Fitness read-model. */
@@ -89,7 +95,7 @@ function rpcDiagStatus(rpc: FitnessRpcStatus, base: DiagStatus): DiagStatus {
 
 export async function buildSourceDiagnostics(options: DiagnosticsOptions): Promise<SourceDiagnosticsReport> {
   const env = options.env ?? process.env;
-  const registry = await loadReadModelRegistry(options.cwd);
+  const registry = options.registry ?? (await loadReadModelRegistry(options.cwd ?? process.cwd()));
 
   const configuredSources: string[] = [];
   const enabledSources: string[] = [];
