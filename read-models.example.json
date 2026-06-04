@@ -1,0 +1,29 @@
+{
+  "_comment": "Copy to read-models.local.json (gitignored). Read models are DISABLED by default. A read happens only when enabled=true AND the referenced env vars resolve. Only the env var NAMES live here — never secrets. The read client supports select/read-only RPC only; it has no insert/update/delete/upsert.",
+  "readModels": [
+    {
+      "id": "ops_supabase_read",
+      "type": "ops",
+      "enabled": false,
+      "mode": "supabase_readonly",
+      "supabaseUrlEnv": "HARTOS_OPS_SUPABASE_URL",
+      "supabaseKeyEnv": "HARTOS_OPS_SUPABASE_READONLY_KEY",
+      "allowedTables": ["projects", "clickup_cards", "card_updates", "agent_logs", "sync_runs"],
+      "allowedRpcs": ["get_ops_overview", "get_ops_attention_cards", "get_ops_recent_updates", "get_ops_status_counts", "get_ops_risk_flags"],
+      "forbiddenOperations": ["insert", "update", "delete", "upsert", "rpc_mutation"]
+    },
+    {
+      "id": "fitness_supabase_read",
+      "type": "fitness",
+      "enabled": false,
+      "mode": "supabase_readonly",
+      "supabaseUrlEnv": "HARTOS_FITNESS_SUPABASE_URL",
+      "supabaseKeyEnv": "HARTOS_FITNESS_SUPABASE_READONLY_KEY",
+      "rpcUserIdEnv": "HARTOS_USER_ID",
+      "rpcAgentIdEnv": "HARTOS_AGENT_ID",
+      "allowedTables": ["derived_daily_state", "derived_latest_state", "canonical_workouts", "canonical_health"],
+      "allowedRpcs": ["get_fitness_today_state", "get_fitness_today_nutrition", "get_fitness_recent_workouts", "get_fitness_weekly_summary"],
+      "forbiddenOperations": ["insert", "update", "delete", "upsert", "rpc_mutation"]
+    }
+  ]
+}

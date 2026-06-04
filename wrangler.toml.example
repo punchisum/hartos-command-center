@@ -1,0 +1,28 @@
+name = "test-agent"
+main = "dist/src/index.js"
+compatibility_date = "2026-06-03"
+
+[vars]
+APP_ENV = "local"
+ENABLE_DEBUG_EVENTS = "true"
+
+[env.staging.vars]
+APP_ENV = "staging"
+ENABLE_DEBUG_EVENTS = "true"
+SUPABASE_URL = ""
+TELEGRAM_ALLOWED_USER_IDS = ""
+TELEGRAM_ALLOWED_CHAT_IDS = ""
+
+[env.production.vars]
+APP_ENV = "production"
+ENABLE_DEBUG_EVENTS = "true"
+SUPABASE_URL = ""
+TELEGRAM_ALLOWED_USER_IDS = ""
+TELEGRAM_ALLOWED_CHAT_IDS = ""
+
+# Set secrets with Wrangler, never in this file:
+# wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+# wrangler secret put TELEGRAM_BOT_TOKEN
+# wrangler secret put TELEGRAM_WEBHOOK_SECRET
+# wrangler secret put OPENAI_API_KEY
+# wrangler secret put TRIGGER_SECRET_KEY

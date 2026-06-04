@@ -1,0 +1,207 @@
+# agent.yaml — Agent Manifest
+# Fill EVERY section before writing code.
+# This manifest is the production contract for the agent.
+# A feature is done only when the final_state is proven — not when the task completes.
+
+name: "{{AGENT_NAME}}"
+owner: "{{OWNER_NAME}}"
+version: "0.1.0"
+created_at: "{{ISO_DATE}}"
+
+environments:
+  - name: staging
+    supabase_project: "{{SUPABASE_PROJECT_REF_STAGING}}"
+    cloudflare_worker: "{{CF_WORKER_NAME_STAGING}}"
+    trigger_project: "{{TRIGGER_PROJECT_ID_STAGING}}"
+  - name: production
+    supabase_project: "{{SUPABASE_PROJECT_REF_PROD}}"
+    cloudflare_worker: "{{CF_WORKER_NAME_PROD}}"
+    trigger_project: "{{TRIGGER_PROJECT_ID_PROD}}"
+
+# ─── INTERFACES ───────────────────────────────────────────────────────────────
+interfaces:
+  - type: telegram
+    bot_username: "{{TELEGRAM_BOT_USERNAME}}"
+    allowed_user_ids_env: "TELEGRAM_ALLOWED_USER_IDS"
+  # - type: web
+  # - type: mobile
+  # - type: dashboard
+
+# ─── COMMANDS / ROUTES ────────────────────────────────────────────────────────
+# For every command: define the final_state that proves it worked.
+# "Trigger completed" is NOT a final state. Prove the expected DB row/token/mutation.
+commands:
+  - name: "{{COMMAND_NAME}}"
+    description: "{{COMMAND_DESCRIPTION}}"
+    interface: telegram
+    owner_runtime: cloudflare          # cloudflare = gateway only | trigger = intelligence
+    approval_required: false
+    risky_mutation: false
+    final_state: >
+      {{DESCRIBE_EXACT_FINAL_STATE: e.g.
+       "Row in reports table with status=done,
+        preview message delivered to chat_id,
+        debug_events row with outcome=ok"}}
+
+# ─── SOURCE OF TRUTH ──────────────────────────────────────────────────────────
+# Supabase is the canonical state store.
+# External tools (ClickUp, Notion, Sheets) are human dashboards — NOT source of truth.
+source_of_truth:
+  provider: supabase
+  url_env: "SUPABASE_URL"
+  key_env: "SUPABASE_SERVICE_ROLE_KEY"
+  key_tables:
+    - "{{TABLE_1}}"
+    - "{{TABLE_2}}"
+
+# ─── EXTERNAL TOOLS ───────────────────────────────────────────────────────────
+external_tools:
+  - name: clickup
+    role: visual_dashboard
+    is_source_of_truth: false
+    mutations_require_approval: true
+  - name: openai
+    role: llm_provider
+    is_source_of_truth: false
+  # - name: notion
+  # - name: sheets
+  # - name: airtable
+
+# ─── IDENTIFIER CONTRACT ──────────────────────────────────────────────────────
+# RULE: External IDs NEVER enter UUID columns.
+# RULE: If internal target cannot be resolved, uuid columns become null.
+# RULE: External refs are always preserved in metadata JSON.
+# RULE: Validate UUID format before every Supabase insert.
+identifier_contract:
+  internal_uuid_columns:
+    - "{{TABLE}}.id"
+    - "{{TABLE}}.{{entity_type}}_id"
+  external_text_columns:
+    - "{{TABLE}}.telegram_chat_id"     # text, never uuid
+    - "{{TABLE}}.telegram_user_id"     # text, never uuid
+    - "{{TABLE}}.clickup_task_id"      # text, never uuid
+    - "{{TABLE}}.source_record_id"     # text, never uuid — store in metadata if ambiguous
+  unresolved_target_policy: >
+    If the internal Supabase UUID cannot be resolved for an external ID,
+    set the UUID column to null. Store the external ID in metadata JSONB.
+    Do NOT insert a non-UUID string into a UUID column.
+
+# ─── RISKY MUTATIONS ──────────────────────────────────────────────────────────
+# Any action that modifies external systems, client-facing output, financial data,
+# or irreversible state MUST require approval unless explicitly marked safe below.
+risky_mutations:
+  - action: "{{MUTATION_DESCRIPTION}}"
+    runtime: trigger
+    target: "{{clickup | supabase | telegram | external_api}}"
+    approval_required: true
+    approval_mechanism: callback_token  # callback_token | human_confirm | explicit_flag
+    rollback_possible: false
+    rollback_notes: "{{HOW_TO_UNDO_OR_WHY_NOT_POSSIBLE}}"
+
+# ─── APPROVAL REQUIREMENTS ────────────────────────────────────────────────────
+approval_requirements:
+  default_policy: require_approval
+  exceptions:
+    - action: "{{SAFE_ACTION}}"
+      reason: "{{WHY_THIS_IS_SAFE_TO_EXECUTE_WITHOUT_APPROVAL}}"
+
+# ─── CALLBACK TOKEN CONTRACT ──────────────────────────────────────────────────
+# Telegram callback_data hard limit: 64 bytes.
+# Use short tokens (tok) — never embed long IDs directly in callback_data.
+callback_token_contract:
+  max_callback_data_bytes: 64
+  token_fields:
+    - tok        # short unique token (<=20 chars, alphanumeric + _-)
+    - act        # action code (short enum)
+  token_table: "action_tokens"
+  expiry_hours: 24
+  consumed_after_successful_action_only: true
+  chat_id_type: text
+  user_id_type: text
+
+# ─── IDEMPOTENCY KEY CONTRACT ─────────────────────────────────────────────────
+# RULE: Keys MUST be deterministic from trusted, controlled fields only.
+# RULE: NEVER use LLM-generated text as any part of an idempotency key.
+# RULE: NEVER use values that can be truncated or redacted (long tokens, free text).
+# RULE: Detect same-batch duplicates before insert.
+idempotency_contract:
+  key_sources:
+    - "{{TRUSTED_FIELD}}: e.g. record_id, date, job_run_id, entity_type"
+  forbidden_sources:
+    - llm_generated_text
+    - user_free_text
+    - long_tokens
+    - safeText_processed_strings
+
+# ─── SCHEDULED JOBS ───────────────────────────────────────────────────────────
+scheduled_jobs:
+  - name: "{{JOB_NAME}}"
+    runtime: trigger
+    cron: "{{CRON_EXPRESSION}}"
+    description: "{{JOB_DESCRIPTION}}"
+    final_state: "{{PROVE_FINAL_STATE}}"
+
+# ─── FILE HANDLING ────────────────────────────────────────────────────────────
+file_handling:
+  enabled: false
+  max_file_size_mb: 10
+  supported_types:
+    - docx   # extract directly
+    - txt    # extract directly
+    - csv    # extract directly
+    - html   # extract directly
+    - pdf    # see ocr_policy
+
+# ─── OCR POLICY ───────────────────────────────────────────────────────────────
+# RULE: Do NOT run LLM analysis if no useful text was extracted.
+# RULE: Degraded state is valid if proven and communicated honestly.
+ocr_policy:
+  enabled: false
+  text_pdf_strategy: extract_directly
+  scanned_pdf_strategy: attempt_ocr_then_degrade_honestly
+  image_strategy: vision_path_or_degrade_honestly
+  min_useful_chars: 100
+  no_llm_analysis_if_below_threshold: true
+  degrade_honestly: true
+  record_extraction_status: true
+  record_extraction_method: true
+  record_char_count: true
+
+# ─── OBSERVABILITY / DEBUG POLICY ────────────────────────────────────────────
+# Every serious workflow must emit a debug_event.
+# No secrets, no raw tokens, no raw Authorization headers in metadata.
+observability:
+  debug_events_table: "debug_events"
+  required_event_fields:
+    - trace_id
+    - runtime          # cloudflare | trigger
+    - route
+    - stage
+    - outcome          # ok | degraded | error
+    - failure_code     # null on ok, required on error
+    - metadata         # safe JSON — no secrets
+  forbidden_in_metadata:
+    - raw_authorization_header
+    - raw_api_key
+    - raw_service_role_key
+    - raw_long_token
+    - raw_webhook_secret
+  telegram_debug_channel_env: "TELEGRAM_DEBUG_CHAT_ID"
+  throttle_debug_channel: true   # do not emit every event to Telegram
+
+# ─── DEPLOYMENT TARGET ────────────────────────────────────────────────────────
+deployment:
+  gateway: cloudflare_workers
+  workflow: trigger_dev
+  database: supabase
+  smoke_test_required: true
+  smoke_must_prove_final_state: true  # not just "task completed"
+
+# ─── ROLLBACK STRATEGY ────────────────────────────────────────────────────────
+rollback:
+  gateway_rollback: "Redeploy previous Cloudflare Worker version via dashboard or wrangler rollback."
+  workflow_rollback: "Disable Trigger.dev job, revert to previous version."
+  database_rollback: "Apply reverting migration. Supabase migrations must be reversible."
+  data_repair_path: >
+    {{DESCRIBE: How to repair data if a partial run leaves inconsistent state.
+     Include: which tables to inspect, which rows to fix, how to re-trigger safely.}}

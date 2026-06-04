@@ -1,0 +1,13 @@
+{
+  "target": "dashboard_layout",
+  "repos": [
+    {
+      "name": "clean-dashboard",
+      "localPath": "tests/fixtures/beezulbub/clean-dashboard"
+    },
+    {
+      "name": "risky-repo",
+      "localPath": "tests/fixtures/beezulbub/risky-repo"
+    }
+  ]
+}

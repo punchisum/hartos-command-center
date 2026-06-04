@@ -1,0 +1,22 @@
+[
+  {
+    "name": "fixture-dashboard",
+    "localPath": "tests/fixtures/beezulbub/clean-dashboard",
+    "targetCapability": "dashboard_layout",
+    "reason": "Test fixture: clean MIT-licensed dashboard",
+    "estimatedValue": 8,
+    "licenseGuess": "MIT",
+    "staleRisk": "low",
+    "notes": "Used for Beezulbub Phase 11A tests"
+  },
+  {
+    "name": "fixture-risky",
+    "localPath": "tests/fixtures/beezulbub/risky-repo",
+    "targetCapability": "dashboard_layout",
+    "reason": "Test fixture: repo with poison flags",
+    "estimatedValue": 2,
+    "licenseGuess": "unknown",
+    "staleRisk": "high",
+    "notes": "Used for negative testing"
+  }
+]

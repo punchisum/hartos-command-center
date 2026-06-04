@@ -1,0 +1,79 @@
+# .github/workflows/staging-checks.yml.example
+#
+# CI/CD template for HartOS generated agents — Phase 9.
+# COPY this file to .github/workflows/staging-checks.yml to enable CI.
+# DO NOT enable production deployment in CI by default.
+# No real secrets are stored in this template. Real secrets go in GitHub Secrets only.
+#
+# Required GitHub Secrets (set in repo Settings → Secrets and variables → Actions):
+# None required for this read-only CI check.
+#
+# For staging deployment CI, add these secrets:
+#   SUPABASE_URL
+#   TRIGGER_SECRET_KEY
+#   CLOUDFLARE_WORKER_URL
+#   etc. (see .env.example for full list)
+
+name: Staging Checks
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  staging-checks:
+    name: Staging checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify generated repo
+        run: npm run verify
+
+      - name: Local smoke
+        run: npm run smoke:local
+
+      - name: Launch plan (read-only)
+        run: npm run launch:plan
+
+      - name: Launch verify (read-only)
+        run: npm run launch:verify
+
+      # NOTE: launch:staging is NOT run in CI by default.
+      # It requires real provider secrets and explicit gates.
+      # To enable staging deployment in CI, add provider secrets
+      # to GitHub Secrets and uncomment the step below.
+      #
+      # - name: Launch staging
+      #   if: github.ref == 'refs/heads/main'
+      #   env:
+      #     ALLOW_AUTO_PROVISION: "true"
+      #     CONFIRM_STAGING_PROVISION: "true"
+      #     ALLOW_CLOUDFLARE_DEPLOY: "true"
+      #     # ... add other gates as needed
+      #     SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      #     CLOUDFLARE_WORKER_URL: ${{ secrets.CLOUDFLARE_WORKER_URL }}
+      #     # ... add other secrets as needed
+      #   run: npm run launch:staging
+
+  # Production promotion is NEVER automatic.
+  # Production promotion must only be run manually with explicit human approval and all gates set.

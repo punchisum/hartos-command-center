@@ -1,0 +1,25 @@
+{
+  "_comment": "Copy to agent-integrations.local.json (gitignored) and point paths at your real agent repos. Read-only: the cockpit only reads these local paths. No secrets belong in this file.",
+  "agents": [
+    {
+      "id": "ops-agent-v2",
+      "name": "GECAN Ops AI",
+      "type": "ops",
+      "enabled": true,
+      "repoPath": "../ops-agent-v2",
+      "reportsPath": "../ops-agent-v2/reports",
+      "handoverPath": "../ops-agent-v2/docs/HANDOVER.md",
+      "readModel": { "mode": "local_files" }
+    },
+    {
+      "id": "fitness-agent",
+      "name": "Fitness Agent",
+      "type": "fitness",
+      "enabled": true,
+      "repoPath": "../fitness-agent",
+      "reportsPath": "../fitness-agent/reports",
+      "handoverPath": "../fitness-agent/docs/HANDOVER.md",
+      "readModel": { "mode": "local_files" }
+    }
+  ]
+}

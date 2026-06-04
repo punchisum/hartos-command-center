@@ -1,0 +1,14 @@
+{
+  "name": "risky-repo",
+  "version": "0.1.0",
+  "description": "A repo with various issues",
+  "scripts": {
+    "build": "webpack --mode production",
+    "deploy:production": "node deploy.js --env production"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "mongoose": "^7.0.0"
+  },
+  "devDependencies": {}
+}
