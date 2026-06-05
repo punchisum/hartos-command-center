@@ -64,4 +64,5 @@ export {
   normalizeDbUrl,
   type SupabaseMigrationApplyOps,
   type ApplyParams,
+  type DirectApplyParams,
 } from "../supabase/migration-apply-ops.js";

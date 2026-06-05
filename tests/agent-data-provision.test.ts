@@ -57,19 +57,30 @@ const SAFE_MIGRATIONS: Record<string, string> = {
 };
 const DESTRUCTIVE_MIGRATION = { "000003_drop.sql": "drop table public.agent_runs;\n" };
 
-/** Recording mock apply ops — no CLI, no network. */
+/** Recording mock apply ops — no CLI, no network, no DB. */
 function recordingOps(overrides: Partial<SupabaseMigrationApplyOps> = {}): {
   ops: SupabaseMigrationApplyOps;
   applyCalls: number;
+  directCalls: number;
   smokeCalls: number;
   lastApplyParams: ApplyParams | null;
+  lastDirectMigrations: Array<{ filename: string; sql: string }> | null;
 } {
-  const state = { applyCalls: 0, smokeCalls: 0, lastApplyParams: null as ApplyParams | null };
+  const state = {
+    applyCalls: 0, directCalls: 0, smokeCalls: 0,
+    lastApplyParams: null as ApplyParams | null,
+    lastDirectMigrations: null as Array<{ filename: string; sql: string }> | null,
+  };
   const ops = createMockApplyOps({
     applyViaCli: async (params) => {
       state.applyCalls++;
       state.lastApplyParams = params;
       return { success: true, message: "mock: db push completed", detail: "mock" };
+    },
+    applyViaDirectSql: async (params) => {
+      state.directCalls++;
+      state.lastDirectMigrations = params.migrations;
+      return { success: true, message: `mock: direct applied ${params.migrations.length}`, detail: "mock" };
     },
     smokeTables: async (p) => {
       state.smokeCalls++;
@@ -80,8 +91,10 @@ function recordingOps(overrides: Partial<SupabaseMigrationApplyOps> = {}): {
   return {
     ops,
     get applyCalls() { return state.applyCalls; },
+    get directCalls() { return state.directCalls; },
     get smokeCalls() { return state.smokeCalls; },
     get lastApplyParams() { return state.lastApplyParams; },
+    get lastDirectMigrations() { return state.lastDirectMigrations; },
   };
 }
 
@@ -278,6 +291,42 @@ describe("18C — data-layer provisioning (no network, no DB)", () => {
   it("the hosted Worker does not import the data-provision path", async () => {
     const worker = await readFile(path.join(process.cwd(), "src/runtime/cloudflare-cockpit-worker.ts"), "utf8");
     assert.equal(/from\s+["'][^"']*execution[^"']*["']/.test(worker), false, "Worker must not import src/execution");
+  });
+
+  it("default → db push path (applyViaCli), direct SQL not used", async () => {
+    const { id } = await setup(dir, SAFE_MIGRATIONS);
+    const rec = recordingOps();
+    const r = await runDataLayerProvision({ cwd: dir, ref: { id }, now: NOW, env: FULL_GATES, applyOps: rec.ops });
+    assert.equal(r.mode, "applied");
+    assert.equal(rec.applyCalls, 1);
+    assert.equal(rec.directCalls, 0);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("ALLOW_DIRECT_SQL_APPLY=true → direct SQL path with ordered migration SQL, db push NOT called", async () => {
+    const { id } = await setup(dir, SAFE_MIGRATIONS);
+    const rec = recordingOps();
+    const env = { ...FULL_GATES, ALLOW_DIRECT_SQL_APPLY: "true" };
+    const r = await runDataLayerProvision({ cwd: dir, ref: { id }, now: NOW, env, applyOps: rec.ops });
+    assert.equal(r.mode, "applied");
+    assert.equal(rec.directCalls, 1, "direct SQL apply should be used");
+    assert.equal(rec.applyCalls, 0, "db push must NOT be called in direct mode");
+    // The actual SQL is passed, ordered, with content read from the scaffold.
+    assert.ok(rec.lastDirectMigrations && rec.lastDirectMigrations.length === 2);
+    assert.deepEqual(rec.lastDirectMigrations!.map((m) => m.filename), ["000001_core.sql", "000002_events.sql"]);
+    assert.match(rec.lastDirectMigrations![0]!.sql, /create table if not exists public\.agent_runs/);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("direct SQL mode still respects gates + destructive scan (blocked → no direct call)", async () => {
+    const { id } = await setup(dir, { ...SAFE_MIGRATIONS, ...DESTRUCTIVE_MIGRATION });
+    const rec = recordingOps();
+    const env = { ...FULL_GATES, ALLOW_DIRECT_SQL_APPLY: "true" }; // no destructive override
+    const r = await runDataLayerProvision({ cwd: dir, ref: { id }, now: NOW, env, applyOps: rec.ops });
+    assert.equal(r.mode, "dry_run");
+    assert.equal(rec.directCalls, 0);
+    assert.equal(rec.applyCalls, 0);
+    await rm(dir, { recursive: true, force: true });
   });
 
   it("ordering tolerance OFF by default → applyViaCli gets includeAll=false", async () => {

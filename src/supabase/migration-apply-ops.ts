@@ -149,10 +149,25 @@ export interface SmokeParams {
   tables: string[];
 }
 
-/** Injectable apply ops. Real impl shells the Supabase CLI; tests provide a mock. */
+export interface DirectApplyParams {
+  /** Connection string (carries the password). Secret — never logged. */
+  dbUrl: string | null;
+  /** Ordered migrations to execute (filename + raw SQL). Already validated + destructive-scanned upstream. */
+  migrations: Array<{ filename: string; sql: string }>;
+}
+
+/** Injectable apply ops. Real impl uses the Supabase CLI / pg; tests provide a mock. */
 export interface SupabaseMigrationApplyOps {
   /** Apply pending migrations via `supabase db push`. Mutating — gated upstream. */
   applyViaCli(params: ApplyParams): Promise<ApplyResult>;
+  /**
+   * Apply pending migrations by executing their SQL DIRECTLY over a Postgres connection, inside a
+   * single transaction (all-or-nothing). Use for shared/existing projects where `supabase db push`
+   * refuses because the project already has its own unrelated migration history. Does NOT touch the
+   * project's `supabase_migrations` history table — 18C's own ledger is the audit record. Mutating —
+   * gated upstream (ALLOW_DIRECT_SQL_APPLY).
+   */
+  applyViaDirectSql(params: DirectApplyParams): Promise<ApplyResult>;
   /** Read-only smoke: does each table exist? Never mutates. */
   smokeTables(params: SmokeParams): Promise<SmokeResult[]>;
 }
@@ -246,6 +261,54 @@ export function realSupabaseMigrationApplyOps(
       return { success: false, message: `supabase db push exited with code ${r.status}`, detail: tail };
     },
 
+    async applyViaDirectSql(params: DirectApplyParams): Promise<ApplyResult> {
+      if (!params.dbUrl) {
+        return {
+          success: false,
+          message:
+            "Direct SQL apply needs a database connection string. Set HARTOS_SUPABASE_DB_URL. No SQL was executed.",
+        };
+      }
+      if (params.migrations.length === 0) {
+        return { success: true, message: "No pending migrations — nothing to apply." };
+      }
+      // Dynamic import so `pg` is only loaded on the real apply path (never in tests/mocks).
+      const pg = await import("pg");
+      const client = new pg.default.Client({
+        connectionString: normalizeDbUrl(params.dbUrl),
+        ssl: { rejectUnauthorized: false }, // Supabase requires TLS; pooler cert
+        statement_timeout: 120_000,
+      });
+      const applied: string[] = [];
+      try {
+        await client.connect();
+        // Single transaction: all-or-nothing. Generated migrations are additive
+        // (create … if not exists), but atomicity guarantees no partial state on failure.
+        await client.query("BEGIN");
+        for (const mig of params.migrations) {
+          await client.query(mig.sql);
+          applied.push(mig.filename);
+        }
+        await client.query("COMMIT");
+        return {
+          success: true,
+          message: `applied ${applied.length} migration(s) via direct SQL (single transaction)`,
+          detail: applied.join(", "),
+        };
+      } catch (err) {
+        try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+        return {
+          success: false,
+          message: sanitize(
+            `direct SQL apply failed (rolled back): ${err instanceof Error ? err.message : "unknown"}`
+          ),
+          detail: applied.length ? `before failure, staged: ${applied.join(", ")} (rolled back)` : undefined,
+        };
+      } finally {
+        try { await client.end(); } catch { /* ignore */ }
+      }
+    },
+
     async smokeTables(params: SmokeParams): Promise<SmokeResult[]> {
       const results: SmokeResult[] = [];
       for (const table of params.tables) {
@@ -283,6 +346,11 @@ export function createMockApplyOps(
 ): SupabaseMigrationApplyOps {
   return {
     applyViaCli: async () => ({ success: true, message: "mock: db push completed", detail: "mock" }),
+    applyViaDirectSql: async (params) => ({
+      success: true,
+      message: `mock: direct SQL applied ${params.migrations.length} migration(s)`,
+      detail: "mock",
+    }),
     smokeTables: async (params) =>
       params.tables.map((table) => ({ table, exists: true, status: "HTTP 200" })),
     ...overrides,

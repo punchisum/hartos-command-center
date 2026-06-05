@@ -355,16 +355,29 @@ export async function runDataLayerProvision(
   // management access token alone cannot push migrations. Secret — never logged or reported.
   const dbUrl = env["HARTOS_SUPABASE_DB_URL"]?.trim() || null;
   const projectDir = path.join(cwd, outRoot, specId);
+  const applyMode = g.allowDirectSql ? "direct_sql" : "db_push";
 
-  const applyResult = await applyOps.applyViaCli({
-    projectDir,
-    projectRef: g.projectRef!,
-    accessToken,
-    dbUrl,
-    // Ordering tolerance — only when explicitly opted in. Lets db push apply migrations
-    // whose versions sort before the target project's existing history (--include-all).
-    includeAll: g.allowOutOfOrder,
-  });
+  let applyResult;
+  if (g.allowDirectSql) {
+    // Direct SQL mode: execute the (already validated + scanned) migration SQL over a pg
+    // connection in one transaction. For shared/existing projects where db push refuses.
+    // Reads each pending migration's SQL in order; never touches the project's migration history.
+    const ordered: Array<{ filename: string; sql: string }> = [];
+    for (const m of inv.migrations) {
+      ordered.push({ filename: m.filename, sql: await readFile(path.join(migrationsDir, m.filename), "utf8") });
+    }
+    applyResult = await applyOps.applyViaDirectSql({ dbUrl, migrations: ordered });
+  } else {
+    applyResult = await applyOps.applyViaCli({
+      projectDir,
+      projectRef: g.projectRef!,
+      accessToken,
+      dbUrl,
+      // Ordering tolerance — only when explicitly opted in. Lets db push apply migrations
+      // whose versions sort before the target project's existing history (--include-all).
+      includeAll: g.allowOutOfOrder,
+    });
+  }
 
   if (!applyResult.success) {
     // Apply attempted but failed — record and surface; do NOT advance the proposal.
@@ -372,7 +385,7 @@ export async function runDataLayerProvision(
       `Apply FAILED: ${applyResult.message}`,
       "No proposal status was advanced. Review the report and rollback plan.",
     ];
-    const reportObj = { mode: "apply_failed", ...base, apply: { message: applyResult.message, detail: applyResult.detail ?? null }, migrations: ledgerMigrations, instructions };
+    const reportObj = { mode: "apply_failed", ...base, applyMode, apply: { message: applyResult.message, detail: applyResult.detail ?? null }, migrations: ledgerMigrations, instructions };
     assertNoSecrets(reportObj, "apply-failed report");
     await writeFile(reportPath, JSON.stringify(reportObj, null, 2) + "\n", "utf8");
     await appendAudit(cwd, { id: item.id }, "data_provision_apply_failed", now, applyResult.message);
@@ -390,7 +403,7 @@ export async function runDataLayerProvision(
     `Applied ${inv.migrations.length} migration(s) to project ${g.projectRef} (${g.targetEnv}).`,
     "Proposal NOT advanced (18C is audit-only). Rollback plan generated (manual).",
   ];
-  const reportObj = { mode: "applied", ...base, orderTolerance: g.allowOutOfOrder, apply: { message: applyResult.message, detail: applyResult.detail ?? null }, migrations: ledgerMigrations, smoke, instructions };
+  const reportObj = { mode: "applied", ...base, applyMode, orderTolerance: g.allowOutOfOrder, apply: { message: applyResult.message, detail: applyResult.detail ?? null }, migrations: ledgerMigrations, smoke, instructions };
   assertNoSecrets(reportObj, "applied report");
   await writeFile(reportPath, JSON.stringify(reportObj, null, 2) + "\n", "utf8");
 

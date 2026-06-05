@@ -114,7 +114,11 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
+    "@types/pg": "^8.20.0",
     "typescript": "^5.4.5",
     "wrangler": "^4.98.0"
+  },
+  "dependencies": {
+    "pg": "^8.21.0"
   }
 }

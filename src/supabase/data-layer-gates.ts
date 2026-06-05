@@ -34,6 +34,14 @@ export const DESTRUCTIVE_OVERRIDE_GATE = "ALLOW_DESTRUCTIVE_SQL";
  * ONLY — it does not relax the destructive scan, collision posture, or any other gate.
  */
 export const ORDER_TOLERANCE_GATE = "ALLOW_OUT_OF_ORDER_MIGRATION_APPLY";
+/**
+ * Opt-in DIRECT SQL apply. When open, 18C executes the migration SQL directly over a Postgres
+ * connection (single transaction) instead of `supabase db push`. Required for shared/existing
+ * projects that already have their own unrelated migration history (where db push refuses, and its
+ * only remedy would rewrite the project's migration-history table). Does NOT touch that history
+ * table. Still subject to the destructive scan and every other gate.
+ */
+export const DIRECT_SQL_GATE = "ALLOW_DIRECT_SQL_APPLY";
 
 export const PROJECT_REF_KEY = "HARTOS_SUPABASE_PROJECT_REF";
 export const URL_KEY = "HARTOS_SUPABASE_URL";
@@ -52,6 +60,8 @@ export interface DataLayerGateConfig {
   allowDestructive: boolean;
   /** True when ordering tolerance is opted in (passes --include-all to db push). */
   allowOutOfOrder: boolean;
+  /** True when direct-SQL apply is opted in (execute SQL over a pg connection instead of db push). */
+  allowDirectSql: boolean;
   /** Hard block (e.g. production label) — apply is refused regardless of gates. */
   hardBlock: string | null;
   /** Human-readable names/values of what's missing for a real apply (empty = ready). */
@@ -132,6 +142,7 @@ export function readDataLayerGates(env: Record<string, string | undefined>): Dat
     allowApply,
     allowDestructive: env[DESTRUCTIVE_OVERRIDE_GATE] === "true",
     allowOutOfOrder: env[ORDER_TOLERANCE_GATE] === "true",
+    allowDirectSql: env[DIRECT_SQL_GATE] === "true",
     hardBlock,
     missing,
     projectRef,
