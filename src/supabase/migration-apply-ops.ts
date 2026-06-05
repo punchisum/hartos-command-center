@@ -78,6 +78,70 @@ export function buildDbPushArgs(params: { dbUrl: string; includeAll?: boolean })
   return args;
 }
 
+/**
+ * Percent-encode a single userinfo component (username or password), preserving any existing
+ * `%XX` escapes so the function is idempotent (safe to run on an already-encoded value).
+ * Leaves characters that are valid in URL userinfo (unreserved + sub-delims) untouched and
+ * encodes everything else — notably `< > / ? # [ ] : @` and whitespace. This is what fixes
+ * raw special characters in DB passwords (e.g. `<`, `>`) that make the CLI's strict URL parser
+ * reject the connection string with "invalid userinfo".
+ */
+function encodeUserinfoComponent(s: string): string {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!;
+    // Preserve an existing %XX escape so we never double-encode.
+    if (c === "%" && /^[0-9A-Fa-f]{2}$/.test(s.slice(i + 1, i + 3))) {
+      out += s.slice(i, i + 3);
+      i += 2;
+      continue;
+    }
+    const code = c.charCodeAt(0);
+    if (code > 127) {
+      out += encodeURIComponent(c); // multi-byte → UTF-8 percent-encoding
+      continue;
+    }
+    // RFC 3986 unreserved + sub-delims are safe in userinfo; encode everything else.
+    if (/[A-Za-z0-9\-._~!$&'()*+,;=]/.test(c)) {
+      out += c;
+      continue;
+    }
+    out += "%" + code.toString(16).toUpperCase().padStart(2, "0");
+  }
+  return out;
+}
+
+/**
+ * Normalize a Postgres connection string so `supabase db push --db-url` accepts it: percent-encode
+ * the username/password while leaving scheme, host, port, path, and query untouched. Idempotent and
+ * pure (no I/O). Returns the input unchanged if it has no recognizable scheme or no userinfo.
+ * NEVER log the input or output — both carry the DB password.
+ */
+export function normalizeDbUrl(dbUrl: string): string {
+  const m = /^(postgres(?:ql)?:\/\/)([\s\S]*)$/i.exec(dbUrl);
+  if (!m) return dbUrl;
+  const scheme = m[1]!;
+  const rest = m[2]!;
+  // Authority runs until the first '/' (path) or '?' (query); keep the remainder verbatim.
+  const cut = [rest.indexOf("/"), rest.indexOf("?")].filter((i) => i >= 0);
+  const end = cut.length ? Math.min(...cut) : rest.length;
+  const authority = rest.slice(0, end);
+  const tail = rest.slice(end);
+  // Host can't contain '@', so the LAST '@' is the userinfo/host separator.
+  const at = authority.lastIndexOf("@");
+  if (at < 0) return dbUrl; // no userinfo → nothing to encode
+  const userinfo = authority.slice(0, at);
+  const hostport = authority.slice(at + 1);
+  const colon = userinfo.indexOf(":");
+  const user = colon >= 0 ? userinfo.slice(0, colon) : userinfo;
+  const pass = colon >= 0 ? userinfo.slice(colon + 1) : null;
+  const newUserinfo =
+    pass === null
+      ? encodeUserinfoComponent(user)
+      : `${encodeUserinfoComponent(user)}:${encodeUserinfoComponent(pass)}`;
+  return `${scheme}${newUserinfo}@${hostport}${tail}`;
+}
+
 export interface SmokeParams {
   url: string;
   /** Service role or anon key used as a read-only PostgREST credential. Never logged. */
@@ -149,7 +213,9 @@ export function realSupabaseMigrationApplyOps(
       // db push requires project context even with --db-url; generate a minimal config.toml.
       ensureConfigToml(params.projectDir, params.projectRef);
 
-      const args = buildDbPushArgs({ dbUrl: params.dbUrl, includeAll: params.includeAll });
+      // Percent-encode userinfo so raw special chars in the password (e.g. < > !) don't make
+      // the CLI's strict URL parser reject the connection string. Idempotent.
+      const args = buildDbPushArgs({ dbUrl: normalizeDbUrl(params.dbUrl), includeAll: params.includeAll });
 
       const r = spawnSync("supabase", args, {
         cwd: params.projectDir,

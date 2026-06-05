@@ -31,6 +31,7 @@ import {
   DataProvisionPreconditionError,
   createMockApplyOps,
   buildDbPushArgs,
+  normalizeDbUrl,
   type SupabaseMigrationApplyOps,
   type ApplyParams,
 } from "../src/execution/index.js";
@@ -315,6 +316,27 @@ describe("18C — data-layer provisioning (no network, no DB)", () => {
     assert.ok(on.includes("--include-all"));
     // strict order by default → --include-all absent
     assert.equal(buildDbPushArgs({ dbUrl }).includes("--include-all"), false);
+  });
+
+  it("normalizeDbUrl percent-encodes raw special chars in the password (the < > ! case)", () => {
+    // raw < and > break the strict URL parser; ! is valid userinfo and stays
+    const raw = "postgresql://postgres.abc:p<a>s!w0rd@aws-0-x.pooler.supabase.com:6543/postgres";
+    const out = normalizeDbUrl(raw);
+    assert.match(out, /p%3Ca%3Es!w0rd/);                 // < → %3C, > → %3E, ! preserved
+    assert.match(out, /@aws-0-x\.pooler\.supabase\.com:6543\/postgres$/); // host/port/path intact
+    assert.doesNotThrow(() => new URL(out));             // now parses as a valid URL
+  });
+
+  it("normalizeDbUrl is idempotent and never double-encodes existing %XX", () => {
+    const already = "postgresql://u:p%3Cass@host:6543/postgres";
+    assert.equal(normalizeDbUrl(already), already);       // %3C preserved, not → %253C
+    const raw = "postgresql://u:p<ss@host:6543/postgres";
+    assert.equal(normalizeDbUrl(normalizeDbUrl(raw)), normalizeDbUrl(raw)); // running twice = once
+  });
+
+  it("normalizeDbUrl leaves a userinfo-free or unknown-scheme URL unchanged", () => {
+    assert.equal(normalizeDbUrl("postgresql://host:6543/postgres"), "postgresql://host:6543/postgres");
+    assert.equal(normalizeDbUrl("mysql://u:p<w@host/db"), "mysql://u:p<w@host/db");
   });
 
   it("real applyViaCli fails closed (no spawn) when no dbUrl is provided", async () => {

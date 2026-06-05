@@ -61,6 +61,7 @@ export {
   realSupabaseMigrationApplyOps,
   createMockApplyOps,
   buildDbPushArgs,
+  normalizeDbUrl,
   type SupabaseMigrationApplyOps,
   type ApplyParams,
 } from "../supabase/migration-apply-ops.js";
