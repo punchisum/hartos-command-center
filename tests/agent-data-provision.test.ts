@@ -30,7 +30,9 @@ import {
   runDataLayerRollback,
   DataProvisionPreconditionError,
   createMockApplyOps,
+  buildDbPushArgs,
   type SupabaseMigrationApplyOps,
+  type ApplyParams,
 } from "../src/execution/index.js";
 
 const NOW = "2026-06-05T12:00:00.000Z";
@@ -59,11 +61,13 @@ function recordingOps(overrides: Partial<SupabaseMigrationApplyOps> = {}): {
   ops: SupabaseMigrationApplyOps;
   applyCalls: number;
   smokeCalls: number;
+  lastApplyParams: ApplyParams | null;
 } {
-  const state = { applyCalls: 0, smokeCalls: 0 };
+  const state = { applyCalls: 0, smokeCalls: 0, lastApplyParams: null as ApplyParams | null };
   const ops = createMockApplyOps({
-    applyViaCli: async () => {
+    applyViaCli: async (params) => {
       state.applyCalls++;
+      state.lastApplyParams = params;
       return { success: true, message: "mock: db push completed", detail: "mock" };
     },
     smokeTables: async (p) => {
@@ -76,6 +80,7 @@ function recordingOps(overrides: Partial<SupabaseMigrationApplyOps> = {}): {
     ops,
     get applyCalls() { return state.applyCalls; },
     get smokeCalls() { return state.smokeCalls; },
+    get lastApplyParams() { return state.lastApplyParams; },
   };
 }
 
@@ -272,6 +277,45 @@ describe("18C — data-layer provisioning (no network, no DB)", () => {
   it("the hosted Worker does not import the data-provision path", async () => {
     const worker = await readFile(path.join(process.cwd(), "src/runtime/cloudflare-cockpit-worker.ts"), "utf8");
     assert.equal(/from\s+["'][^"']*execution[^"']*["']/.test(worker), false, "Worker must not import src/execution");
+  });
+
+  it("ordering tolerance OFF by default → applyViaCli gets includeAll=false", async () => {
+    const { id } = await setup(dir, SAFE_MIGRATIONS);
+    const rec = recordingOps();
+    const r = await runDataLayerProvision({ cwd: dir, ref: { id }, now: NOW, env: FULL_GATES, applyOps: rec.ops });
+    assert.equal(r.mode, "applied");
+    assert.equal(rec.lastApplyParams?.includeAll, false);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("ALLOW_OUT_OF_ORDER_MIGRATION_APPLY=true → applyViaCli gets includeAll=true", async () => {
+    const { id } = await setup(dir, SAFE_MIGRATIONS);
+    const rec = recordingOps();
+    const env = { ...FULL_GATES, ALLOW_OUT_OF_ORDER_MIGRATION_APPLY: "true" };
+    const r = await runDataLayerProvision({ cwd: dir, ref: { id }, now: NOW, env, applyOps: rec.ops });
+    assert.equal(r.mode, "applied");
+    assert.equal(rec.lastApplyParams?.includeAll, true);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("dry-run report surfaces ordering-tolerance state", async () => {
+    const { id } = await setup(dir, SAFE_MIGRATIONS);
+    const r = await runDataLayerProvision({ cwd: dir, ref: { id }, now: NOW, env: {}, applyOps: recordingOps().ops });
+    assert.ok(r.instructions.some((l) => /Ordering tolerance: OFF/.test(l)));
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("buildDbPushArgs adds --include-all only when includeAll is set", () => {
+    const ref = "abcdef123456";
+    const off = buildDbPushArgs({ projectRef: ref, dbPassword: null, includeAll: false });
+    assert.deepEqual(off, ["db", "push", "--project-ref", ref]);
+    const on = buildDbPushArgs({ projectRef: ref, dbPassword: null, includeAll: true });
+    assert.ok(on.includes("--include-all"));
+    // password, when present, is passed via --password (kept in child env by the caller too)
+    const withPw = buildDbPushArgs({ projectRef: ref, dbPassword: "pw", includeAll: true });
+    assert.ok(withPw.includes("--password") && withPw.includes("pw"));
+    // strict order by default puts --include-all absent
+    assert.equal(buildDbPushArgs({ projectRef: ref, dbPassword: null }).includes("--include-all"), false);
   });
 
   it("18C touches no Cloudflare/Telegram/Trigger/GitHub provider modules", async () => {

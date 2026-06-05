@@ -169,6 +169,7 @@ export interface DataProvisionLedgerEntry {
   overallRisk: string;
   scanClean: boolean;
   gatesOpen: boolean;
+  orderTolerance: boolean;
   appliedBy: string | null;
   smoke: Array<{ table: string; exists: boolean; status: string }> | null;
   rollbackPlanPath: string;
@@ -246,6 +247,11 @@ function dryRunInstructions(g: DataLayerGateConfig, inv: MigrationInventory): st
   if (inv.validationErrors.length > 0) {
     lines.push(`Migration validation errors: ${inv.validationErrors.slice(0, 3).join("; ")}`);
   }
+  lines.push(
+    g.allowOutOfOrder
+      ? "Ordering tolerance: ON (db push will use --include-all — applies migrations that sort before the target's existing history)."
+      : "Ordering tolerance: OFF (strict order; if the generated versions sort before the target's existing migrations, db push refuses — set ALLOW_OUT_OF_ORDER_MIGRATION_APPLY=true to allow)."
+  );
   if (!inv.flagged.length) {
     lines.push("Destructive-SQL scan: clean.");
   } else {
@@ -325,7 +331,7 @@ export async function runDataLayerProvision(
   // ── DRY-RUN path ──
   if (!canApply) {
     const instructions = dryRunInstructions(g, inv);
-    const reportObj = { mode: "dry_run", ...base, gates: { missing: g.missing, hardBlock: g.hardBlock }, migrations: ledgerMigrations, instructions };
+    const reportObj = { mode: "dry_run", ...base, gates: { missing: g.missing, hardBlock: g.hardBlock, orderTolerance: g.allowOutOfOrder }, migrations: ledgerMigrations, instructions };
     assertNoSecrets(reportObj, "dry-run report");
     await writeFile(reportPath, JSON.stringify(reportObj, null, 2) + "\n", "utf8");
 
@@ -333,7 +339,7 @@ export async function runDataLayerProvision(
       timestamp: now, mode: "dry_run", specId, proposalId: item.id, agentName,
       projectRef: g.projectRef, targetEnv: g.targetEnv, migrations: ledgerMigrations,
       overallRisk: inv.overallRisk, scanClean: inv.flagged.length === 0, gatesOpen: g.allowApply,
-      appliedBy: null, smoke: null, rollbackPlanPath, reportPath,
+      orderTolerance: g.allowOutOfOrder, appliedBy: null, smoke: null, rollbackPlanPath, reportPath,
     });
     await appendAudit(cwd, { id: item.id }, "data_provision_dryrun", now,
       g.hardBlock ?? `missing: ${g.missing.join(", ") || "(scan/validation)"}`);
@@ -351,6 +357,9 @@ export async function runDataLayerProvision(
     projectRef: g.projectRef!,
     accessToken,
     dbPassword,
+    // Ordering tolerance — only when explicitly opted in. Lets db push apply migrations
+    // whose versions sort before the target project's existing history (--include-all).
+    includeAll: g.allowOutOfOrder,
   });
 
   if (!applyResult.success) {
@@ -377,7 +386,7 @@ export async function runDataLayerProvision(
     `Applied ${inv.migrations.length} migration(s) to project ${g.projectRef} (${g.targetEnv}).`,
     "Proposal NOT advanced (18C is audit-only). Rollback plan generated (manual).",
   ];
-  const reportObj = { mode: "applied", ...base, apply: { message: applyResult.message, detail: applyResult.detail ?? null }, migrations: ledgerMigrations, smoke, instructions };
+  const reportObj = { mode: "applied", ...base, orderTolerance: g.allowOutOfOrder, apply: { message: applyResult.message, detail: applyResult.detail ?? null }, migrations: ledgerMigrations, smoke, instructions };
   assertNoSecrets(reportObj, "applied report");
   await writeFile(reportPath, JSON.stringify(reportObj, null, 2) + "\n", "utf8");
 
@@ -385,7 +394,7 @@ export async function runDataLayerProvision(
     timestamp: now, mode: "applied", specId, proposalId: item.id, agentName,
     projectRef: g.projectRef, targetEnv: g.targetEnv, migrations: ledgerMigrations,
     overallRisk: inv.overallRisk, scanClean: inv.flagged.length === 0, gatesOpen: true,
-    appliedBy: env["USER"] || env["USERNAME"] || "node-host", smoke, rollbackPlanPath, reportPath,
+    orderTolerance: g.allowOutOfOrder, appliedBy: env["USER"] || env["USERNAME"] || "node-host", smoke, rollbackPlanPath, reportPath,
   });
   await appendAudit(cwd, { id: item.id }, "data_provision_applied", now,
     `${inv.migrations.length} migration(s) → ${g.projectRef} (${g.targetEnv}); not advanced`);

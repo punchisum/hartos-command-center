@@ -44,6 +44,26 @@ export interface ApplyParams {
   accessToken: string | null;
   /** Optional DB password for `db push` (passed to child env only — never logged). */
   dbPassword: string | null;
+  /**
+   * When true, pass `--include-all` to `supabase db push`. Required to apply migrations
+   * whose versions sort BEFORE the target project's existing migration history (otherwise
+   * the CLI refuses them as out-of-order). Gated upstream by ALLOW_OUT_OF_ORDER_MIGRATION_APPLY.
+   * Ordering tolerance only — it does NOT relax the destructive scan or collision posture.
+   */
+  includeAll?: boolean;
+}
+
+/**
+ * Build the `supabase db push` argument vector. Pure + exported so the flag wiring is unit
+ * testable without spawning a process. The DB password is NOT placed here as a positional
+ * value that could be logged out of context — it is passed only via `--password` when present
+ * and the caller keeps it in the child env too.
+ */
+export function buildDbPushArgs(params: Pick<ApplyParams, "projectRef" | "dbPassword" | "includeAll">): string[] {
+  const args = ["db", "push", "--project-ref", params.projectRef];
+  if (params.includeAll) args.push("--include-all");
+  if (params.dbPassword) args.push("--password", params.dbPassword);
+  return args;
 }
 
 export interface SmokeParams {
@@ -88,8 +108,7 @@ export function realSupabaseMigrationApplyOps(
       if (params.accessToken) env["SUPABASE_ACCESS_TOKEN"] = params.accessToken;
       if (params.dbPassword) env["SUPABASE_DB_PASSWORD"] = params.dbPassword;
 
-      const args = ["db", "push", "--project-ref", params.projectRef];
-      if (params.dbPassword) args.push("--password", params.dbPassword);
+      const args = buildDbPushArgs(params);
 
       const r = spawnSync("supabase", args, {
         cwd: params.projectDir,

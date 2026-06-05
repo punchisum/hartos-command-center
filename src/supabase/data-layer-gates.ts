@@ -27,6 +27,13 @@ export const APPLY_GATE = "ALLOW_SUPABASE_MIGRATION_APPLY";
 export const MUTATION_CONFIRM_GATE = "CONFIRM_DATA_LAYER_MUTATION";
 export const TARGET_CONFIRM_GATE = "CONFIRM_SUPABASE_TARGET_PROJECT";
 export const DESTRUCTIVE_OVERRIDE_GATE = "ALLOW_DESTRUCTIVE_SQL";
+/**
+ * Opt-in ordering tolerance. When open, the apply passes `--include-all` to `supabase db push`,
+ * allowing migrations whose versions sort BEFORE the target project's existing migration history
+ * to be applied (the CLI otherwise refuses them as out-of-order). This is an ordering concern
+ * ONLY — it does not relax the destructive scan, collision posture, or any other gate.
+ */
+export const ORDER_TOLERANCE_GATE = "ALLOW_OUT_OF_ORDER_MIGRATION_APPLY";
 
 export const PROJECT_REF_KEY = "HARTOS_SUPABASE_PROJECT_REF";
 export const URL_KEY = "HARTOS_SUPABASE_URL";
@@ -42,6 +49,8 @@ export interface DataLayerGateConfig {
   allowApply: boolean;
   /** True when the destructive-SQL override gate is open. */
   allowDestructive: boolean;
+  /** True when ordering tolerance is opted in (passes --include-all to db push). */
+  allowOutOfOrder: boolean;
   /** Hard block (e.g. production label) — apply is refused regardless of gates. */
   hardBlock: string | null;
   /** Human-readable names/values of what's missing for a real apply (empty = ready). */
@@ -121,6 +130,7 @@ export function readDataLayerGates(env: Record<string, string | undefined>): Dat
   return {
     allowApply,
     allowDestructive: env[DESTRUCTIVE_OVERRIDE_GATE] === "true",
+    allowOutOfOrder: env[ORDER_TOLERANCE_GATE] === "true",
     hardBlock,
     missing,
     projectRef,
@@ -133,5 +143,5 @@ export function readDataLayerGates(env: Record<string, string | undefined>): Dat
 
 /** Names of every gate this phase understands, for display/summary. */
 export function dataLayerGateNames(): string[] {
-  return [APPLY_GATE, MUTATION_CONFIRM_GATE, TARGET_CONFIRM_GATE, DESTRUCTIVE_OVERRIDE_GATE];
+  return [APPLY_GATE, MUTATION_CONFIRM_GATE, TARGET_CONFIRM_GATE, DESTRUCTIVE_OVERRIDE_GATE, ORDER_TOLERANCE_GATE];
 }
