@@ -95,6 +95,12 @@ export interface ActionProposal {
  * 17D (local scaffold dry-run) operates on an `approved_for_execution` proposal and does NOT
  * advance it to `executing`/`executed` — it produces local artifacts + a closed-gate provision
  * dry-run report and records an audit event only. Real execution (executing/executed) is 18B.
+ *
+ * Phase 18D (runtime-layer provisioning) introduces a terminal `runtime_provisioned` state. Per
+ * Hart's locked 18D decision, the Node executor advances `approved_for_execution → runtime_provisioned`
+ * ONLY when every runtime step (secrets → worker deploy → trigger → webhook) AND the read-only
+ * smoke succeed. It is executor-only (the cockpit/Worker can never set it) and is a "provisioned"
+ * state, NOT "launched" — production runtime remains separately gated/refused.
  */
 export type ProposalQueueStatus =
   | "draft"
@@ -104,6 +110,7 @@ export type ProposalQueueStatus =
   | "executing"
   | "executed"
   | "execution_failed"
+  | "runtime_provisioned"
   | "rejected"
   | "expired";
 
@@ -112,6 +119,7 @@ export const EXECUTOR_ONLY_STATUSES: readonly ProposalQueueStatus[] = [
   "executing",
   "executed",
   "execution_failed",
+  "runtime_provisioned",
 ];
 
 export interface ProposalAuditEvent {

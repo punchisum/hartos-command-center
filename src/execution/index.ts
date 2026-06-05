@@ -66,3 +66,35 @@ export {
   type ApplyParams,
   type DirectApplyParams,
 } from "../supabase/migration-apply-ops.js";
+
+// ─── Phase 18D — first runtime-layer provisioning (gated Cloudflare/Trigger/Telegram deploy) ──
+export {
+  runRuntimeProvision,
+  runRuntimeRollback,
+  RuntimeProvisionPreconditionError,
+  parseWrangler,
+  DEFAULT_RUNTIME_PROVISION_REPORTS_DIR,
+  WORKER_SECRETS,
+  TRIGGER_ENV,
+} from "./agent-runtime-provision.js";
+export type {
+  RuntimeProvisionOptions,
+  RuntimeProvisionResult,
+  RuntimeProvisionRollbackResult,
+  RuntimeStep,
+  RuntimeProvisionLedgerEntry,
+  WranglerInventory,
+  CrossPhaseConsistency,
+} from "./agent-runtime-provision.js";
+export {
+  readRuntimeGates,
+  runtimeGateNames,
+  type RuntimeGateConfig,
+  type RuntimeGateExpectations,
+} from "../runtime-provision/runtime-layer-gates.js";
+export {
+  realRuntimeDeployOps,
+  createMockRuntimeDeployOps,
+  type RuntimeDeployOps,
+  type RuntimeStepResult,
+} from "../runtime-provision/runtime-deploy-ops.js";

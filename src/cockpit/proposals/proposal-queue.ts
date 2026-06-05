@@ -203,6 +203,33 @@ export async function revokeExecutionApproval(cwd: string, ref: ProposalRef, now
   });
 }
 
+/**
+ * Phase 18D — advance to the terminal `runtime_provisioned` state. EXECUTOR-ONLY: this is called by
+ * the Node runtime-provision orchestrator ONLY after every runtime step + the read-only smoke pass
+ * (Hart's locked "advance on full success" decision). The cockpit/Worker can NEVER set this state.
+ * Only transitions from `approved_for_execution`; any other current status is left unchanged with a
+ * denied audit event. The durable `specId` is preserved.
+ */
+export async function markRuntimeProvisioned(
+  cwd: string,
+  ref: ProposalRef,
+  now: string,
+  detail?: string
+): Promise<ProposalQueueItem | null> {
+  return update(cwd, ref, (item) => {
+    if (item.status !== "approved_for_execution") {
+      item.updatedAt = now;
+      item.auditEvents.push(
+        audit("runtime_provisioned_denied", now, `requires status=approved_for_execution, was ${item.status}`)
+      );
+      return;
+    }
+    item.status = "runtime_provisioned";
+    item.updatedAt = now;
+    item.auditEvents.push(audit("runtime_provisioned", now, detail ?? "all runtime steps + smoke passed"));
+  });
+}
+
 /** Age (ms) of the current execution authorization, or null when not authorized. Pure. */
 export function executionAuthorizationAgeMs(item: ProposalQueueItem, now: string): number | null {
   if (item.status !== "approved_for_execution" || !item.executionAuthorizedAt) return null;

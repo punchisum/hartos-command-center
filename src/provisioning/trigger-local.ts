@@ -16,6 +16,8 @@
  *   - `listTasks`:     calls Trigger.dev REST API to list registered tasks.
  */
 
+import { spawnSync } from "node:child_process";
+
 const DEFAULT_TRIGGER_API_URL = "https://api.trigger.dev";
 
 export interface TriggerCommandResult {
@@ -46,6 +48,12 @@ export interface TriggerOps {
    * Mock implementation can return success for testing.
    */
   registerTasks(projectId: string): Promise<TriggerCommandResult>;
+  /**
+   * Phase 18D — actually deploy tasks by spawning the Trigger.dev CLI in the agent's project dir
+   * (`npx trigger.dev@latest deploy`). The secret key is passed via the child's env only (never
+   * argv/log). Targets the given Trigger environment (e.g. "staging"). All output is sanitized.
+   */
+  deployTasks(projectDir: string, triggerEnv: string): Promise<TriggerCommandResult>;
 }
 
 // ─── Output sanitisation ──────────────────────────────────────────────────────
@@ -181,6 +189,34 @@ export function defaultTriggerOpsFactory(
         },
       };
     },
+
+    async deployTasks(projectDir: string, triggerEnv: string): Promise<TriggerCommandResult> {
+      // Spawn the Trigger.dev CLI. The secret key goes into the child ENV only (never argv/log).
+      for (const [cmd, args] of [
+        ["npx", ["trigger.dev@latest", "deploy", "--env", triggerEnv]],
+        ["trigger.dev", ["deploy", "--env", triggerEnv]],
+      ] as [string, string[]][]) {
+        const result = spawnSync(cmd, args, {
+          cwd: projectDir,
+          encoding: "utf8",
+          stdio: "pipe",
+          shell: process.platform === "win32",
+          env: { ...process.env, TRIGGER_SECRET_KEY: secretKey },
+        });
+        if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        if (result.status === 0) {
+          return { success: true, message: `Trigger.dev tasks deployed to ${triggerEnv} (exit 0)`, data: { triggerEnv } };
+        }
+        return {
+          success: false,
+          message: `Trigger.dev deploy failed (exit ${result.status ?? 1}). ${sanitize(result.stderr ?? "") || sanitize(result.stdout ?? "")}`,
+        };
+      }
+      return {
+        success: false,
+        message: "Trigger.dev CLI not found. Install it or run `npx trigger.dev@latest deploy`.",
+      };
+    },
   };
 }
 
@@ -205,6 +241,11 @@ export function createMockTriggerOps(
       success: true,
       message: "Mock: tasks registered successfully",
       data: { deployed: true },
+    }),
+    deployTasks: async (_projectDir, triggerEnv) => ({
+      success: true,
+      message: `Mock: tasks deployed to ${triggerEnv}`,
+      data: { triggerEnv, deployed: true },
     }),
     ...overrides,
   };

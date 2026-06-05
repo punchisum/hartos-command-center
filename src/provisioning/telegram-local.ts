@@ -21,6 +21,12 @@ export interface TelegramOps {
   getMe(): Promise<TelegramCommandResult>;
   setWebhook(webhookUrl: string, secretToken?: string): Promise<TelegramCommandResult>;
   getWebhookInfo(): Promise<TelegramCommandResult>;
+  /**
+   * Phase 18D — remove the bot's webhook. Used to AUTO-REVERT a webhook that 18D set when a
+   * later step in the runtime pipeline fails (a stolen webhook pointed at a half-deployed
+   * worker is actively harmful). Safe + reversible; never logs the token.
+   */
+  deleteWebhook(): Promise<TelegramCommandResult>;
   sendMessage(chatId: string, text: string): Promise<TelegramCommandResult>;
 }
 
@@ -161,6 +167,30 @@ export function defaultTelegramOpsFactory(
       }
     },
 
+    async deleteWebhook(): Promise<TelegramCommandResult> {
+      try {
+        const res = await fetchImpl(api("deleteWebhook"), { method: "POST" });
+        if (res.ok) {
+          const data = (await res.json()) as { ok: boolean; description?: string };
+          if (data.ok) {
+            return { success: true, message: "Webhook deleted" };
+          }
+          return {
+            success: false,
+            message: `deleteWebhook API error: ${sanitize(data.description ?? "unknown")}`,
+          };
+        }
+        return { success: false, message: `deleteWebhook failed: HTTP ${res.status}` };
+      } catch (err) {
+        return {
+          success: false,
+          message: sanitize(
+            `deleteWebhook error: ${err instanceof Error ? err.message : "unknown"}`
+          ),
+        };
+      }
+    },
+
     async sendMessage(chatId: string, text: string): Promise<TelegramCommandResult> {
       try {
         const res = await fetchImpl(api("sendMessage"), {
@@ -208,6 +238,10 @@ export function createMockTelegramOps(
       success: true,
       message: "Webhook is registered",
       data: { hasWebhook: true, pendingUpdates: 0, webhookUrl: "https://example.com/webhook" },
+    }),
+    deleteWebhook: async () => ({
+      success: true,
+      message: "Webhook deleted",
     }),
     sendMessage: async () => ({
       success: true,
