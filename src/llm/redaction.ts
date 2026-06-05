@@ -44,6 +44,46 @@ export function redact(text: string): string {
 }
 
 /**
+ * Fail-closed secret guard. Deep-walks an arbitrary JSON-ish value and THROWS if
+ * any string within it looks like a secret/token. Use this on anything assembled
+ * in Node before it leaves the process boundary (rendered to the browser/Worker
+ * or persisted to disk) — a bundle/summary must never carry a raw secret.
+ *
+ * Unlike `redact`/`redactDeep` (which silently scrub), this surfaces the leak so
+ * the caller can refuse to render rather than ship a half-redacted artifact.
+ */
+export function assertNoSecrets(value: unknown, context = "value"): void {
+  const offending = findSecret(value);
+  if (offending !== null) {
+    throw new Error(
+      `Secret-looking string detected in ${context} (at ${offending}). ` +
+        "Bundles and summaries must never contain raw secrets before they leave Node."
+    );
+  }
+}
+
+/** Walk a JSON-ish value; return the JSON path of the first secret-looking string, else null. */
+function findSecret(value: unknown, path = "$"): string | null {
+  if (typeof value === "string") {
+    return containsSecret(value) ? path : null;
+  }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      const hit = findSecret(value[i], `${path}[${i}]`);
+      if (hit !== null) return hit;
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      const hit = findSecret(v, `${path}.${k}`);
+      if (hit !== null) return hit;
+    }
+  }
+  return null;
+}
+
+/**
  * Deep-redact an arbitrary JSON-ish value. Strings are redacted; objects and
  * arrays are walked. Used before writing usage logs / reports.
  */

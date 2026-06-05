@@ -13,7 +13,7 @@ export {
   DEFAULT_MODEL,
 } from "./llm-gateway.js";
 export { validateLlmOutput } from "./output-validator.js";
-export { redact, redactDeep, containsSecret, SECRET_PATTERNS } from "./redaction.js";
+export { redact, redactDeep, containsSecret, assertNoSecrets, SECRET_PATTERNS } from "./redaction.js";
 export { deterministicProvider, deterministicOutput } from "./providers/deterministic-provider.js";
 export { openAiProvider, OpenAiProviderError } from "./providers/openai-provider.js";
 export {
