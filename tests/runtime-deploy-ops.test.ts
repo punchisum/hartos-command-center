@@ -145,6 +145,20 @@ describe("18D runtime-deploy-ops (no real provider)", () => {
     assert.equal(r.message.includes(BOT_TOKEN), false);
   });
 
+  it("passes cfCwd (scaffold dir) to the Cloudflare ops (so wrangler runs in the scaffold)", async () => {
+    const seen: Array<{ op: string; cwd?: string }> = [];
+    const cloudflareOps = {
+      deployWorker: async (_e: string, cwd?: string) => { seen.push({ op: "deploy", cwd }); return { success: true, message: "ok", exitCode: 0 }; },
+      workerExists: async (_e: string, cwd?: string) => { seen.push({ op: "exists", cwd }); return { success: true, message: "ok", exitCode: 0, data: { exists: false, checked: true } }; },
+      uploadSecrets: async (_e: string, _s: Record<string, string>, cwd?: string) => { seen.push({ op: "secrets", cwd }); return { success: true, message: "ok", exitCode: 0 }; },
+    };
+    const ops = realRuntimeDeployOps({ env: {}, cfCwd: "/scaffold/dir", cloudflareOps });
+    await ops.workerExists("staging");
+    await ops.deployWorker("staging");
+    await ops.uploadSecrets("staging", { A: "b" });
+    assert.deepEqual(seen.map((s) => s.cwd), ["/scaffold/dir", "/scaffold/dir", "/scaffold/dir"]);
+  });
+
   it("fails closed (no network/spawn) when TELEGRAM_BOT_TOKEN absent", async () => {
     const ops = realRuntimeDeployOps({ env: {} }); // no token, no fetchImpl needed
     const r = await ops.setWebhook("https://w/x");

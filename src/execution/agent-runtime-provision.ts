@@ -397,7 +397,9 @@ export async function runRuntimeProvision(opts: RuntimeProvisionOptions): Promis
   const targetEnvRaw = env["HARTOS_TARGET_ENV"]?.trim().toLowerCase() || "staging";
   const inv = await buildWranglerInventory(scaffoldDir, targetEnvRaw);
 
-  const ops = opts.ops ?? realRuntimeDeployOps({ env });
+  // wrangler must run in the scaffold dir (its disposable wrangler.toml + dist/ live there),
+  // NOT the command-center root.
+  const ops = opts.ops ?? realRuntimeDeployOps({ env, cfCwd: scaffoldDir });
 
   // Pre-flight probes (read-only): bot identity (for typo guard) + current webhook (to capture/revert).
   const me = await ops.getMe();

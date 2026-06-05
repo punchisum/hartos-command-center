@@ -88,6 +88,8 @@ function noTokenTelegramOps(): TelegramOps {
 
 export interface RealRuntimeOpsConfig {
   env: Record<string, string | undefined>;
+  /** Working dir for wrangler (the scaffold dir holding the disposable wrangler.toml + dist/). */
+  cfCwd?: string;
   cloudflareOps?: CloudflareOps;
   telegramOps?: TelegramOps;
   triggerOps?: TriggerOps;
@@ -114,10 +116,11 @@ export function realRuntimeDeployOps(cfg: RealRuntimeOpsConfig): RuntimeDeployOp
       ? defaultTriggerOpsFactory(trgKey, "https://api.trigger.dev", fetchImpl)
       : null);
 
+  const cfCwd = cfg.cfCwd;
   return {
-    workerExists: async (e) => norm(await cf.workerExists(e)),
-    uploadSecrets: async (e, secrets) => norm(await cf.uploadSecrets(e, secrets)),
-    deployWorker: async (e) => norm(await cf.deployWorker(e)),
+    workerExists: async (e) => norm(await cf.workerExists(e, cfCwd)),
+    uploadSecrets: async (e, secrets) => norm(await cf.uploadSecrets(e, secrets, cfCwd)),
+    deployWorker: async (e) => norm(await cf.deployWorker(e, cfCwd)),
 
     async workerHealth(workerUrl: string, timeoutMs = 10_000): Promise<RuntimeStepResult> {
       const url = `${workerUrl.replace(/\/$/, "")}/health`;

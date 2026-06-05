@@ -20,22 +20,24 @@ export interface CloudflareCommandResult {
 
 /** Injectable interface for Cloudflare operations (enables test mocking). */
 export interface CloudflareOps {
-  /** Deploy the Cloudflare Worker using wrangler. Never prints secrets. */
-  deployWorker(wranglerEnv: string): Promise<CloudflareCommandResult>;
+  /** Deploy the Cloudflare Worker using wrangler in `cwd` (the scaffold dir). Never prints secrets. */
+  deployWorker(wranglerEnv: string, cwd?: string): Promise<CloudflareCommandResult>;
   /**
    * Phase 18D — probe whether a Worker already exists for this env, so the orchestrator can refuse
    * to silently OVERWRITE one it didn't create (wrangler deploy is an upsert). `data.exists` is the
    * verdict; `data.checked=false` means existence could not be determined (treat conservatively).
+   * Runs wrangler in `cwd` (the scaffold dir, which holds the disposable wrangler.toml).
    */
-  workerExists(wranglerEnv: string): Promise<CloudflareCommandResult>;
+  workerExists(wranglerEnv: string, cwd?: string): Promise<CloudflareCommandResult>;
   /**
    * Phase 18D — upload Worker secrets via `wrangler secret bulk`. Values are passed on the child's
    * STDIN as a JSON object — never as a CLI arg, never written to disk, never logged. The returned
-   * message/data carry only the COUNT and the secret NAMES, never any value.
+   * message/data carry only the COUNT and the secret NAMES, never any value. Runs in `cwd`.
    */
   uploadSecrets(
     wranglerEnv: string,
-    secrets: Record<string, string>
+    secrets: Record<string, string>,
+    cwd?: string
   ): Promise<CloudflareCommandResult>;
 }
 
@@ -52,13 +54,14 @@ function sanitize(output: string): string {
 
 // ─── Real implementation ──────────────────────────────────────────────────────
 
-async function deployWorker(wranglerEnv: string): Promise<CloudflareCommandResult> {
+async function deployWorker(wranglerEnv: string, cwd?: string): Promise<CloudflareCommandResult> {
   // Try `wrangler` (local install) then `npx wrangler` as fallback.
   for (const [cmd, args] of [
     ["wrangler", ["deploy", "--env", wranglerEnv]],
     ["npx", ["wrangler", "deploy", "--env", wranglerEnv]],
   ] as [string, string[]][]) {
     const result = spawnSync(cmd, args, {
+      cwd,
       encoding: "utf8",
       stdio: "pipe",
       shell: process.platform === "win32",
@@ -105,12 +108,13 @@ const WORKER_ABSENT_RE = /not found|no deployment|no worker|could ?n[o']?t find|
  *   - any other non-zero / wrangler missing → UNKNOWN          (exists:false, checked:false)
  * Only CONFIRMED ABSENT may proceed without an overwrite gate; UNKNOWN fails closed upstream.
  */
-async function workerExists(wranglerEnv: string): Promise<CloudflareCommandResult> {
+async function workerExists(wranglerEnv: string, cwd?: string): Promise<CloudflareCommandResult> {
   for (const [cmd, args] of [
     ["wrangler", ["deployments", "list", "--env", wranglerEnv]],
     ["npx", ["wrangler", "deployments", "list", "--env", wranglerEnv]],
   ] as [string, string[]][]) {
     const result = spawnSync(cmd, args, {
+      cwd,
       encoding: "utf8",
       stdio: "pipe",
       shell: process.platform === "win32",
@@ -141,7 +145,8 @@ async function workerExists(wranglerEnv: string): Promise<CloudflareCommandResul
  */
 async function uploadSecrets(
   wranglerEnv: string,
-  secrets: Record<string, string>
+  secrets: Record<string, string>,
+  cwd?: string
 ): Promise<CloudflareCommandResult> {
   const names = Object.keys(secrets);
   if (names.length === 0) {
@@ -153,6 +158,7 @@ async function uploadSecrets(
     ["npx", ["wrangler", "secret", "bulk", "--env", wranglerEnv]],
   ] as [string, string[]][]) {
     const result = spawnSync(cmd, args, {
+      cwd,
       encoding: "utf8",
       stdio: "pipe",
       shell: process.platform === "win32",
