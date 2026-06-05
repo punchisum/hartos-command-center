@@ -34,6 +34,11 @@ export interface TelegramOps {
 
 function sanitize(msg: string): string {
   return msg
+    // Telegram API URL with embedded token → strip the token, keep the readable host.
+    .replace(/api\.telegram\.org\/bot[A-Za-z0-9:_-]+/gi, "api.telegram.org/bot[REDACTED]")
+    // Raw Telegram bot token (<bot id>:<secret>) anywhere else.
+    .replace(/\d{6,12}:[A-Za-z0-9_-]{30,}/g, "[REDACTED]")
+    // Existing generic long-token + bot-prefixed redaction (defense in depth).
     .replace(/[A-Za-z0-9+/=_-]{40,}/g, "[REDACTED]")
     .replace(/bot[A-Za-z0-9_-]{20,}/gi, "bot[REDACTED]")
     .slice(0, 200);

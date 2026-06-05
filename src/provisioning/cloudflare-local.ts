@@ -94,10 +94,16 @@ async function deployWorker(wranglerEnv: string): Promise<CloudflareCommandResul
   };
 }
 
+/** Output that unambiguously means "this Worker does not exist" (vs. an auth/network/rate error). */
+const WORKER_ABSENT_RE = /not found|no deployment|no worker|could ?n[o']?t find|does not exist|workers\.dev.*not/i;
+
 /**
- * Phase 18D — probe Worker existence via `wrangler deployments list`. Exit 0 ⇒ a Worker exists
- * for that env (overwrite would be silent). Non-zero / not-found ⇒ no existing Worker. If wrangler
- * is absent or the result is ambiguous, returns `checked:false` so the caller stays conservative.
+ * Phase 18D (Fix #3 — fail closed) — probe Worker existence via `wrangler deployments list`.
+ * Distinguishes THREE outcomes, never conflating an error with "absent":
+ *   - exit 0                              → CONFIRMED EXISTS   (exists:true,  checked:true)
+ *   - non-zero with clear not-found text  → CONFIRMED ABSENT   (exists:false, checked:true)
+ *   - any other non-zero / wrangler missing → UNKNOWN          (exists:false, checked:false)
+ * Only CONFIRMED ABSENT may proceed without an overwrite gate; UNKNOWN fails closed upstream.
  */
 async function workerExists(wranglerEnv: string): Promise<CloudflareCommandResult> {
   for (const [cmd, args] of [
@@ -111,12 +117,21 @@ async function workerExists(wranglerEnv: string): Promise<CloudflareCommandResul
     });
     if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") continue;
     if (result.status === 0) {
-      return { success: true, message: "Existing Worker found for env", exitCode: 0, data: { exists: true, checked: true } };
+      return { success: true, message: "Existing Worker confirmed for env", exitCode: 0, data: { exists: true, checked: true } };
     }
-    // A non-zero status commonly means "no deployments / worker not found" — treat as absent.
-    return { success: true, message: "No existing Worker for env", exitCode: result.status ?? 1, data: { exists: false, checked: true } };
+    const out = `${result.stderr ?? ""}\n${result.stdout ?? ""}`;
+    if (WORKER_ABSENT_RE.test(out)) {
+      return { success: true, message: "No existing Worker for env (confirmed absent)", exitCode: result.status ?? 1, data: { exists: false, checked: true } };
+    }
+    // Non-zero for some OTHER reason (auth, network, rate limit, parse) — existence UNKNOWN, fail closed.
+    return {
+      success: false,
+      message: `Worker existence UNKNOWN (wrangler exit ${result.status ?? 1}): ${sanitize(out) || "no output"}`,
+      exitCode: result.status ?? 1,
+      data: { exists: false, checked: false },
+    };
   }
-  return { success: false, message: "wrangler not found — existence unverified", exitCode: 127, data: { exists: false, checked: false } };
+  return { success: false, message: "wrangler not found — Worker existence UNKNOWN (failing closed)", exitCode: 127, data: { exists: false, checked: false } };
 }
 
 /**

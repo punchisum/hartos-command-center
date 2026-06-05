@@ -235,6 +235,26 @@ describe("18D — runtime provisioning (no network, no provider)", () => {
     );
   });
 
+  it("Fix #3 — UNKNOWN worker existence (checked:false) → fail closed without overwrite", async () => {
+    const { id } = await setup(dir);
+    const { ops } = recOps({
+      workerExists: async () => ({ success: false, message: "Worker existence UNKNOWN (wrangler exit 1)", data: { exists: false, checked: false } }),
+    });
+    await assert.rejects(
+      () => runRuntimeProvision({ cwd: dir, ref: { id }, now: NOW, env: FULL, ops }),
+      /could NOT be verified|Refusing to overwrite/
+    );
+  });
+
+  it("Fix #3 — CONFIRMED absent (checked:true) → first disposable run proceeds", async () => {
+    const { id } = await setup(dir);
+    const { ops } = recOps({
+      workerExists: async () => ({ success: true, message: "confirmed absent", data: { exists: false, checked: true } }),
+    });
+    const r = await runRuntimeProvision({ cwd: dir, ref: { id }, now: NOW, env: FULL, ops });
+    assert.equal(r.mode, "deployed");
+  });
+
   it("overwrite ALLOWED with ALLOW_RUNTIME_OVERWRITE=true → deploys", async () => {
     const { id } = await setup(dir);
     const { ops } = recOps({

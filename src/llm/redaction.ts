@@ -17,6 +17,10 @@ export const SECRET_PATTERNS: RegExp[] = [
   /gh[pousr]_[A-Za-z0-9_]{20,}/g, // GitHub tokens
   /xox[baprs]-[A-Za-z0-9-]{10,}/g, // Slack
   /tr_(?:dev|prod)_[A-Za-z0-9]{16,}/g, // Trigger.dev
+  // Telegram — the API URL embeds the bot token; a network error can leak the whole URL.
+  // Redact the URL form first (so the token never survives in a URL), then the bare token form.
+  /api\.telegram\.org\/bot[A-Za-z0-9:_-]+/gi, // Telegram API URL with embedded token
+  /\d{6,12}:[A-Za-z0-9_-]{30,}/g, // Telegram bot token (<bot id>:<secret>)
   /\bBearer\s+[A-Za-z0-9._\-]{16,}/gi, // Authorization headers
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g,
 ];

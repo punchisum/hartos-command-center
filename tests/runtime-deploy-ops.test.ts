@@ -30,8 +30,14 @@ function fakeFetch(calledUrls: string[]): typeof fetch {
       ok: true,
       status: 200,
       json: async () => body,
-    } as Response;
+      text: async () => JSON.stringify({ status: "ok" }),
+    } as unknown as Response;
   }) as typeof fetch;
+}
+
+/** Build a one-off fetch returning a specific status + body text (for health-probe tests). */
+function healthFetch(status: number, bodyText: string): typeof fetch {
+  return (async () => ({ ok: status >= 200 && status < 300, status, text: async () => bodyText, json: async () => ({}) }) as unknown as Response) as typeof fetch;
 }
 
 describe("18D runtime-deploy-ops (no real provider)", () => {
@@ -80,6 +86,18 @@ describe("18D runtime-deploy-ops (no real provider)", () => {
     assert.ok(urls.some((u) => u.includes(BOT_TOKEN)), "sanity: token is used in the API URL");
   });
 
+  it("Fix #4 — telegram-local sanitize strips a token URL from a thrown network error", async () => {
+    const tokenUrl = `https://api.telegram.org/bot${BOT_TOKEN}/getMe`;
+    const throwingFetch = (async () => {
+      throw new Error(`request to ${tokenUrl} failed`);
+    }) as typeof fetch;
+    const ops = realRuntimeDeployOps({ env: { TELEGRAM_BOT_TOKEN: BOT_TOKEN }, fetchImpl: throwingFetch });
+    const r = await ops.getMe();
+    assert.equal(r.success, false);
+    assert.equal(r.message.includes(BOT_TOKEN), false, "thrown-error message must not contain the bot token");
+    assert.match(r.message, /bot\[REDACTED\]/);
+  });
+
   it("real workerHealth probes <url>/health read-only and reports status", async () => {
     const urls: string[] = [];
     const ops = realRuntimeDeployOps({ env: {}, fetchImpl: fakeFetch(urls) });
@@ -87,6 +105,44 @@ describe("18D runtime-deploy-ops (no real provider)", () => {
     assert.equal(r.success, true);
     assert.equal(r.data?.status, 200);
     assert.ok(urls.some((u) => u === "https://w.example.com/health"));
+  });
+
+  it("Fix #2 — workerHealth times out (never-resolving fetch) → success:false", async () => {
+    const neverFetch = (() => new Promise(() => {})) as typeof fetch;
+    const ops = realRuntimeDeployOps({ env: {}, fetchImpl: neverFetch });
+    const r = await ops.workerHealth("https://w.example.com", 30); // tiny timeout for the test
+    assert.equal(r.success, false);
+    assert.match(r.message, /timed out/i);
+  });
+
+  it("Fix #2 — HTTP 200 with irrelevant body → success:false", async () => {
+    const ops = realRuntimeDeployOps({ env: {}, fetchImpl: healthFetch(200, "<html>welcome</html>") });
+    const r = await ops.workerHealth("https://w.example.com", 1000);
+    assert.equal(r.success, false);
+    assert.match(r.message, /not a recognizable health response/);
+  });
+
+  it("Fix #2 — HTTP 200 with health marker → success:true", async () => {
+    const ops = realRuntimeDeployOps({ env: {}, fetchImpl: healthFetch(200, '{"status":"ok"}') });
+    const r = await ops.workerHealth("https://w.example.com", 1000);
+    assert.equal(r.success, true);
+    assert.equal(r.data?.status, 200);
+  });
+
+  it("Fix #2 — non-200 → success:false", async () => {
+    const ops = realRuntimeDeployOps({ env: {}, fetchImpl: healthFetch(503, "healthy") });
+    const r = await ops.workerHealth("https://w.example.com", 1000);
+    assert.equal(r.success, false);
+    assert.match(r.message, /HTTP 503/);
+  });
+
+  it("Fix #2 — health error messages are sanitized (no leaked token)", async () => {
+    const tokenUrl = `https://api.telegram.org/bot${BOT_TOKEN}/x`;
+    const throwingFetch = (() => Promise.reject(new Error(`connect fail ${tokenUrl}`))) as typeof fetch;
+    const ops = realRuntimeDeployOps({ env: {}, fetchImpl: throwingFetch });
+    const r = await ops.workerHealth("https://w.example.com", 1000);
+    assert.equal(r.success, false);
+    assert.equal(r.message.includes(BOT_TOKEN), false);
   });
 
   it("fails closed (no network/spawn) when TELEGRAM_BOT_TOKEN absent", async () => {

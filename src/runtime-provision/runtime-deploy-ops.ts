@@ -43,8 +43,11 @@ export interface RuntimeDeployOps {
   workerExists(wranglerEnv: string): Promise<RuntimeStepResult>;
   uploadSecrets(wranglerEnv: string, secrets: Record<string, string>): Promise<RuntimeStepResult>;
   deployWorker(wranglerEnv: string): Promise<RuntimeStepResult>;
-  /** Read-only post-deploy health probe (GET <workerUrl>/health). Never mutates. */
-  workerHealth(workerUrl: string): Promise<RuntimeStepResult>;
+  /**
+   * Read-only post-deploy health probe (GET <workerUrl>/health). Never mutates. Bounded by a
+   * timeout; requires HTTP 200 AND a recognizable health body (not just any 200 page).
+   */
+  workerHealth(workerUrl: string, timeoutMs?: number): Promise<RuntimeStepResult>;
   // ── Trigger.dev ──
   deployTasks(projectDir: string, triggerEnv: string): Promise<RuntimeStepResult>;
   // ── Telegram ──
@@ -116,13 +119,30 @@ export function realRuntimeDeployOps(cfg: RealRuntimeOpsConfig): RuntimeDeployOp
     uploadSecrets: async (e, secrets) => norm(await cf.uploadSecrets(e, secrets)),
     deployWorker: async (e) => norm(await cf.deployWorker(e)),
 
-    async workerHealth(workerUrl: string): Promise<RuntimeStepResult> {
+    async workerHealth(workerUrl: string, timeoutMs = 10_000): Promise<RuntimeStepResult> {
       const url = `${workerUrl.replace(/\/$/, "")}/health`;
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        const res = await fetchImpl(url, { method: "GET" });
+        const timeoutP = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            reject(new Error(`health check timed out after ${timeoutMs}ms`));
+          }, timeoutMs);
+        });
+        const res = await Promise.race([fetchImpl(url, { method: "GET", signal: controller.signal }), timeoutP]);
+        const text = await res.text();
+        // A 200 alone is NOT proof of life — require a recognizable health marker in the body.
+        // TODO(18D+): tighten to the exact generated scaffold /health JSON contract
+        // (e.g. {status:"ok", agent:<name>, version:...}) once that shape is frozen.
+        const ok = res.status === 200 && /\b(ok|healthy|status)\b/i.test(text);
         return {
-          success: res.ok,
-          message: res.ok ? `Worker health OK (HTTP ${res.status})` : `Worker health failed: HTTP ${res.status}`,
+          success: ok,
+          message: ok
+            ? `Worker health OK (HTTP ${res.status})`
+            : res.status === 200
+              ? "Worker health failed: HTTP 200 but body is not a recognizable health response"
+              : `Worker health failed: HTTP ${res.status}`,
           data: { status: res.status },
         };
       } catch (err) {
@@ -130,6 +150,8 @@ export function realRuntimeDeployOps(cfg: RealRuntimeOpsConfig): RuntimeDeployOp
           success: false,
           message: sanitize(`Worker health error: ${err instanceof Error ? err.message : "unknown"}`),
         };
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     },
 

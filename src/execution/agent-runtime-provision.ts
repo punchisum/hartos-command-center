@@ -487,16 +487,19 @@ export async function runRuntimeProvision(opts: RuntimeProvisionOptions): Promis
   const webhookSecret = env[WEBHOOK_SECRET_KEY]?.trim() || undefined;
   const wranglerEnv = g.targetEnv!;
 
-  // Overwrite guard: refuse to silently overwrite an existing worker/webhook we didn't create.
+  // Overwrite guard (Fix #3 — fail closed): refuse to silently overwrite an existing worker/webhook
+  // we didn't create, AND refuse when existence could NOT be verified (unknown ≠ absent).
   if (!g.allowOverwrite) {
     const exists = await ops.workerExists(wranglerEnv);
     const workerAlreadyExists = exists.data?.["exists"] === true;
+    const existenceUnverified = exists.data?.["checked"] !== true;
     const webhookAlreadyElsewhere = Boolean(priorWebhookUrl) && priorWebhookUrl !== webhookUrl;
-    if (workerAlreadyExists || webhookAlreadyElsewhere) {
+    if (workerAlreadyExists || existenceUnverified || webhookAlreadyElsewhere) {
       const why = [
         workerAlreadyExists ? "a Worker already exists for this env" : null,
+        existenceUnverified ? `Worker existence could NOT be verified (${exists.message}) — failing closed` : null,
         webhookAlreadyElsewhere ? "the bot's webhook already points elsewhere" : null,
-      ].filter(Boolean).join(" and ");
+      ].filter(Boolean).join("; ");
       throw new RuntimeProvisionPreconditionError(
         `Refusing to overwrite: ${why}. Set ALLOW_RUNTIME_OVERWRITE=true after review to proceed.`
       );
