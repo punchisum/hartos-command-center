@@ -196,8 +196,20 @@ export async function runGithubPrMode(opts: GithubPrOptions): Promise<GithubPrRe
   const body = buildPrBody(manifest, (item.proposedPayload ?? {}) as Record<string, unknown>);
   if (containsSecret(body)) throw new GithubPrPreconditionError("PR body would contain a secret — aborting.");
 
-  // Gated real mutation: push the existing branch, then open the PR.
-  await prOps.pushBranch({ workDir, owner, repo, branch: manifest.branch, token });
+  // Gated real mutation: re-create the scaffold branch FROM the base branch (shared history → PR-able),
+  // lay the scaffold files on top, push, then open the PR. (18A's local branch is orphan-history, so a
+  // naive push cannot be PR'd against an existing main.)
+  const prepDir = path.join(cwd, outRoot, `${specId}.prep`);
+  await prOps.pushScaffoldOntoBase({
+    scaffoldDir: workDir,
+    prepDir,
+    owner,
+    repo,
+    branch: manifest.branch,
+    base: g.baseBranch,
+    token,
+    message: `feat: add ${manifest.agentName} (scaffold)\n\nspec ${specId} from proposal ${item.id}.`,
+  });
   const pr = await prOps.openPullRequest({ owner, repo, token, head: manifest.branch, base: g.baseBranch, title, body });
 
   const instructions = rollbackInstructions(owner, repo, manifest.branch, pr.number);

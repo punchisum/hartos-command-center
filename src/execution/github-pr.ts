@@ -11,13 +11,22 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { cpSync, mkdirSync, rmSync } from "node:fs";
+import path from "node:path";
 
-export interface PushBranchInput {
-  workDir: string;
+export interface PushScaffoldInput {
+  /** The 18A scaffold workdir whose FILES (minus .git) are laid on top of the base branch. */
+  scaffoldDir: string;
+  /** A scratch dir for the rebased-on-base branch (gitignored). */
+  prepDir: string;
   owner: string;
   repo: string;
   branch: string;
+  /** The existing base branch to descend from (e.g. main) — gives the branch shared history for the PR. */
+  base: string;
   token: string;
+  /** Commit message for the scaffold commit on top of base. */
+  message: string;
 }
 
 export interface OpenPrInput {
@@ -51,7 +60,11 @@ export interface DeleteRemoteBranchInput {
 
 /** Injectable GitHub operations. Tests pass a mock; the real impl below is reached only when gated. */
 export interface GitHubPrOps {
-  pushBranch(input: PushBranchInput): Promise<void>;
+  /**
+   * Create the scaffold branch FROM the existing base branch (shared history → PR-able), lay the
+   * scaffold files on top, commit, and push. Replaces a naive orphan-branch push.
+   */
+  pushScaffoldOntoBase(input: PushScaffoldInput): Promise<void>;
   openPullRequest(input: OpenPrInput): Promise<OpenPrResult>;
   closePullRequest(input: ClosePrInput): Promise<void>;
   deleteRemoteBranch(input: DeleteRemoteBranchInput): Promise<void>;
@@ -94,20 +107,46 @@ async function githubApi(
  * Real GitHub operations — REST via fetch + a single one-shot `git push` (token in an ephemeral URL,
  * never written to .git/config and scrubbed from any error). Reached ONLY behind open 18B gates.
  */
+/** Run a git command; throw on failure with the token scrubbed from output. */
+function git(args: string[], cwd: string, token: string): void {
+  const r = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if ((r.status ?? 1) !== 0) {
+    const out = scrub(((r.stderr ?? "") + (r.stdout ?? "")).trim(), token).slice(0, 300);
+    // Never echo the args (they may contain the authed URL) — only the first token.
+    throw new Error(`git ${args[0]} failed: ${out}`);
+  }
+}
+
 export const realGitHubPrOps: GitHubPrOps = {
-  async pushBranch({ workDir, owner, repo, branch, token }: PushBranchInput): Promise<void> {
-    // One-shot authenticated URL — NOT persisted as a remote (so no token lands in .git/config).
+  async pushScaffoldOntoBase({ scaffoldDir, prepDir, owner, repo, branch, base, token, message }: PushScaffoldInput): Promise<void> {
+    // One-shot authenticated URL — used directly in fetch/push, never persisted as a named remote
+    // (so the token never lands in .git/config).
     const url = `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
-    const r = spawnSync("git", ["push", url, `${branch}:${branch}`], {
-      cwd: workDir,
-      encoding: "utf8",
-      stdio: "pipe",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-      maxBuffer: 64 * 1024 * 1024,
+
+    // Fresh prep repo seeded from the EXISTING base branch → the scaffold branch shares history with it.
+    rmSync(prepDir, { recursive: true, force: true });
+    mkdirSync(prepDir, { recursive: true });
+    git(["init"], prepDir, token);
+    git(["config", "user.email", "scaffold@hartos.local"], prepDir, token);
+    git(["config", "user.name", "HartOS Scaffold"], prepDir, token);
+    git(["config", "core.longpaths", "true"], prepDir, token);
+    git(["fetch", "--depth", "1", url, base], prepDir, token);
+    git(["checkout", "-b", branch, "FETCH_HEAD"], prepDir, token);
+
+    // Lay the scaffold files (excluding its orphan .git) on top of base, then commit + push.
+    cpSync(scaffoldDir, prepDir, {
+      recursive: true,
+      filter: (src) => !src.split(path.sep).includes(".git"),
     });
-    if ((r.status ?? 1) !== 0) {
-      throw new Error(`git push failed: ${scrub((r.stderr ?? "").trim(), token).slice(0, 300)}`);
-    }
+    git(["add", "-A"], prepDir, token);
+    git(["commit", "-m", message], prepDir, token);
+    git(["push", url, `${branch}:${branch}`], prepDir, token);
   },
 
   async openPullRequest({ owner, repo, token, head, base, title, body }: OpenPrInput): Promise<OpenPrResult> {

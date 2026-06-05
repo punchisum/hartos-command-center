@@ -25,12 +25,15 @@ executed/merged — opening a PR is recorded via audit (`github_pr_opened`) + a 
 
 ## Flow
 ```
-18A-built scaffold (branch + commit + build-manifest.json)
+18A-built scaffold (files + build-manifest.json)
   + ALLOW_GITHUB_PUSH=true + CONFIRM_GITHUB_PR=true + token/owner/repo   ← npm run agent:scaffold-pr
-  → push branch (one-shot authenticated URL; token never persisted) to EXISTING owner/repo
-  → open PR (REST) against base branch; capture PR URL/number
+  → fetch the EXISTING base branch (e.g. main) into a scratch prep repo
+  → create the scaffold branch FROM base, lay the scaffold files on top, commit
+    (shared history → PR-able; 18A's local branch is orphan-history and is NOT pushed as-is)
+  → push the branch (one-shot authenticated URL; token never persisted to .git/config)
+  → open PR (REST) against the base branch; capture PR URL/number
   → write github-pr-report.json; audit github_pr_opened
-  (any gate closed → dry-run instructions; no push, no PR, no network)
+  (any gate closed → dry-run instructions; no fetch, no push, no PR, no network)
 ```
 
 ## Commands (Node host only)

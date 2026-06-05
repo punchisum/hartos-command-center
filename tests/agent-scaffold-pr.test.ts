@@ -65,7 +65,7 @@ function mockPrOps(overrides: Partial<GitHubPrOps> = {}): { ops: GitHubPrOps; ca
   const calls: string[] = [];
   const bodies: string[] = [];
   const ops: GitHubPrOps = {
-    pushBranch: async ({ branch }) => { calls.push(`push:${branch}`); },
+    pushScaffoldOntoBase: async ({ branch, base }) => { calls.push(`push:${branch}<-${base}`); },
     openPullRequest: async ({ body }) => { calls.push("openPr"); bodies.push(body); return { url: "https://github.com/punchisum/tax-agent/pull/7", number: 7 }; },
     closePullRequest: async ({ number }) => { calls.push(`closePr:${number}`); },
     deleteRemoteBranch: async ({ branch }) => { calls.push(`deleteBranch:${branch}`); },
@@ -137,7 +137,7 @@ describe("18B — controlled GitHub PR mode (no network)", () => {
     assert.equal(r.providerMutations, 0);
     assert.equal(r.prUrl, "https://github.com/punchisum/tax-agent/pull/7");
     assert.equal(r.prNumber, 7);
-    assert.ok(calls.some((c) => c.startsWith("push:")) && calls.includes("openPr"));
+    assert.ok(calls.some((c) => c.startsWith("push:") && c.includes("<-main")) && calls.includes("openPr"));
     const item = await readProposal(dir, id);
     assert.ok(item!.auditEvents.some((e) => e.event === "github_pr_opened"));
     assert.equal(item!.status, "approved_for_execution", "not advanced to executed/merged");
