@@ -26,6 +26,33 @@ const config = {
   allowedRpcs: ["read_summary"],
 };
 
+describe("supabase read client — workerd fetch binding regression", () => {
+  it("binds default global fetch to globalThis so workerd does not throw 'Illegal invocation'", async () => {
+    // Cloudflare's workerd throws if global fetch is called with a `this` other
+    // than the global scope. Node tolerates it, which is why this only ever broke
+    // on the deployed Worker. Simulate the strict check here.
+    const original = (globalThis as { fetch?: unknown }).fetch;
+    function strictFetch(this: unknown): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> {
+      if (this !== globalThis) throw new TypeError("Illegal invocation");
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
+    }
+    (globalThis as { fetch?: unknown }).fetch = strictFetch as unknown;
+    try {
+      // No fetchImpl injected → client must use the bound global fetch.
+      const client = new SupabaseReadClient({
+        url: "https://x.supabase.co",
+        key: "anon",
+        allowedTables: [],
+        allowedRpcs: ["get_ops_overview"],
+      });
+      const out = await client.readRpc("get_ops_overview");
+      assert.deepEqual(out, { ok: true });
+    } finally {
+      (globalThis as { fetch?: unknown }).fetch = original;
+    }
+  });
+});
+
 describe("supabase read client", () => {
   it("exposes NO mutation methods", () => {
     const client = new SupabaseReadClient(config, mockFetch([]).fetch) as unknown as Record<string, unknown>;

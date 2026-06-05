@@ -73,6 +73,20 @@ export interface FactoryInput {
   testCount: number | null;
 }
 
+/**
+ * An agent whose data source is not reachable in this context (e.g. a local-only
+ * agent in the hosted read-only cockpit). It renders as an honest UNKNOWN card
+ * with a stated reason — "missing means missing" — rather than being hidden.
+ */
+export interface UnavailableAgentSpec {
+  agentId: string;
+  name: string;
+  icon: string;
+  purpose: string;
+  /** Why the data is unavailable here (no secrets). */
+  reason: string;
+}
+
 export interface ControlSurfaceInputs {
   now: string;
   tax: TaxInput | null;
@@ -82,6 +96,8 @@ export interface ControlSurfaceInputs {
   systemHealth: HealthCheck[];
   proposalQueue: { needsApproval: number; readyLocal: number; blocked: number; completed: number };
   recentActivity: Array<{ text: string; at: string; level: "g" | "a" | "r" }>;
+  /** Agents to render as honest UNKNOWN (data not reachable in this context). */
+  unavailableAgents?: UnavailableAgentSpec[];
 }
 
 /** A render-ready snapshot: the per-agent bundles plus the home-row context. */
@@ -335,6 +351,32 @@ function assembleFactory(input: FactoryInput, now: string): AgentFactBundle {
 }
 
 /**
+ * Build an honest UNKNOWN bundle for an agent whose data isn't reachable here.
+ * One null fact carries the reason as provenance → isUnavailable → verdict
+ * UNKNOWN → the summarizer is forced onto the "can't assess" branch.
+ */
+export function unavailableBundle(spec: UnavailableAgentSpec, now: string): AgentFactBundle {
+  const facts: Fact[] = [
+    { key: "data", label: "Data", value: null, asOf: null, source: spec.reason, freshness: "unknown" },
+  ];
+  return shell(
+    {
+      agentId: spec.agentId,
+      name: spec.name,
+      icon: spec.icon,
+      purpose: spec.purpose,
+      capabilities: [],
+      permissions: [],
+      audit: [],
+    },
+    facts,
+    [{ name: "Data source", state: "unknown", detail: spec.reason }],
+    [],
+    now
+  );
+}
+
+/**
  * Assemble all present agent bundles. PURE: no I/O. Verdict / confidence / fix
  * severity are computed here, before any LLM runs. The `summary` / `whyVerdict` /
  * `selectedFactKeys` are placeholders until `applySummary` overlays the prose.
@@ -345,6 +387,9 @@ export function assembleAgentBundles(inputs: ControlSurfaceInputs): AgentFactBun
   if (inputs.ops) bundles.push(assembleOps(inputs.ops, inputs.now));
   if (inputs.tax) bundles.push(assembleTax(inputs.tax, inputs.now));
   if (inputs.factory) bundles.push(assembleFactory(inputs.factory, inputs.now));
+  for (const spec of inputs.unavailableAgents ?? []) {
+    bundles.push(unavailableBundle(spec, inputs.now));
+  }
   return bundles;
 }
 

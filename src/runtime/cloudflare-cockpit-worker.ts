@@ -56,11 +56,19 @@ import {
 } from "./cloudflare-cockpit-page.js";
 import { routeHosted, freshnessView, readModelStatusView, proposalsView } from "./cloudflare-cockpit-views.js";
 import { resolveHostedCockpitState } from "./cloudflare-live-read-models.js";
+import {
+  resolveHostedControlSurface,
+  hostedControlSurfaceJson,
+  renderHostedControlSurfacePage,
+} from "./cloudflare-control-surface.js";
+import type { ControlSurfaceRender } from "../cockpit/control-surface/index.js";
 
 export const SUPPORTED_ROUTES = [
   "GET /",
+  "GET /control",
   "GET /health",
   "GET /api/state",
+  "GET /api/control-surface",
   "GET /api/reports",
   "GET /api/threads",
   "GET /api/freshness",
@@ -111,9 +119,12 @@ export async function handleCockpitRequest(
   const auth = authenticateCockpitRequest(request, env);
   if (!auth.ok) {
     // The UI shows a login screen (or a locked page when misconfigured); API
-    // routes return 401. Either way no protected data is served.
-    if (method === "GET" && (pathname === "/" || pathname === "/index.html")) {
-      return htmlResponse(auth.mode === "misconfigured" ? renderLockedPage() : renderLoginPage(), cors);
+    // routes return 401. Either way no protected data is served. The control
+    // surface (/control) is a UI page too, so it gets the login form and lands
+    // the operator back on /control after a successful sign-in.
+    if (method === "GET" && (pathname === "/" || pathname === "/index.html" || pathname === "/control")) {
+      if (auth.mode === "misconfigured") return htmlResponse(renderLockedPage(), cors);
+      return htmlResponse(renderLoginPage({ redirectTo: pathname === "/control" ? "/control" : "/" }), cors);
     }
     return unauthorized(cors, auth);
   }
@@ -124,6 +135,34 @@ export async function handleCockpitRequest(
   const dctx = await ensureLiveState(ctx, pathname);
 
   if (method === "GET") {
+    // ── Phase 18F — hosted live control surface (the 18E surface + JSON API) ──
+    if (pathname === "/control" || pathname === "/api/control-surface") {
+      const cs = await resolveControlSurface(ctx, pathname);
+      if (pathname === "/control") {
+        return htmlResponse(controlSurfaceHtml(cs), cors);
+      }
+      // GET /api/control-surface — sanitized, read-only JSON.
+      if (!cs) {
+        return jsonResponse(
+          200,
+          {
+            available: false,
+            systemVerdict: "UNKNOWN",
+            note: "Live control surface unavailable (no read-model env resolved).",
+            actionExecution: ACTION_EXECUTION,
+            mutationEndpoints: MUTATION_ENDPOINTS,
+          },
+          cors
+        );
+      }
+      try {
+        return jsonResponse(200, hostedControlSurfaceJson(cs), cors);
+      } catch {
+        // assertNoSecrets tripped (should never happen) — fail closed, never leak.
+        return jsonResponse(200, { available: false, systemVerdict: "UNKNOWN", note: "Sanitization guard tripped." }, cors);
+      }
+    }
+
     if (pathname === "/" || pathname === "/index.html") {
       return htmlResponse(dctx.html ?? hostedHtml(dctx), cors);
     }
@@ -273,6 +312,46 @@ const LIVE_DATA_ROUTES = new Set<string>([
 ]);
 
 /**
+ * Phase 18F — resolve the live control-surface render once per request for the
+ * two control routes, AFTER auth. Returns null when no provider is set or it
+ * declines/fails; callers then serve the honest UNKNOWN placeholder.
+ */
+async function resolveControlSurface(
+  ctx: CockpitWorkerContext,
+  pathname: string
+): Promise<ControlSurfaceRender | null> {
+  if (!ctx.controlSurfaceProvider) return null;
+  if (pathname !== "/control" && pathname !== "/api/control-surface") return null;
+  try {
+    return (await ctx.controlSurfaceProvider()) ?? null;
+  } catch {
+    return null; // graceful degradation — never crash the route
+  }
+}
+
+/** Render the hosted control-surface page, or a safe placeholder if unavailable. */
+function controlSurfaceHtml(cs: ControlSurfaceRender | null): string {
+  if (!cs) {
+    return renderLockedControlSurfacePlaceholder();
+  }
+  return renderHostedControlSurfacePage(cs, { apiRefreshPath: "/api/control-surface", refreshMs: 0 });
+}
+
+/** Minimal honest placeholder when the live control surface can't be resolved. */
+function renderLockedControlSurfacePlaceholder(): string {
+  return [
+    "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">",
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+    "<title>HartOS — Control Surface (unavailable)</title></head>",
+    "<body style=\"font-family:-apple-system,Segoe UI,sans-serif;background:#f3f6fa;color:#1b2532;padding:40px\">",
+    "<h1 style=\"font-size:20px\">Control surface unavailable</h1>",
+    "<p>No live read-model data could be resolved. System status is <b>UNKNOWN</b> — nothing is being fabricated.</p>",
+    "<p style=\"color:#5f6e80;font-size:13px\">This is a read-only surface. No actions, no mutation.</p>",
+    "</body></html>",
+  ].join("");
+}
+
+/**
  * Phase 16D — resolve LIVE read-model state lazily, at most once per request.
  * Returns the original ctx unchanged when: state is already embedded (tests /
  * dry-run snapshots), no live provider is set, the route needs no data, the
@@ -376,6 +455,9 @@ export default {
     return handleCockpitRequest(request, env, {
       runtimeMode: "hosted",
       liveStateProvider: async () => (await resolveHostedCockpitState(env)) ?? undefined,
+      // Phase 18F — live 18E control surface (read-only). Always resolves a render
+      // (honest UNKNOWN when nothing is configured); never throws.
+      controlSurfaceProvider: async () => resolveHostedControlSurface(env),
     });
   },
 };

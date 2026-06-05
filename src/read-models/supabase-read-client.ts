@@ -55,7 +55,16 @@ export class SupabaseReadClient {
     this.config = config;
     // Default to global fetch, but it is only ever reached for an allowlisted,
     // explicitly-enabled read. Tests inject a mock.
-    this.fetchImpl = fetchImpl ?? ((globalThis as { fetch?: FetchLike }).fetch as FetchLike);
+    //
+    // IMPORTANT: bind to globalThis. Cloudflare Workers (workerd) throw
+    // "Illegal invocation" if global fetch is stored detached and later called
+    // with a different `this`. Node tolerates a detached fetch; workerd does not.
+    const globalFetch = (globalThis as { fetch?: FetchLike }).fetch;
+    this.fetchImpl =
+      fetchImpl ??
+      (typeof globalFetch === "function"
+        ? (globalFetch.bind(globalThis) as FetchLike)
+        : (globalFetch as unknown as FetchLike));
   }
 
   private headers(): Record<string, string> {

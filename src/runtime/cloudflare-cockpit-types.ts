@@ -12,6 +12,7 @@
  */
 
 import type { CockpitState, CockpitReportRef } from "../cockpit/cockpit-types.js";
+import type { ControlSurfaceRender } from "../cockpit/control-surface/index.js";
 
 /** Server-side env available to the hosted cockpit. Values are NEVER exposed. */
 export type CloudflareCockpitEnv = Record<string, string | undefined>;
@@ -38,6 +39,13 @@ export interface CockpitWorkerContext {
    * in which case the Worker serves the safe placeholder.
    */
   liveStateProvider?: () => Promise<CockpitState | undefined>;
+  /**
+   * Phase 18F — lazy LIVE control-surface resolver (the 18E surface). Called at
+   * most once per request, AFTER auth, and only for the two control-surface
+   * routes (GET /control, GET /api/control-surface). Returns undefined to decline,
+   * in which case those routes serve the honest UNKNOWN placeholder.
+   */
+  controlSurfaceProvider?: () => Promise<ControlSurfaceRender | undefined>;
 }
 
 /** Result of a deploy-gate check, following the Factory gate doctrine. */

@@ -44,12 +44,14 @@ export {
 } from "./verdict-rules.js";
 export {
   assembleAgentBundles,
+  unavailableBundle,
   loadControlSurfaceInputs,
   type ControlSurfaceInputs,
   type ControlSurfaceState,
   type TaxInput,
   type ReadModelInput,
   type FactoryInput,
+  type UnavailableAgentSpec,
 } from "./assemble.js";
 export {
   applySummary,
@@ -67,11 +69,14 @@ export {
 } from "./lifecycle.js";
 export {
   renderControlSurfaceHtml,
+  bundleToClientPayload,
+  attentionToClientPayload,
   escapeHtml,
   type ControlSurfaceRender,
   type AttentionItem,
   type BuilderView,
   type RenderOptions,
+  type AgentClientPayload,
 } from "./render.js";
 
 /** Flatten every agent's fixes into a single severity-ranked attention strip. */

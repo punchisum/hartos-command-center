@@ -47,6 +47,14 @@ export interface ControlSurfaceRender extends ControlSurfaceState {
 export interface RenderOptions {
   /** Coarse "refreshed Nm ago" hint for the top bar (display only). */
   refreshedLabel?: string;
+  /**
+   * Hosted-only: a same-origin, READ-ONLY JSON endpoint (e.g. "/api/control-surface").
+   * When set, the page fetches it (GET) to refresh the live indicators in place.
+   * Omitted for the local file preview, which stays fully static (no fetch at all).
+   */
+  apiRefreshPath?: string;
+  /** Auto-refresh interval in ms (only used when apiRefreshPath is set). 0 = manual only. */
+  refreshMs?: number;
 }
 
 const VCLASS: Record<Verdict, string> = { GREEN: "g", AMBER: "a", RED: "r", UNKNOWN: "i" };
@@ -64,6 +72,103 @@ const SEV_CLASS: Record<FixSeverity, string> = {
   next: "",
   note: "",
 };
+
+/** Card + drawer payload for one bundle. Shared by the embedded drawer data and
+ *  the hosted /api/control-surface JSON so both stay in lockstep. No secrets. */
+export interface AgentClientPayload {
+  id: string;
+  icon: string;
+  cls: string;
+  name: string;
+  purpose: string;
+  verdict: Verdict;
+  confidence: AgentFactBundle["confidence"];
+  unavailable: boolean;
+  cstat: string;
+  summary: string;
+  stale: boolean;
+  selected: Array<{ label: string; value: string | number | null; unit: string | null }>;
+  whyVerdict: string;
+  facts: Array<{ k: string; v: string; src: string }>;
+  health: Array<[string, string, string]>;
+  fixes: Array<{ sev: string; sevcls: string; t: string; why: string; actLabel: string; kind: string; payload: string }>;
+  caps: string[];
+  perms: string[];
+  audit: Array<[string, string, string]>;
+}
+
+function cardStat(b: AgentFactBundle): string {
+  if (b.unavailable) return "unknown · data unavailable";
+  return b.confidence === "HIGH" ? "live · fresh" : b.confidence === "LOW" ? "stale" : "unknown";
+}
+
+function fixActionLabel(kind: string): string {
+  return kind === "copy_cli" ? "Copy command" : kind === "open_proposal" ? "Open proposal" : "Open";
+}
+
+/** Map a computed bundle to the client payload (card + drawer). Pure, no secrets. */
+export function bundleToClientPayload(b: AgentFactBundle): AgentClientPayload {
+  const selectedFacts = (b.selectedFactKeys.length
+    ? b.selectedFactKeys.map((k) => b.facts.find((f) => f.key === k)).filter((f): f is Fact => Boolean(f))
+    : b.facts.slice(0, 3)
+  ).map((f) => ({ label: f.label, value: f.value, unit: f.unit ?? null }));
+  return {
+    id: b.agentId,
+    icon: b.icon,
+    cls: VCLASS[b.verdict],
+    name: b.name,
+    purpose: b.purpose,
+    verdict: b.verdict,
+    confidence: b.confidence,
+    unavailable: b.unavailable,
+    cstat: cardStat(b),
+    summary: b.summary.text || "—",
+    stale: b.summary.stale,
+    selected: selectedFacts,
+    whyVerdict: b.whyVerdict,
+    facts: b.facts.map((f) => ({
+      k: f.label,
+      v: f.value === null ? "—" : `${f.value}${f.unit ? ` ${f.unit}` : ""}`,
+      src: `${f.source}${f.asOf ? ` · ${f.freshness}` : ""}`,
+    })),
+    health: b.health.map((h) => [h.name, h.detail, h.state] as [string, string, string]),
+    fixes: b.fixes.map((x) => ({
+      sev: SEV_LABEL[x.severity],
+      sevcls: SEV_CLASS[x.severity],
+      t: x.title,
+      why: x.why,
+      actLabel: fixActionLabel(x.action.kind),
+      kind: x.action.kind,
+      payload: x.action.payload,
+    })),
+    caps: b.capabilities,
+    perms: b.permissions,
+    audit: b.audit.map((a) => [a.event, a.at, a.level === "a" ? "amb" : a.level] as [string, string, string]),
+  };
+}
+
+/** Attention strip item for the client (card refresh + initial render share this). */
+export function attentionToClientPayload(item: AttentionItem): {
+  agentId: string;
+  severity: FixSeverity;
+  sevLabel: string;
+  sevClass: string;
+  title: string;
+  actLabel: string;
+  kind: string;
+  payload: string;
+} {
+  return {
+    agentId: item.agentId,
+    severity: item.severity,
+    sevLabel: SEV_LABEL[item.severity],
+    sevClass: SEV_CLASS[item.severity],
+    title: item.title,
+    actLabel: fixActionLabel(item.action.kind),
+    kind: item.action.kind,
+    payload: item.action.payload,
+  };
+}
 
 export function escapeHtml(value: string): string {
   return value
@@ -192,23 +297,7 @@ export function renderControlSurfaceHtml(state: ControlSurfaceRender, options: R
   const builder = state.builder ? renderBuilder(state.builder) : "";
 
   // Drawer payload — bundles only (already secret-checked in applySummary). No secrets, no actions.
-  const drawerData = JSON.stringify(
-    state.bundles.map((b) => ({
-      id: b.agentId,
-      icon: b.icon,
-      cls: VCLASS[b.verdict],
-      name: b.name,
-      purpose: b.purpose,
-      verdict: b.verdict,
-      whyVerdict: b.whyVerdict,
-      facts: b.facts.map((f) => ({ k: f.label, v: f.value === null ? "—" : `${f.value}${f.unit ? ` ${f.unit}` : ""}`, src: `${f.source}${f.asOf ? ` · ${f.freshness}` : ""}` })),
-      health: b.health.map((h) => [h.name, h.detail, h.state]),
-      fixes: b.fixes.map((x) => ({ sev: SEV_LABEL[x.severity], sevcls: SEV_CLASS[x.severity], t: x.title, why: x.why, actLabel: x.action.kind === "copy_cli" ? "Copy command" : x.action.kind === "open_proposal" ? "Open proposal" : "Open", kind: x.action.kind, payload: x.action.payload })),
-      caps: b.capabilities,
-      perms: b.permissions,
-      audit: b.audit.map((a) => [a.event, a.at, a.level === "a" ? "amb" : a.level]),
-    }))
-  ).replace(/</g, "\\u003c");
+  const drawerData = JSON.stringify(state.bundles.map(bundleToClientPayload)).replace(/</g, "\\u003c");
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -243,7 +332,52 @@ export function renderControlSurfaceHtml(state: ControlSurfaceRender, options: R
 <aside class="drawer" id="drawer"><div class="dwrap" id="dbody"></div></aside>
 <script>window.__CS__=${drawerData};</script>
 <script>${CLIENT_JS}</script>
+${refreshScript(options)}
 </body></html>`;
+}
+
+/**
+ * Hosted-only live-refresh script. Fetches the read-only JSON endpoint (GET) and
+ * updates the system pill, needs-attention strip, and each card's verdict /
+ * confidence / summary / facts in place — then refreshes the drawer data map.
+ * It NEVER POSTs, never mutates, and is omitted entirely for the static local
+ * preview, which keeps that output fetch-free.
+ */
+function refreshScript(options: RenderOptions): string {
+  if (!options.apiRefreshPath) return "";
+  const path = JSON.stringify(options.apiRefreshPath);
+  const ms = Number.isFinite(options.refreshMs) ? Math.max(0, Number(options.refreshMs)) : 0;
+  return `<script>(function(){var P=${path},MS=${ms};
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function vcls(v){return {GREEN:'g',AMBER:'a',RED:'r',UNKNOWN:'i'}[v]||'i'}
+function setPill(el,v){if(!el)return;el.textContent=v;el.className='pill '+vcls(v)}
+function apply(d){
+ try{
+  var pill=document.querySelector('.statwrap .pill');setPill(pill,d.systemVerdict);
+  var sub=document.querySelector('.statwrap .sub');if(sub&&d.refreshedLabel)sub.textContent=d.refreshedLabel;
+  var attn=document.querySelector('.attn');
+  if(attn&&Array.isArray(d.attention)){
+   var rows=d.attention.map(function(it,i){return '<div class="row"><span class="rk'+((it.severity==='security'||it.severity==='stale-revenue')?'':' ok')+'">'+(i+1)+'</span><span class="sev '+it.sevClass+'">'+esc(it.sevLabel)+'</span>'+esc(it.title)+'<span class="act"><button class="btn" data-action="'+esc(it.kind)+'" data-payload="'+esc(it.payload)+'">'+esc(it.actLabel)+'</button><button class="btn ghost" onclick="openDrawer(\\''+esc(it.agentId)+'\\')">Explain</button></span></div>'});
+   var hard=d.attention.some(function(it){return it.severity==='security'||it.severity==='stale-revenue'||it.severity==='blocked'});
+   if(!hard)rows.push('<div class="row"><span class="rk ok">\\u2713</span><span style="color:var(--green);font-weight:700">No red system-health issues</span></div>');
+   attn.innerHTML=rows.join('');
+  }
+  (d.agents||[]).forEach(function(a){
+   var card=document.querySelector('.card[data-agent="'+a.id+'"]');if(!card)return;
+   card.className='card'+(a.unavailable?' unavailable':'');
+   var vp=card.querySelector('.vpill');if(vp){vp.textContent=a.verdict;vp.className='vpill '+vcls(a.verdict)}
+   var cf=card.querySelector('.conf');if(cf){cf.textContent=a.confidence;cf.className='conf '+(a.confidence==='HIGH'?'high':'low')}
+   var sm=card.querySelector('.sum');if(sm)sm.textContent=a.summary;
+   var cs=card.querySelector('.cstat');if(cs)cs.textContent=a.cstat;
+   var fc=card.querySelector('.facts');if(fc&&Array.isArray(a.selected))fc.innerHTML=a.selected.map(function(f){return f.value===null?('<span><b>\\u2014</b> '+esc(f.label)+'</span>'):('<span><b>'+esc(String(f.value))+'</b>'+(f.unit?(' '+esc(f.unit)):'')+' '+esc(f.label)+'</span>')}).join('');
+  });
+  if(Array.isArray(d.agents)){window.__CS__=d.agents;A={};d.agents.forEach(function(a){A[a.id]=a})}
+ }catch(e){}
+}
+function refresh(){fetch(P,{method:'GET',headers:{accept:'application/json'}}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d)apply(d)}).catch(function(){})}
+window.csRefresh=refresh;
+if(MS>0)setInterval(refresh,MS);
+})();</script>`;
 }
 
 const CSS = `:root{--bg:#f3f6fa;--panel:#fff;--line:#e6eaf1;--line2:#eef2f7;--txt:#1b2532;--dim:#5f6e80;--faint:#9aa6b6;--green:#15a06a;--amber:#df8a0b;--red:#e0455a;--idle:#b3bdca;--sg:#e7f6ef;--sa:#fcf3e2;--sb:#eef0fe;--sr:#fdecef;--primary:#6b4ef0;--primaryH:#5b3fe0;--accent:#2f6df6;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}

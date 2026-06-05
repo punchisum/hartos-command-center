@@ -92,7 +92,13 @@ function shell(title: string, bodyHtml: string): string {
 }
 
 /** The access-token login screen. No secret is embedded; the form POSTs to /api/login. */
-export function renderLoginPage(opts: { error?: string } = {}): string {
+export function renderLoginPage(opts: { error?: string; redirectTo?: string } = {}): string {
+  // Same-origin path only (default "/"). Guard against open-redirect: must start
+  // with a single "/" and not "//".
+  const target =
+    typeof opts.redirectTo === "string" && /^\/(?!\/)[A-Za-z0-9/_-]*$/.test(opts.redirectTo)
+      ? opts.redirectTo
+      : "/";
   const body =
     `<main><section class="login-card">` +
     `<h1 style="margin:0 0 4px">HartOS Command Center</h1>` +
@@ -109,7 +115,7 @@ export function renderLoginPage(opts: { error?: string } = {}): string {
     err.textContent='';
     fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:t.value})})
       .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d}})})
-      .then(function(x){ if(x.ok){location.href='/';} else {err.textContent=(x.d&&x.d.error)||'Sign in failed.';} })
+      .then(function(x){ if(x.ok){location.href=${JSON.stringify(target)};} else {err.textContent=(x.d&&x.d.error)||'Sign in failed.';} })
       .catch(function(){err.textContent='Network error.';});
   }
   go.addEventListener('click',login);
