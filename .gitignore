@@ -28,5 +28,6 @@ cockpit-threads/
 cockpit-proposals/
 agent-scaffold-dryrun/
 agent-scaffold/
+data-provision-reports/
 .wrangler/
 .dev.vars

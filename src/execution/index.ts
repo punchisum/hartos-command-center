@@ -41,3 +41,24 @@ export {
 } from "./run-github-pr.js";
 export type { GithubPrOptions, GithubPrResult, GithubPrRollbackResult } from "./run-github-pr.js";
 export { realGitHubPrOps, type GitHubPrOps } from "./github-pr.js";
+
+// ─── Phase 18C — first data-layer provisioning (gated Supabase migration apply) ──
+export {
+  runDataLayerProvision,
+  runDataLayerRollback,
+  DataProvisionPreconditionError,
+  DEFAULT_DATA_PROVISION_REPORTS_DIR,
+} from "./agent-data-provision.js";
+export type {
+  DataProvisionOptions,
+  DataProvisionResult,
+  DataProvisionRollbackResult,
+  ScannedMigration,
+  MigrationInventory,
+  DataProvisionLedgerEntry,
+} from "./agent-data-provision.js";
+export {
+  realSupabaseMigrationApplyOps,
+  createMockApplyOps,
+  type SupabaseMigrationApplyOps,
+} from "../supabase/migration-apply-ops.js";
