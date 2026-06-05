@@ -265,7 +265,9 @@ function dryRunInstructions(g: DataLayerGateConfig, inv: MigrationInventory): st
     "To apply for real, on the Node host set (never commit these): " +
       "ALLOW_SUPABASE_MIGRATION_APPLY=true CONFIRM_DATA_LAYER_MUTATION=true " +
       "HARTOS_SUPABASE_PROJECT_REF=<ref> CONFIRM_SUPABASE_TARGET_PROJECT=<ref> " +
-      "HARTOS_TARGET_ENV=staging|test HARTOS_SUPABASE_URL=<url> HARTOS_SUPABASE_ACCESS_TOKEN=<token>."
+      "HARTOS_TARGET_ENV=staging|test HARTOS_SUPABASE_URL=<url> HARTOS_SUPABASE_ACCESS_TOKEN=<token> " +
+      "HARTOS_SUPABASE_DB_URL=<postgresql://…connection-string> (db push needs the connection string, " +
+      "not just the access token)."
   );
   return lines;
 }
@@ -349,14 +351,16 @@ export async function runDataLayerProvision(
 
   // ── GATED APPLY path (reached only when every gate is open + scan acceptable) ──
   const accessToken = env["HARTOS_SUPABASE_ACCESS_TOKEN"]?.trim() || null;
-  const dbPassword = env["HARTOS_SUPABASE_DB_PASSWORD"]?.trim() || null;
+  // db push targets the project via a connection string (carries the DB password). The
+  // management access token alone cannot push migrations. Secret — never logged or reported.
+  const dbUrl = env["HARTOS_SUPABASE_DB_URL"]?.trim() || null;
   const projectDir = path.join(cwd, outRoot, specId);
 
   const applyResult = await applyOps.applyViaCli({
     projectDir,
     projectRef: g.projectRef!,
     accessToken,
-    dbPassword,
+    dbUrl,
     // Ordering tolerance — only when explicitly opted in. Lets db push apply migrations
     // whose versions sort before the target project's existing history (--include-all).
     includeAll: g.allowOutOfOrder,

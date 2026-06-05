@@ -38,7 +38,8 @@ export const ORDER_TOLERANCE_GATE = "ALLOW_OUT_OF_ORDER_MIGRATION_APPLY";
 export const PROJECT_REF_KEY = "HARTOS_SUPABASE_PROJECT_REF";
 export const URL_KEY = "HARTOS_SUPABASE_URL";
 export const ACCESS_TOKEN_KEY = "HARTOS_SUPABASE_ACCESS_TOKEN";
-export const DB_PASSWORD_KEY = "HARTOS_SUPABASE_DB_PASSWORD";
+/** Connection string for `supabase db push --db-url` (carries the DB password). Secret. */
+export const DB_URL_KEY = "HARTOS_SUPABASE_DB_URL";
 export const TARGET_ENV_KEY = "HARTOS_TARGET_ENV";
 
 export type DataLayerTargetEnv = "staging" | "test";
@@ -59,9 +60,9 @@ export interface DataLayerGateConfig {
   projectRef: string | null;
   url: string | null;
   targetEnv: string | null;
-  /** Whether an access token / db password were provided (booleans only — never the values). */
+  /** Whether an access token / db connection string were provided (booleans only — never the values). */
   hasAccessToken: boolean;
-  hasDbPassword: boolean;
+  hasDbUrl: boolean;
 }
 
 /** Extract the project ref embedded in a Supabase URL (https://<ref>.supabase.co). */
@@ -81,7 +82,7 @@ export function readDataLayerGates(env: Record<string, string | undefined>): Dat
   const url = env[URL_KEY]?.trim() || null;
   const targetEnv = env[TARGET_ENV_KEY]?.trim().toLowerCase() || null;
   const accessToken = env[ACCESS_TOKEN_KEY]?.trim() || null;
-  const dbPassword = env[DB_PASSWORD_KEY]?.trim() || null;
+  const dbUrl = env[DB_URL_KEY]?.trim() || null;
 
   // ── Hard block: production label is refused in 18C, full stop. ──
   let hardBlock: string | null = null;
@@ -137,7 +138,7 @@ export function readDataLayerGates(env: Record<string, string | undefined>): Dat
     url,
     targetEnv,
     hasAccessToken: Boolean(accessToken),
-    hasDbPassword: Boolean(dbPassword),
+    hasDbUrl: Boolean(dbUrl),
   };
 }
 

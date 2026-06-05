@@ -7,19 +7,23 @@
  * ONLY after the orchestrator confirms every data-layer gate is open (see data-layer-gates).
  * In tests it is always mocked — no real DB is ever touched by the suite.
  *
- * Apply mechanism (Hart's locked decision): Supabase CLI `supabase db push` against an
- * EXPLICIT `--project-ref`, authed via SUPABASE_ACCESS_TOKEN in the child env. We do NOT
- * hand-roll SQL execution, and we do NOT use the Supabase MCP (its project is fixed by its
- * own token, it is interactive-auth, and it bypasses our gate/ledger/scan model).
+ * Apply mechanism (Hart's locked decision): Supabase CLI `supabase db push`, targeting the
+ * project via `--db-url <connection-string>` (NOT `--project-ref` — that flag belongs to
+ * `supabase link`, and passing it to db push fails). We do NOT hand-roll SQL execution, and we
+ * do NOT use the Supabase MCP (its project is fixed by its own token, it is interactive-auth,
+ * and it bypasses our gate/ledger/scan model).
  *
  * Security rules:
- *   - The access token and DB password are passed to the child process env ONLY; never
- *     logged, never written to disk, never included in any returned message.
- *   - All stdout/stderr surfaced to callers is sanitized.
+ *   - The access token is passed to the child env only; the db-url (which carries the DB
+ *     password) is passed only as a CLI arg. Neither is logged, written to a report/ledger,
+ *     or included in any returned message.
+ *   - All stdout/stderr surfaced to callers is sanitized (incl. postgres:// URL redaction).
  *   - The smoke check is read-only (PostgREST HEAD/GET with limit=0).
  */
 
 import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
 
 export interface ApplyResult {
   success: boolean;
@@ -40,10 +44,17 @@ export interface ApplyParams {
   /** Directory that contains supabase/migrations (the generated agent's repo root within the scaffold). */
   projectDir: string;
   projectRef: string;
-  /** Access token (Management/CLI auth). Passed to child env only — never logged. */
+  /** Access token (Management/CLI auth — used for `supabase` API context). Child env only; never logged. */
   accessToken: string | null;
-  /** Optional DB password for `db push` (passed to child env only — never logged). */
-  dbPassword: string | null;
+  /**
+   * Database connection string for `supabase db push --db-url` — e.g.
+   * postgresql://postgres.<ref>:<password>@<pooler-host>:6543/postgres (percent-encoded).
+   * This is a SECRET (contains the DB password). Passed only as a CLI arg; never logged,
+   * never written to a report/ledger. `db push` selects its target via this URL — note that
+   * the management access token ALONE cannot push migrations (it authenticates the API, not
+   * the Postgres connection). Required for a real apply.
+   */
+  dbUrl: string | null;
   /**
    * When true, pass `--include-all` to `supabase db push`. Required to apply migrations
    * whose versions sort BEFORE the target project's existing migration history (otherwise
@@ -55,14 +66,15 @@ export interface ApplyParams {
 
 /**
  * Build the `supabase db push` argument vector. Pure + exported so the flag wiring is unit
- * testable without spawning a process. The DB password is NOT placed here as a positional
- * value that could be logged out of context — it is passed only via `--password` when present
- * and the caller keeps it in the child env too.
+ * testable without spawning a process.
+ *
+ * IMPORTANT: `supabase db push` does NOT accept `--project-ref` (that flag belongs to
+ * `supabase link`). The target is selected via `--db-url <connection-string>`. The connection
+ * string carries the password — callers must never log the returned argv.
  */
-export function buildDbPushArgs(params: Pick<ApplyParams, "projectRef" | "dbPassword" | "includeAll">): string[] {
-  const args = ["db", "push", "--project-ref", params.projectRef];
+export function buildDbPushArgs(params: { dbUrl: string; includeAll?: boolean }): string[] {
+  const args = ["db", "push", "--db-url", params.dbUrl];
   if (params.includeAll) args.push("--include-all");
-  if (params.dbPassword) args.push("--password", params.dbPassword);
   return args;
 }
 
@@ -85,11 +97,26 @@ export interface SupabaseMigrationApplyOps {
 
 function sanitize(msg: string): string {
   return msg
+    // DB connection strings first — they carry the password.
+    .replace(/postgres(?:ql)?:\/\/\S+/gi, "[REDACTED_DB_URL]")
     .replace(/[A-Za-z0-9+/=_-]{40,}/g, "[REDACTED]")
     .replace(/Authorization:\s*\S+/gi, "Authorization: [REDACTED]")
     .replace(/apikey:\s*\S+/gi, "apikey: [REDACTED]")
     .replace(/sbp_[A-Za-z0-9]+/g, "[REDACTED]")
     .slice(0, 600);
+}
+
+/**
+ * `supabase db push` requires a project context (supabase/config.toml) even with --db-url.
+ * The generated scaffold ships supabase/migrations but no config.toml, so write a minimal one
+ * (project_id only — NOT a secret) if absent. Idempotent; never overwrites an existing file.
+ */
+function ensureConfigToml(projectDir: string, projectRef: string): void {
+  const dir = path.join(projectDir, "supabase");
+  const file = path.join(dir, "config.toml");
+  if (existsSync(file)) return;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(file, `project_id = "${projectRef}"\n`, "utf8");
 }
 
 // ─── Real implementation ──────────────────────────────────────────────────────
@@ -103,12 +130,26 @@ export function realSupabaseMigrationApplyOps(
 ): SupabaseMigrationApplyOps {
   return {
     async applyViaCli(params: ApplyParams): Promise<ApplyResult> {
-      const env: NodeJS.ProcessEnv = { ...process.env };
-      // Token/password live in the child env only.
-      if (params.accessToken) env["SUPABASE_ACCESS_TOKEN"] = params.accessToken;
-      if (params.dbPassword) env["SUPABASE_DB_PASSWORD"] = params.dbPassword;
+      // db push needs a Postgres connection string. The management access token alone
+      // cannot push migrations (it authenticates the API, not the DB connection).
+      if (!params.dbUrl) {
+        return {
+          success: false,
+          message:
+            "supabase db push needs a database connection string. Set HARTOS_SUPABASE_DB_URL " +
+            "(postgresql://postgres.<ref>:<password>@<pooler-host>:6543/postgres). " +
+            "The management access token alone cannot push migrations. No SQL was executed.",
+        };
+      }
 
-      const args = buildDbPushArgs(params);
+      const env: NodeJS.ProcessEnv = { ...process.env };
+      // Access token lives in the child env only (API context); the db-url/password is a CLI arg.
+      if (params.accessToken) env["SUPABASE_ACCESS_TOKEN"] = params.accessToken;
+
+      // db push requires project context even with --db-url; generate a minimal config.toml.
+      ensureConfigToml(params.projectDir, params.projectRef);
+
+      const args = buildDbPushArgs({ dbUrl: params.dbUrl, includeAll: params.includeAll });
 
       const r = spawnSync("supabase", args, {
         cwd: params.projectDir,

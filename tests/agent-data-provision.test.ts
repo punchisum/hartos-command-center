@@ -305,17 +305,27 @@ describe("18C — data-layer provisioning (no network, no DB)", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("buildDbPushArgs adds --include-all only when includeAll is set", () => {
-    const ref = "abcdef123456";
-    const off = buildDbPushArgs({ projectRef: ref, dbPassword: null, includeAll: false });
-    assert.deepEqual(off, ["db", "push", "--project-ref", ref]);
-    const on = buildDbPushArgs({ projectRef: ref, dbPassword: null, includeAll: true });
+  it("buildDbPushArgs uses --db-url (NOT --project-ref) and adds --include-all only when set", () => {
+    const dbUrl = "postgresql://postgres.ref:pw@pooler:6543/postgres";
+    const off = buildDbPushArgs({ dbUrl, includeAll: false });
+    assert.deepEqual(off, ["db", "push", "--db-url", dbUrl]);
+    // regression: db push must NOT be invoked with --project-ref (that's a `supabase link` flag)
+    assert.equal(off.includes("--project-ref"), false);
+    const on = buildDbPushArgs({ dbUrl, includeAll: true });
     assert.ok(on.includes("--include-all"));
-    // password, when present, is passed via --password (kept in child env by the caller too)
-    const withPw = buildDbPushArgs({ projectRef: ref, dbPassword: "pw", includeAll: true });
-    assert.ok(withPw.includes("--password") && withPw.includes("pw"));
-    // strict order by default puts --include-all absent
-    assert.equal(buildDbPushArgs({ projectRef: ref, dbPassword: null }).includes("--include-all"), false);
+    // strict order by default → --include-all absent
+    assert.equal(buildDbPushArgs({ dbUrl }).includes("--include-all"), false);
+  });
+
+  it("real applyViaCli fails closed (no spawn) when no dbUrl is provided", async () => {
+    const { realSupabaseMigrationApplyOps } = await import("../src/supabase/migration-apply-ops.js");
+    const r = await realSupabaseMigrationApplyOps().applyViaCli({
+      projectDir: dir, projectRef: "abcdef123456", accessToken: "tok", dbUrl: null,
+    });
+    assert.equal(r.success, false);
+    assert.match(r.message, /HARTOS_SUPABASE_DB_URL/);
+    assert.match(r.message, /No SQL was executed/);
+    await rm(dir, { recursive: true, force: true });
   });
 
   it("18C touches no Cloudflare/Telegram/Trigger/GitHub provider modules", async () => {
