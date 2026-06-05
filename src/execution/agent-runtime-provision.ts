@@ -559,8 +559,14 @@ export async function runRuntimeProvision(opts: RuntimeProvisionOptions): Promis
   if (!record("worker_health", await ops.workerHealth(workerUrl))) {
     return finishFailed("worker health check failed (not pointing webhook at an unhealthy worker)");
   }
-  // 4. Trigger.dev tasks (staging env only).
-  if (!record("deploy_tasks", await ops.deployTasks(scaffoldDir, TRIGGER_ENV))) {
+  // 4. Trigger.dev tasks (staging env only) — ONLY if the scaffold declares a Trigger config.
+  // An agent with no trigger.config has no tasks to register; skip rather than fail the pipeline.
+  const hasTriggerConfig = ["trigger.config.ts", "trigger.config.js", "trigger.config.mjs"].some((f) =>
+    existsSync(path.join(scaffoldDir, f))
+  );
+  if (!hasTriggerConfig) {
+    steps.push({ step: "deploy_tasks", status: "skipped", message: "no Trigger config in scaffold — nothing to register" });
+  } else if (!record("deploy_tasks", await ops.deployTasks(scaffoldDir, TRIGGER_ENV))) {
     return finishFailed("trigger.dev deploy failed");
   }
   // 5. Telegram webhook — LAST mutation, only after the worker is healthy.

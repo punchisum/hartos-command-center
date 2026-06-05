@@ -8,7 +8,18 @@
  * Exported as an injectable interface so tests can mock Cloudflare operations.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+
+/**
+ * True when the spawn failed because the BINARY itself is missing (not a real command error).
+ * On Windows with shell:true, a missing `wrangler` returns exit 1 + "is not recognized" rather
+ * than an ENOENT error — so we must detect both, else the `npx wrangler` fallback is skipped.
+ */
+function binaryMissing(r: SpawnSyncReturns<string>): boolean {
+  if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") return true;
+  const out = `${r.stderr ?? ""}\n${r.stdout ?? ""}`;
+  return /is not recognized|command not found|: not found|no such file|cannot find the path/i.test(out);
+}
 
 export interface CloudflareCommandResult {
   success: boolean;
@@ -75,8 +86,8 @@ async function deployWorker(wranglerEnv: string, cwd?: string): Promise<Cloudfla
       };
     }
 
-    if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
-      // Binary not found — try fallback
+    if (binaryMissing(result)) {
+      // Binary not found (incl. Windows "is not recognized") — try the npx fallback.
       continue;
     }
 
@@ -119,7 +130,7 @@ async function workerExists(wranglerEnv: string, cwd?: string): Promise<Cloudfla
       stdio: "pipe",
       shell: process.platform === "win32",
     });
-    if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") continue;
+    if (binaryMissing(result)) continue; // try npx fallback before deciding existence
     if (result.status === 0) {
       return { success: true, message: "Existing Worker confirmed for env", exitCode: 0, data: { exists: true, checked: true } };
     }
@@ -164,7 +175,7 @@ async function uploadSecrets(
       shell: process.platform === "win32",
       input: payload, // secret VALUES travel here on stdin only — never argv/disk/log
     });
-    if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") continue;
+    if (binaryMissing(result)) continue;
     if (result.status === 0) {
       return {
         success: true,

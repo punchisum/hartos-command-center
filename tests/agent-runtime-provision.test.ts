@@ -95,7 +95,7 @@ function recOps(overrides: Partial<RuntimeDeployOps> = {}) {
   return { ops, calls };
 }
 
-async function setup(dir: string, opts: { wrangler?: string; appliedRef?: string } = {}): Promise<{ id: string; specId: string }> {
+async function setup(dir: string, opts: { wrangler?: string; appliedRef?: string; triggerConfig?: boolean } = {}): Promise<{ id: string; specId: string }> {
   const ctx: ProposalContext = { request: "Create a tax agent", intent: "build_agent", panels: [], now: NOW, env: {} };
   const p = generateProposals(ctx)[0]!;
   // Force a known agent name into the payload so worker-name confirm is deterministic.
@@ -108,6 +108,9 @@ async function setup(dir: string, opts: { wrangler?: string; appliedRef?: string
   const scaffold = path.join(dir, "agent-scaffold", specId);
   await mkdir(scaffold, { recursive: true });
   await writeFile(path.join(scaffold, "wrangler.toml"), opts.wrangler ?? WRANGLER(), "utf8");
+  if (opts.triggerConfig) {
+    await writeFile(path.join(scaffold, "trigger.config.ts"), "export default { project: 'proj_x' };\n", "utf8");
+  }
   if (opts.appliedRef) {
     const ddir = path.join(dir, "data-provision-reports");
     await mkdir(ddir, { recursive: true });
@@ -183,7 +186,7 @@ describe("18D — runtime provisioning (no network, no provider)", () => {
   });
 
   it("full gates → ordered deploy, smoke passes, proposal ADVANCED to runtime_provisioned", async () => {
-    const { id } = await setup(dir);
+    const { id } = await setup(dir, { triggerConfig: true });
     const { ops, calls } = recOps();
     const r = await runRuntimeProvision({ cwd: dir, ref: { id }, now: NOW, env: FULL, ops });
     assert.equal(r.mode, "deployed");
@@ -193,6 +196,15 @@ describe("18D — runtime provisioning (no network, no provider)", () => {
     const order = calls.filter((c) => ["uploadSecrets", "deployWorker", "workerHealth", "deployTasks", "setWebhook"].includes(c));
     assert.deepEqual(order.slice(0, 5), ["uploadSecrets", "deployWorker", "workerHealth", "deployTasks", "setWebhook"]);
     assert.equal((await readProposal(dir, id))!.status, "runtime_provisioned");
+  });
+
+  it("no Trigger config in scaffold → deploy_tasks SKIPPED (not failed), smoke still completes", async () => {
+    const { id } = await setup(dir); // no triggerConfig
+    const { ops, calls } = recOps();
+    const r = await runRuntimeProvision({ cwd: dir, ref: { id }, now: NOW, env: FULL, ops });
+    assert.equal(r.mode, "deployed");
+    assert.equal(calls.includes("deployTasks"), false, "deployTasks must not be called when no config");
+    assert.ok(r.steps.some((s) => s.step === "deploy_tasks" && s.status === "skipped"));
   });
 
   it("mid-pipeline failure AFTER webhook (smoke fails) → auto-reverts ONLY the webhook", async () => {
