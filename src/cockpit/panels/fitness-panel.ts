@@ -15,6 +15,7 @@ import { deriveFitnessSource } from "../sources/fitness-source.js";
 import type { DomainPanel, DomainPanelStatus, PanelField, PanelFieldStatus } from "./panel-types.js";
 import { okField, unavailableField, fieldFromSource } from "./panel-types.js";
 import type { PanelInputs } from "./panel-inputs.js";
+import { coach, signalsFromSource } from "../../fitness/coaching-core.js";
 
 const NUTRITION_STEP =
   "Expose a daily nutrition table (calories/protein vs target) in the fitness read-model allowedTables, then run `npm run read-models:status`.";
@@ -111,17 +112,23 @@ export function buildFitnessPanel(inputs: PanelInputs): DomainPanel {
   if (src.values["calories"]) highlights.push(`Calories today: ${src.values["calories"]!.value}.`);
   if (src.values["weekly_load"]) highlights.push(`Weekly load: ${src.values["weekly_load"]!.value}.`);
 
-  // ── next recommended adjustment (grounded) ──
-  const recovery = src.values["recovery"]?.value;
-  let adjustment: string;
-  if (recovery) {
-    adjustment = `Review today's plan against recovery=${recovery} before training; defer high load if recovery is low.`;
-  } else if (detected) {
-    adjustment = "Data is partially available — surface nutrition + load metrics to enable a concrete adjustment.";
-  } else {
-    adjustment = "Configure fitness data sources before HartOS can recommend a training adjustment.";
+  // ── next recommended adjustment — deterministic COACHING core (multi-field) ──
+  // Cross-reasons recovery band × planned intensity × completed-status; honest
+  // confidence rises with data completeness (no longer hardcoded "low"). Pure.
+  const advice = coach(signalsFromSource(src));
+  const adjustment = detected
+    ? advice.headline
+    : "Configure fitness data sources before HartOS can recommend a training adjustment.";
+  fields.push(okField("adjustment", "Next recommended adjustment", adjustment, { source: "derived (coach)", confidence: detected ? advice.confidence : "low" }));
+  // Surface the coach's deterministic reasoning + its honest blind spots as a field
+  // (depth made visible, not a one-line template).
+  if (detected) {
+    const basis = advice.reason + (advice.unknowns.length ? ` Unseen: ${advice.unknowns.join(", ")}.` : "");
+    fields.push(okField("training_readiness", "Training readiness", basis, { source: "derived (coach)", confidence: advice.confidence }));
+    if (advice.modifiers.length) {
+      fields.push(okField("coach_notes", "Coach notes", advice.modifiers.join(" "), { source: "derived (coach)", confidence: advice.confidence }));
+    }
   }
-  fields.push(okField("adjustment", "Next recommended adjustment", adjustment, { source: "derived", confidence: "low" }));
 
   for (const card of agent?.cards ?? []) {
     for (const miss of card.missingSources) {

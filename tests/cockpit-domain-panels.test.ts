@@ -92,6 +92,15 @@ describe("fitness panel", () => {
     assert.ok(p.highlights.some((h) => h.includes("Recovery: 66")));
   });
 
+  it("coach core drives the adjustment: low recovery + hard plan → recovery-first, confidence not hardcoded low", () => {
+    const rm: ReadModelRegistrySummary = { ...emptyReadModels(), configPresent: true, configuredReadModels: 1, enabledReadModels: 1, summaries: [rmSummary("fitness", { recovery: "20", trainingPlan: "hard intervals" })] };
+    const p = buildFitnessPanel(baseInputs({ readModels: rm }));
+    const adj = p.fields.find((f) => f.key === "adjustment")!;
+    assert.match(adj.value, /recovery|rest|light|swap/i);
+    assert.equal(adj.confidence, "medium"); // recovery + plan known ⇒ no longer the old hardcoded "low"
+    assert.ok(p.fields.find((f) => f.key === "training_readiness"), "surfaces the coach's reasoning as a field");
+  });
+
   // ── Phase 13.6B — RPC-aware setup hints ──
   it("RPC-backed fitness → missing fields use RPC-specific hints, never table hints", () => {
     const fitnessRm: ReadModelSummary = {
