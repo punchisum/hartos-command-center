@@ -9,7 +9,7 @@
  * touched, what approval is required, and why real execution is disabled).
  */
 
-export type ProposalDomain = "fitness" | "ops" | "factory" | "system";
+export type ProposalDomain = "fitness" | "ops" | "factory" | "system" | "research";
 
 export type ProposalActionType =
   | "build_agent_plan"
@@ -19,7 +19,8 @@ export type ProposalActionType =
   | "fitness_adjustment_plan"
   | "ranked_build_plan"
   | "sync_repair_plan"
-  | "review_plan";
+  | "review_plan"
+  | "research_plan";
 
 /**
  * Lifecycle. NOTE: there is intentionally no `executed` / `approved_executed`

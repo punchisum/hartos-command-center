@@ -13,6 +13,7 @@ import type { ActionProposal, ProposalActionType, ProposalDomain, ProposalRisk }
 import { simulateProposal } from "./proposal-simulator.js";
 import { proposalsAllowed, executionDisabledReason, type GateEnv } from "./gates.js";
 import { planAgentCreation } from "../agent-planner/index.js";
+import { planResearch } from "../../research/research-planner.js";
 
 export interface ProposalOrchestratorContext {
   classification: string;
@@ -117,6 +118,29 @@ export function generateProposals(ctx: ProposalContext): ActionProposal[] {
   const o = ctx.orchestrator;
 
   switch (ctx.intent) {
+    case "research": {
+      // Phase F1.2 — a research question persists as a non-executable research_plan
+      // draft (same propose-only contract as the other *_plan types), so it lands in
+      // the queue and survives reload. Deterministic; no findings are fabricated.
+      const plan = planResearch(ctx.request);
+      out.push(build(ctx, {
+        domain: "research",
+        actionType: "research_plan",
+        title: `Research: ${plan.question}`,
+        description: `Deterministic research plan (${plan.shape}, ${plan.verdict}). ${plan.subQuestions.length} sub-question(s); needs to gather: ${plan.requiredInputs.join("; ")}.`,
+        expectedEffect: "A structured research plan (sub-questions + the inputs to gather). No findings are fabricated.",
+        riskLevel: plan.risk,
+        proposedPayload: {
+          shape: plan.shape,
+          verdict: plan.verdict,
+          subQuestions: plan.subQuestions,
+          requiredInputs: plan.requiredInputs,
+          unknowns: plan.unknowns,
+          recommendedNextAction: plan.recommendedNextAction,
+        },
+      }));
+      break;
+    }
     case "build_agent": {
       const wantsRanked = /what should i build|what to build|build next|what next/i.test(ctx.request);
       if (wantsRanked) {
