@@ -44,6 +44,11 @@ export const COCKPIT_ENV_VARS: string[] = [
   // reads. Without them the Fitness read-model resolves to "missing".
   "HARTOS_FITNESS_USER_ID",
   "HARTOS_FITNESS_AGENT_ID",
+  // Phase E — hosted "Ask HartOS → proposal" write path. The Worker holds ONLY a
+  // capability token to invoke the gated Edge Function (NOT a DB/service-role
+  // key); both are optional — absent ⇒ the Ask box stays advisory (no write).
+  "HARTOS_ASK_WRITE_URL",
+  "HARTOS_ASK_WRITE_TOKEN",
 ];
 
 export function isSecretName(name: string): boolean {

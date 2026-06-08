@@ -56,7 +56,12 @@ import {
   renderAgentDetailPage,
 } from "./cloudflare-cockpit-page.js";
 import { routeHosted, freshnessView, readModelStatusView, proposalsView, fleetView } from "./cloudflare-cockpit-views.js";
-import { resolveHostedCockpitState, resolveAgentDetail } from "./cloudflare-live-read-models.js";
+import {
+  resolveHostedCockpitState,
+  resolveAgentDetail,
+  persistCockpitProposals,
+  type ProposalPersistResult,
+} from "./cloudflare-live-read-models.js";
 import {
   resolveHostedControlSurface,
   hostedControlSurfaceJson,
@@ -279,6 +284,16 @@ export async function handleCockpitRequest(
     // proposal/plan language yields non-persisted dry-run drafts.
     if (pathname === "/api/ask") {
       const result = routeHosted(dctx.state, validation.value, nowFor(dctx));
+      // Phase E (Gap E) — when the deterministic answer produced proposal drafts,
+      // persist them into the Supabase spine via the gated writer (propose-only;
+      // the Worker holds no DB key). Best-effort: persistence never blocks or
+      // breaks the answer, and stays advisory when the writer isn't configured.
+      let persistence: ProposalPersistResult = { attempted: false, persisted: 0, failed: 0, reason: "no proposals generated" };
+      if (result.proposals.length > 0 && ctx.proposalWriteProvider) {
+        persistence = await ctx
+          .proposalWriteProvider(result.proposals, validation.value)
+          .catch(() => ({ attempted: true, persisted: 0, failed: result.proposals.length, reason: "writer error" }));
+      }
       return jsonResponse(
         200,
         {
@@ -304,6 +319,7 @@ export async function handleCockpitRequest(
             status: p.status,
             executable: false as const,
           })),
+          persistence,
           actionExecution: ACTION_EXECUTION,
           mutationEndpoints: MUTATION_ENDPOINTS,
         },
@@ -505,6 +521,7 @@ export default {
       // (honest UNKNOWN when nothing is configured); never throws.
       controlSurfaceProvider: async () => resolveHostedControlSurface(env),
       agentDetailProvider: async (domain) => resolveAgentDetail(env, domain),
+      proposalWriteProvider: async (proposals, sourceIntent) => persistCockpitProposals(env, proposals, { sourceIntent }),
     });
   },
 };

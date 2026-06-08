@@ -49,12 +49,14 @@ import type { CockpitState, CockpitCardGroupView } from "../cockpit/cockpit-type
 import { isServiceRoleKey } from "../cockpit/sources/secret-guard.js";
 import { SupabaseReadClient, type FetchLike } from "../read-models/supabase-read-client.js";
 import { buildFitnessDetail, buildOpsDetail, FITNESS_DETAIL_RPCS, type AgentDetail } from "../read-models/agent-detail.js";
-import type { ProposalQueueItem } from "../cockpit/proposals/proposal-types.js";
+import type { ActionProposal, ProposalQueueItem } from "../cockpit/proposals/proposal-types.js";
 import {
   COCKPIT_PROPOSALS_RPC,
   coerceCockpitProposalRows,
   mapRowToProposalQueueItem,
+  proposalToSpineRow,
 } from "../cockpit/proposals/cockpit-proposal-spine.js";
+import { containsSecret } from "../llm/redaction.js";
 
 type Env = Record<string, string | undefined>;
 
@@ -333,4 +335,69 @@ export async function resolveAgentDetail(
   if (!url || !key || isServiceRoleKey(key)) return null;
   const client = new SupabaseReadClient({ url, key, allowedTables: [], allowedRpcs: OPS_ALLOWED_RPCS }, options.fetchImpl);
   return buildOpsDetail(client, { now });
+}
+
+// ─── Phase E (Gap E) — Ask HartOS → spine WRITE (Worker side; no DB key) ──────
+
+/** Env var NAMES for the gated Ask write path (the Worker holds only a token). */
+export const ASK_WRITE_ENV = {
+  url: "HARTOS_ASK_WRITE_URL",
+  token: "HARTOS_ASK_WRITE_TOKEN",
+} as const;
+
+export interface ProposalPersistResult {
+  attempted: boolean;
+  persisted: number;
+  failed: number;
+  reason: string;
+}
+
+/** Minimal fetch surface the writer needs (tests inject a stub). */
+export type WriteFetch = (
+  url: string,
+  init: { method: string; headers: Record<string, string>; body: string },
+) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+
+/**
+ * Persist generated (non-executable) proposal drafts into the cockpit spine by
+ * calling the gated Edge Function. The Worker stays read-only: it holds NO
+ * service-role / DB credential — only a shared CAPABILITY token, sent as a bearer
+ * to the one allowlisted function. Best-effort + fail-safe: it never throws and
+ * never blocks the Ask answer. When the write env is absent the Ask stays
+ * advisory (attempted:false) — the read-only default posture. A content-stable id
+ * (proposalToSpineRow) makes re-asking the same outcome idempotent.
+ */
+export async function persistCockpitProposals(
+  env: Env,
+  proposals: ActionProposal[],
+  options: { now?: string; sourceIntent?: string; fetchImpl?: WriteFetch } = {},
+): Promise<ProposalPersistResult> {
+  const url = env[ASK_WRITE_ENV.url];
+  const token = env[ASK_WRITE_ENV.token];
+  if (!url || !token) return { attempted: false, persisted: 0, failed: 0, reason: "write endpoint not configured (advisory-only)" };
+  if (!proposals.length) return { attempted: false, persisted: 0, failed: 0, reason: "no proposals to persist" };
+
+  const now = options.now ?? new Date().toISOString();
+  const rows = proposals.map((p) =>
+    proposalToSpineRow(p, options.sourceIntent ? { now, sourceIntent: options.sourceIntent } : { now }),
+  );
+  // Defense in depth — refuse to SEND anything secret-looking (the function scans too).
+  if (containsSecret(JSON.stringify(rows))) {
+    return { attempted: true, persisted: 0, failed: rows.length, reason: "secret-looking content refused before send" };
+  }
+  const doFetch = options.fetchImpl ?? (globalThis.fetch as unknown as WriteFetch);
+  try {
+    const res = await doFetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ proposals: rows }),
+    });
+    if (!res.ok) return { attempted: true, persisted: 0, failed: rows.length, reason: `write endpoint returned ${res.status}` };
+    const body = (await res.json().catch(() => ({}))) as { persisted?: number; failed?: number };
+    const persisted = typeof body.persisted === "number" ? body.persisted : rows.length;
+    const failed = typeof body.failed === "number" ? body.failed : 0;
+    return { attempted: true, persisted, failed, reason: "ok" };
+  } catch {
+    return { attempted: true, persisted: 0, failed: rows.length, reason: "write endpoint unreachable" };
+  }
 }

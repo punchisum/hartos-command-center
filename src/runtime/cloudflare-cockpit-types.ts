@@ -14,6 +14,8 @@
 import type { CockpitState, CockpitReportRef } from "../cockpit/cockpit-types.js";
 import type { ControlSurfaceRender } from "../cockpit/control-surface/index.js";
 import type { AgentDetail } from "../read-models/agent-detail.js";
+import type { ActionProposal } from "../cockpit/proposals/proposal-types.js";
+import type { ProposalPersistResult } from "./cloudflare-live-read-models.js";
 
 /** Server-side env available to the hosted cockpit. Values are NEVER exposed. */
 export type CloudflareCockpitEnv = Record<string, string | undefined>;
@@ -53,6 +55,14 @@ export interface CockpitWorkerContext {
    * in which case the route serves an honest "unavailable" payload.
    */
   agentDetailProvider?: (domain: "fitness" | "ops") => Promise<AgentDetail | null>;
+  /**
+   * Phase E (Gap E) — gated "Ask HartOS → proposal" writer. Called from POST
+   * /api/ask ONLY when the deterministic answer produced proposal drafts. It
+   * persists them into the Supabase spine via the gated Edge Function — the Worker
+   * holds only a capability token, never a DB/service key. Absent ⇒ the Ask stays
+   * advisory (no write). Must never throw.
+   */
+  proposalWriteProvider?: (proposals: ActionProposal[], sourceIntent: string) => Promise<ProposalPersistResult>;
 }
 
 /** Result of a deploy-gate check, following the Factory gate doctrine. */

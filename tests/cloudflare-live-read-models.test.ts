@@ -12,12 +12,16 @@ import assert from "node:assert/strict";
 import {
   resolveHostedCockpitState,
   resolveCockpitProposals,
+  persistCockpitProposals,
   hostedReadModelsConfigured,
   buildHostedReadModelRegistry,
   HOSTED_READ_MODEL_ENV,
+  ASK_WRITE_ENV,
   OPS_ALLOWED_RPCS,
   FITNESS_ALLOWED_RPCS,
+  type WriteFetch,
 } from "../src/runtime/cloudflare-live-read-models.js";
+import type { ActionProposal } from "../src/cockpit/proposals/proposal-types.js";
 import { handleCockpitRequest } from "../src/runtime/cloudflare-cockpit-worker.js";
 import { proposalsView } from "../src/runtime/cloudflare-cockpit-views.js";
 import { mapRowToProposalQueueItem } from "../src/cockpit/proposals/cockpit-proposal-spine.js";
@@ -357,5 +361,66 @@ describe("hosted proposal spine — live read (Phase D)", () => {
     const state = await resolveHostedCockpitState(fullEnv(), { now: NOW, clientFactory: stubClientFactory() });
     const view = proposalsView(state!);
     assert.equal(view.available, false, "queue omitted → proposalsView reports local-only, no network call");
+  });
+});
+
+describe("Ask HartOS → spine WRITE (Phase E / Gap E)", () => {
+  const ASK_URL = "https://fn.example.supabase.co/functions/v1/persist-cockpit-proposal";
+  const TOKEN = "ask-write-token-DO-NOT-LEAK";
+  const writeEnv = { [ASK_WRITE_ENV.url]: ASK_URL, [ASK_WRITE_ENV.token]: TOKEN };
+
+  const proposals: ActionProposal[] = [
+    {
+      id: `prop-build-a-tax-agent-${NOW}`, domain: "factory", actionType: "agent_creation_plan",
+      title: "Build a Tax Agent", description: "", sourceIntent: "create a tax agent",
+      proposedPayload: {}, expectedEffect: "", riskLevel: "medium", requiredApproval: "Hart",
+      status: "draft", createdAt: NOW, expiresAt: null, safetyNotes: [], blockedReason: "",
+      dryRunResult: null, executable: false,
+    },
+  ];
+
+  it("stays advisory (no network call) when the write env is absent — read-only default", async () => {
+    let called = false;
+    const fetchImpl: WriteFetch = async () => { called = true; return { ok: true, status: 200, json: async () => ({}) }; };
+    const r = await persistCockpitProposals({}, proposals, { now: NOW, fetchImpl });
+    assert.equal(r.attempted, false);
+    assert.equal(called, false, "must NOT call the endpoint when unconfigured");
+  });
+
+  it("posts content-stable, non-executable rows with a bearer token and reports the count", async () => {
+    let seenUrl = "";
+    let seenAuth = "";
+    let seenBodyRaw = "";
+    const fetchImpl: WriteFetch = async (url, init) => {
+      seenUrl = url;
+      seenAuth = init.headers.authorization;
+      seenBodyRaw = init.body;
+      return { ok: true, status: 200, json: async () => ({ persisted: 1, failed: 0 }) };
+    };
+    const r = await persistCockpitProposals(writeEnv, proposals, { now: NOW, sourceIntent: "create a tax agent", fetchImpl });
+    assert.equal(r.attempted, true);
+    assert.equal(r.persisted, 1);
+    assert.equal(seenUrl, ASK_URL);
+    assert.equal(seenAuth, `Bearer ${TOKEN}`);
+    const body = JSON.parse(seenBodyRaw) as { proposals: Array<{ id: string; payload: { executable: boolean } }> };
+    assert.equal(body.proposals.length, 1);
+    assert.equal(body.proposals[0]!.id, "prop-factory-agent_creation_plan-build-a-tax-agent");
+    assert.equal(body.proposals[0]!.payload.executable, false);
+  });
+
+  it("never leaks the write token, even on a failed write", async () => {
+    const fetchImpl: WriteFetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
+    const r = await persistCockpitProposals(writeEnv, proposals, { now: NOW, fetchImpl });
+    assert.equal(r.attempted, true);
+    assert.equal(r.persisted, 0);
+    assert.ok(!JSON.stringify(r).includes(TOKEN), "token must never appear in the result");
+  });
+
+  it("fails safe (never throws) when the endpoint is unreachable", async () => {
+    const fetchImpl: WriteFetch = async () => { throw new Error("network down"); };
+    const r = await persistCockpitProposals(writeEnv, proposals, { now: NOW, fetchImpl });
+    assert.equal(r.attempted, true);
+    assert.equal(r.failed, 1);
+    assert.equal(r.reason, "write endpoint unreachable");
   });
 });

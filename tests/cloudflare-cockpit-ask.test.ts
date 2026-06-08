@@ -14,6 +14,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { handleCockpitRequest, createCockpitWorkerContext } from "../src/runtime/cloudflare-cockpit-worker.js";
 import type { CockpitWorkerContext } from "../src/runtime/cloudflare-cockpit-types.js";
+import type { ActionProposal } from "../src/cockpit/proposals/proposal-types.js";
+import type { ProposalPersistResult } from "../src/runtime/cloudflare-live-read-models.js";
 
 const base = "https://cockpit.local";
 
@@ -94,5 +96,36 @@ describe("hosted /api/ask + read-only data routes", () => {
   it("has no mutation route: POST /api/freshness is 404", async () => {
     const res = await handleCockpitRequest(new Request(`${base}/api/freshness`, { method: "POST", body: "{}" }), {}, ctx);
     assert.equal(res.status, 404);
+  });
+
+  // ── Phase E (Gap E) — Ask HartOS → proposal IN THE QUEUE ───────────────────
+  it("persists generated proposal drafts via the gated writer (Gap E)", async () => {
+    let calls = 0;
+    let captured: ActionProposal[] = [];
+    const writer = async (proposals: ActionProposal[]): Promise<ProposalPersistResult> => {
+      calls += 1;
+      captured = proposals;
+      return { attempted: true, persisted: proposals.length, failed: 0, reason: "ok" };
+    };
+    const res = await handleCockpitRequest(post("Create a tax agent"), {}, { ...ctx, proposalWriteProvider: writer });
+    const data = (await res.json()) as { proposalCount: number; persistence: { attempted: boolean; persisted: number } };
+    assert.ok(data.proposalCount >= 1, "a build request should generate a draft proposal");
+    assert.equal(calls, 1, "the writer is invoked once when proposals exist");
+    assert.equal(captured.length, data.proposalCount);
+    assert.equal(data.persistence.attempted, true);
+    assert.equal(data.persistence.persisted, data.proposalCount);
+  });
+
+  it("does NOT invoke the writer for status questions (zero proposals → advisory)", async () => {
+    let calls = 0;
+    const writer = async (): Promise<ProposalPersistResult> => {
+      calls += 1;
+      return { attempted: true, persisted: 0, failed: 0, reason: "ok" };
+    };
+    const res = await handleCockpitRequest(post("What needs my attention today?"), {}, { ...ctx, proposalWriteProvider: writer });
+    const data = (await res.json()) as { proposalCount: number; persistence: { attempted: boolean } };
+    assert.equal(data.proposalCount, 0);
+    assert.equal(calls, 0, "no proposals → writer never called");
+    assert.equal(data.persistence.attempted, false);
   });
 });
