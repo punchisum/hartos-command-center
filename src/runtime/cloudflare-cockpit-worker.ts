@@ -60,6 +60,7 @@ import {
   resolveHostedCockpitState,
   resolveAgentDetail,
   persistCockpitProposals,
+  resolveCockpitThreads,
   type ProposalPersistResult,
 } from "./cloudflare-live-read-models.js";
 import {
@@ -208,6 +209,12 @@ export async function handleCockpitRequest(
       return jsonResponse(200, { reports: ctx.reports ?? [] }, cors);
     }
     if (pathname === "/api/threads") {
+      // Phase D — prefer the Supabase thread spine (so the hosted Worker shows
+      // threads that are no longer local-only); fall back to the local list.
+      if (ctx.threadsProvider) {
+        const threads = await ctx.threadsProvider().catch(() => null);
+        if (threads) return jsonResponse(200, { threads }, cors);
+      }
       return jsonResponse(200, { threads: ctx.threads ?? [] }, cors);
     }
     if (pathname === "/api/freshness") {
@@ -530,6 +537,7 @@ export default {
       controlSurfaceProvider: async () => resolveHostedControlSurface(env),
       agentDetailProvider: async (domain) => resolveAgentDetail(env, domain),
       proposalWriteProvider: async (proposals, sourceIntent) => persistCockpitProposals(env, proposals, { sourceIntent }),
+      threadsProvider: async () => resolveCockpitThreads(env),
     });
   },
 };

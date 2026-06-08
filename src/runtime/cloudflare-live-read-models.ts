@@ -64,6 +64,12 @@ import {
   proposalToSpineRow,
 } from "../cockpit/proposals/cockpit-proposal-spine.js";
 import { containsSecret } from "../llm/redaction.js";
+import {
+  COCKPIT_THREADS_RPC,
+  coerceCockpitThreadRows,
+  mapRowToThreadSummary,
+  type CockpitThreadSummary,
+} from "../cockpit/threads/cockpit-thread-spine.js";
 
 type Env = Record<string, string | undefined>;
 
@@ -307,6 +313,33 @@ export async function resolveCockpitProposals(
   try {
     const body = await client.readRpc(COCKPIT_PROPOSALS_RPC, { p_limit: options.limit ?? 50 });
     return coerceCockpitProposalRows(body).map(mapRowToProposalQueueItem);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Phase D — read the cockpit THREAD spine LIVE from the fitness project via the
+ * anon, read-only RPC (mirrors resolveCockpitProposals). Anon key only
+ * (service-role refused), sent as a header, never echoed. Returns the thread
+ * summaries (possibly empty) on success, or null when the fitness env is absent /
+ * a service-role key is presented / the read fails — in which case /api/threads
+ * falls back to the (empty on hosted) local list rather than fabricating data.
+ */
+export async function resolveCockpitThreads(
+  env: Env,
+  options: { fetchImpl?: FetchLike; limit?: number } = {},
+): Promise<CockpitThreadSummary[] | null> {
+  const url = env[HOSTED_READ_MODEL_ENV.fitnessUrl];
+  const key = env[HOSTED_READ_MODEL_ENV.fitnessKey];
+  if (!url || !key || isServiceRoleKey(key)) return null;
+  const client = new SupabaseReadClient(
+    { url, key, allowedTables: [], allowedRpcs: [COCKPIT_THREADS_RPC] },
+    options.fetchImpl,
+  );
+  try {
+    const body = await client.readRpc(COCKPIT_THREADS_RPC, { p_limit: options.limit ?? 50 });
+    return coerceCockpitThreadRows(body).map(mapRowToThreadSummary);
   } catch {
     return null;
   }

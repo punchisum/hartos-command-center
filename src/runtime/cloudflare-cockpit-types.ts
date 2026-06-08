@@ -17,6 +17,7 @@ import type { AgentDetail } from "../read-models/agent-detail.js";
 import type { GenericAgentDetail } from "../read-models/agent-detail-registry.js";
 import type { ActionProposal } from "../cockpit/proposals/proposal-types.js";
 import type { ProposalPersistResult } from "./cloudflare-live-read-models.js";
+import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spine.js";
 
 /** Server-side env available to the hosted cockpit. Values are NEVER exposed. */
 export type CloudflareCockpitEnv = Record<string, string | undefined>;
@@ -64,6 +65,13 @@ export interface CockpitWorkerContext {
    * advisory (no write). Must never throw.
    */
   proposalWriteProvider?: (proposals: ActionProposal[], sourceIntent: string) => Promise<ProposalPersistResult>;
+  /**
+   * Phase D — lazy LIVE thread-spine reader. Called only for GET /api/threads,
+   * AFTER auth. Returns the thread summaries from Supabase (so the hosted Worker
+   * shows threads that no longer live only on the filesystem), or null to fall
+   * back to the (empty on hosted) local list. Never throws.
+   */
+  threadsProvider?: () => Promise<CockpitThreadSummary[] | null>;
 }
 
 /** Result of a deploy-gate check, following the Factory gate doctrine. */

@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import {
   resolveHostedCockpitState,
   resolveCockpitProposals,
+  resolveCockpitThreads,
   persistCockpitProposals,
   hostedReadModelsConfigured,
   buildHostedReadModelRegistry,
@@ -422,5 +423,60 @@ describe("Ask HartOS → spine WRITE (Phase E / Gap E)", () => {
     assert.equal(r.attempted, true);
     assert.equal(r.failed, 1);
     assert.equal(r.reason, "write endpoint unreachable");
+  });
+});
+
+describe("hosted thread spine — live read (Phase D / Gap D)", () => {
+  function fitnessEnv(): Record<string, string> {
+    return {
+      [HOSTED_READ_MODEL_ENV.fitnessUrl]: "https://fit.example.supabase.co",
+      [HOSTED_READ_MODEL_ENV.fitnessKey]: ANON_KEY,
+    };
+  }
+  function threadFetch(rows: unknown): FetchLike {
+    return async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (url.includes("/rpc/get_cockpit_threads") ? rows : []),
+    });
+  }
+  const ROW = {
+    thread_id: "thread-1", created_at: NOW, updated_at: NOW, entry_count: 2,
+    latest_request: "Create a tax agent", latest_intent: "build_agent", latest_summary: "Build plan drafted.",
+  };
+
+  it("resolveCockpitThreads maps spine rows to summaries", async () => {
+    const items = await resolveCockpitThreads(fitnessEnv(), { fetchImpl: threadFetch([ROW]) });
+    assert.ok(items, "rows should resolve");
+    assert.equal(items!.length, 1);
+    assert.equal(items![0]!.threadId, "thread-1");
+    assert.equal(items![0]!.entryCount, 2);
+    assert.equal(items![0]!.latestIntent, "build_agent");
+  });
+
+  it("returns null when a service-role key is presented (never reads)", async () => {
+    const env = {
+      [HOSTED_READ_MODEL_ENV.fitnessUrl]: "https://fit.example.supabase.co",
+      [HOSTED_READ_MODEL_ENV.fitnessKey]: "service_role_secret_key",
+    };
+    assert.equal(await resolveCockpitThreads(env, { fetchImpl: threadFetch([ROW]) }), null);
+  });
+
+  it("never leaks the anon key into the summaries", async () => {
+    const items = await resolveCockpitThreads(fitnessEnv(), { fetchImpl: threadFetch([ROW]) });
+    assert.equal(JSON.stringify(items).includes(ANON_KEY), false);
+  });
+
+  it("GET /api/threads serves the spine via threadsProvider (no longer local-only)", async () => {
+    const res = await handleCockpitRequest(new Request("https://c/api/threads"), {}, {
+      runtimeMode: "hosted",
+      threadsProvider: async () => [
+        { threadId: "thread-1", createdAt: NOW, updatedAt: NOW, entryCount: 2, latestRequest: "Create a tax agent", latestIntent: "build_agent", latestSummary: "Build plan drafted." },
+      ],
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { threads: Array<{ threadId: string }> };
+    assert.equal(body.threads.length, 1);
+    assert.equal(body.threads[0]!.threadId, "thread-1");
   });
 });
