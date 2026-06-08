@@ -95,6 +95,49 @@ async function handleTransition(
   return json(200, { ok: changed, status: changed ? t.to : null });
 }
 
+/** Phase 3 — the refresh-sync action's server side: count / conditionally-expire past-due
+ *  draft|pending proposals (HartOS's OWN queue) + an append-only audit row. The Node
+ *  executor enforces the fail-closed gate BEFORE calling this; this only ever expires
+ *  already-stale rows, so it's reversible-low-stakes + idempotent. mode "count" never writes. */
+async function handleRefreshSync(
+  refresh: { mode?: unknown },
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
+  const mode = refresh.mode === "expire" ? "expire" : "count";
+  const nowIso = new Date().toISOString();
+  const headers = { "content-type": "application/json", apikey: serviceKey, authorization: `Bearer ${serviceKey}` };
+  const filter = `status=in.(draft,pending_approval)&expires_at=lt.${encodeURIComponent(nowIso)}`;
+
+  if (mode === "count") {
+    const res = await fetch(`${supabaseUrl}/rest/v1/cockpit_proposals?${filter}&select=id`, { headers: { ...headers, prefer: "count=exact" } });
+    if (!res.ok) return json(502, { ok: false, error: `count failed (${res.status})` });
+    const range = res.headers.get("content-range") ?? "*/0";
+    const total = Number(range.split("/")[1] ?? "0");
+    await res.text().catch(() => "");
+    return json(200, { ok: true, mode, count: Number.isFinite(total) ? total : 0 });
+  }
+
+  const patch = await fetch(`${supabaseUrl}/rest/v1/cockpit_proposals?${filter}`, {
+    method: "PATCH",
+    headers: { ...headers, prefer: "return=representation" },
+    body: JSON.stringify({ status: "expired", updated_at: nowIso }),
+  });
+  if (!patch.ok) {
+    const detail = await patch.text().catch(() => "");
+    return json(502, { ok: false, error: `expire failed (${patch.status})`, detail: detail.slice(0, 200) });
+  }
+  const rows = (await patch.json().catch(() => [])) as unknown[];
+  const expired = Array.isArray(rows) ? rows.length : 0;
+  // Append-only audit — the durable proof this execution ran.
+  await fetch(`${supabaseUrl}/rest/v1/cockpit_proposal_audit`, {
+    method: "POST",
+    headers: { ...headers, prefer: "return=minimal" },
+    body: JSON.stringify({ proposal_id: "refresh-sync", event: "refresh_sync_executed", to_status: `expired:${expired}`, at: nowIso }),
+  }).catch(() => {});
+  return json(200, { ok: true, mode, expired });
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method !== "POST") return json(405, { error: "method not allowed" });
 
@@ -119,6 +162,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const transition = (parsed as { transition?: { id?: unknown; action?: unknown } })?.transition;
   if (transition && typeof transition === "object") {
     return await handleTransition(transition, supabaseUrl, serviceKey);
+  }
+
+  // Phase 3 — the refresh-sync action (count / expire past-due proposals + audit).
+  const refresh = (parsed as { refresh_sync?: { mode?: unknown } })?.refresh_sync;
+  if (refresh && typeof refresh === "object") {
+    return await handleRefreshSync(refresh, supabaseUrl, serviceKey);
   }
 
   const incoming = Array.isArray((parsed as { proposals?: unknown[] })?.proposals) ? (parsed as { proposals: unknown[] }).proposals : [];
