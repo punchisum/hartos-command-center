@@ -16,9 +16,11 @@
  * cockpit_proposals to "expired" + writes one durable audit row. Reversible + idempotent
  * (a re-run expires 0). Touches no external system.
  *
- * Env (load via `node --env-file-if-exists=.env.local`; values are NEVER printed):
- *   HARTOS_ASK_WRITE_URL          persist-cockpit-proposal function URL
- *   HARTOS_ASK_WRITE_TOKEN        shared capability token (Bearer) — same one as cockpit:ask
+ * Transport (pick ONE; the DB path is preferred + needs no new secret):
+ *   HARTOS_SUPABASE_DB_URL        elevated pg URL — the executor store the adapter was built for
+ *   HARTOS_ASK_WRITE_URL + _TOKEN persist-cockpit-proposal function URL + capability token
+ *
+ * Arming (load via `node --env-file-if-exists=.env.local`; values are NEVER printed):
  *   ALLOW_EXEC_REFRESH_SYNC       "true" arms the one action (default-absent = OFF)
  *   HARTOS_EXECUTION_KILL_SWITCH  "on" overrides everything (global stop)
  *
@@ -29,38 +31,64 @@
  */
 
 import { runRefreshSync, type RefreshSyncProposal } from "../src/execution/run-refresh-sync.js";
-import { REFRESH_SYNC_FLAG } from "../src/execution/adapters/refresh-sync.js";
+import { createRefreshSyncDb, EXECUTOR_DB_URL_ENV } from "../src/execution/run-refresh-sync-db.js";
+import { REFRESH_SYNC_FLAG, type RefreshSyncStore } from "../src/execution/adapters/refresh-sync.js";
 import { KILL_SWITCH_ENV } from "../src/execution/execution-adapter.js";
 
 const env = process.env;
 const execute = process.argv.includes("--execute");
 
-// Fail fast + clearly if the endpoint isn't configured (report NAMES only, never values).
-const missing = ["HARTOS_ASK_WRITE_URL", "HARTOS_ASK_WRITE_TOKEN"].filter((k) => !env[k] || !String(env[k]).trim());
-if (missing.length) {
-  console.error(`Cannot reach the Edge Function — missing env: ${missing.join(", ")}.`);
-  console.error("Load it with:  node --env-file-if-exists=.env.local dist/scripts/run-canary-refresh-sync.js");
-  console.error("URL = the persist-cockpit-proposal function URL; TOKEN = the same capability token as `npm run cockpit:ask`.");
+// Two transports, both Node-only + both behind the SAME gate. Prefer the elevated DB
+// credential (the executor path the adapter was designed for); fall back to the Edge
+// Function capability token. The store is the only thing that differs.
+const hasDb = Boolean(env[EXECUTOR_DB_URL_ENV]?.trim());
+const hasEdge = Boolean(env.HARTOS_ASK_WRITE_URL?.trim() && env.HARTOS_ASK_WRITE_TOKEN?.trim());
+if (!hasDb && !hasEdge) {
+  console.error("No executor credential found. Set ONE of (report NAMES only, never values):");
+  console.error(`  • ${EXECUTOR_DB_URL_ENV}  (elevated pg URL — preferred; you already have this)`);
+  console.error("  • HARTOS_ASK_WRITE_URL + HARTOS_ASK_WRITE_TOKEN  (Edge Function capability token)");
+  console.error("Load .env.local with:  node --env-file-if-exists=.env.local dist/scripts/run-canary-refresh-sync.js");
   process.exit(1);
 }
 
-let endpointHost = "(unparseable URL)";
-try { endpointHost = new URL(String(env.HARTOS_ASK_WRITE_URL)).host; } catch { /* keep placeholder */ }
-
+const transport: "db" | "edge" = hasDb ? "db" : "edge";
 const flag = env[REFRESH_SYNC_FLAG];
 const killOn = (env[KILL_SWITCH_ENV] ?? "").trim().toLowerCase() === "on";
 
 console.log("HartOS Phase 3 canary — refresh-sync");
-console.log(`  endpoint:                     ${endpointHost}`);
+console.log(`  transport:                    ${transport === "db" ? `elevated DB (${EXECUTOR_DB_URL_ENV})` : "Edge Function capability token"}`);
 console.log(`  mode:                         ${execute ? "EXECUTE (writes IF the gate allows)" : "dry-run (count only, no write)"}`);
 console.log(`  ${REFRESH_SYNC_FLAG} = ${flag === "true" ? "true (ARMED)" : flag ? `${JSON.stringify(flag)} (not "true" → OFF)` : "unset (OFF)"}`);
 console.log(`  ${KILL_SWITCH_ENV} = ${killOn ? "on (BLOCKS ALL execution)" : "off"}`);
+
+// Open the executor transport. The DB path validates TLS up front (strict; relax only on a
+// genuine cert-chain failure, and say so).
+let dbHandle: Awaited<ReturnType<typeof createRefreshSyncDb>> = null;
+if (transport === "db") {
+  try {
+    dbHandle = await createRefreshSyncDb(env);
+  } catch (e) {
+    console.error(`\nCould not connect via ${EXECUTOR_DB_URL_ENV}: ${e instanceof Error ? e.message : String(e)}`);
+    process.exit(1);
+  }
+  if (dbHandle) {
+    console.log(`  tls:                          ${dbHandle.tlsMode === "relaxed"
+      ? "relaxed  ⚠ pooler cert did not chain — verification relaxed for THIS run (supply the Supabase CA to fix)"
+      : "strict (chain-verified)"}`);
+  }
+}
+const store: RefreshSyncStore | undefined = dbHandle?.store;
 console.log("");
 
 // The authorization envelope (see HONEST LIMIT above — status is asserted, not DB-verified).
 const proposal: RefreshSyncProposal = { id: "canary-refresh-sync", status: "approved_for_execution", expiresAt: null };
 
-const result = await runRefreshSync(proposal, env, { dryRun: !execute });
+let result;
+try {
+  result = await runRefreshSync(proposal, env, { dryRun: !execute, store, hasCapabilityToken: transport === "db" ? true : undefined });
+} finally {
+  if (dbHandle) await dbHandle.close();
+}
 
 if (!execute) {
   console.log(`Dry-run: ${result.outcome?.summary ?? "(no outcome returned)"}`);

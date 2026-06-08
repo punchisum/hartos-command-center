@@ -48,7 +48,7 @@ export interface RefreshSyncProposal {
 export async function runRefreshSync(
   proposal: RefreshSyncProposal,
   env: Record<string, string | undefined>,
-  opts: { now?: string; fetchImpl?: FetchLike; dryRun?: boolean } = {},
+  opts: { now?: string; fetchImpl?: FetchLike; dryRun?: boolean; store?: RefreshSyncStore; hasCapabilityToken?: boolean } = {},
 ): Promise<AdapterRunResult> {
   const now = opts.now ?? new Date().toISOString();
   const ctx: ExecutionContext = {
@@ -56,10 +56,13 @@ export async function runRefreshSync(
     status: proposal.status,
     expiresAt: proposal.expiresAt,
     now,
-    hasCapabilityToken: Boolean(env.HARTOS_ASK_WRITE_TOKEN),
+    // Write authorization = a capability token (Edge Function) OR the elevated Node DB
+    // credential (the pg executor store). An explicit override wins when the caller knows.
+    hasCapabilityToken: opts.hasCapabilityToken ?? Boolean(env.HARTOS_ASK_WRITE_TOKEN || env.HARTOS_SUPABASE_DB_URL),
     env,
   };
-  const store = liveRefreshSyncStore(env, opts.fetchImpl);
+  // Default transport is the capability-token Edge Function; callers may inject the pg store.
+  const store = opts.store ?? liveRefreshSyncStore(env, opts.fetchImpl);
   const writeAudit = async (event: string, detail: string): Promise<void> => {
     // Framework-level trace; the DURABLE audit row is written by the Edge Function's expire op.
     console.log(`[exec-audit] ${event}: ${detail}`);
