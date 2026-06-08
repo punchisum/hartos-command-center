@@ -164,6 +164,15 @@ describe("ops panel", () => {
     assert.ok(p.highlights.some((h) => h.includes("3 urgent")));
     assert.ok(/Triage 1 blocked/.test(p.fields.find((f) => f.key === "next_action")!.value));
   });
+
+  it("triage core drives next_action: blocked ranked before higher-count urgent, with a priority queue", () => {
+    const rm: ReadModelRegistrySummary = { ...emptyReadModels(), configPresent: true, configuredReadModels: 1, enabledReadModels: 1, summaries: [rmSummary("ops", { activeCards: "20", urgentCards: "5", blockedCards: "1", staleCards: "2" })] };
+    const p = buildOpsPanel(baseInputs({ readModels: rm }));
+    assert.match(p.fields.find((f) => f.key === "next_action")!.value, /Triage 1 blocked/); // blocked wins despite urgent=5
+    const q = p.fields.find((f) => f.key === "triage_queue");
+    assert.ok(q, "surfaces the full priority queue, not just one action");
+    assert.match(q!.value, /blocked 1 → urgent 5/);
+  });
 });
 
 describe("factory panel", () => {

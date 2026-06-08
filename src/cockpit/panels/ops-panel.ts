@@ -15,6 +15,7 @@ import { deriveOpsSource } from "../sources/ops-source.js";
 import type { DomainPanel, DomainPanelStatus, PanelField, PanelFieldStatus } from "./panel-types.js";
 import { okField, unavailableField, fieldFromSource } from "./panel-types.js";
 import type { PanelInputs } from "./panel-inputs.js";
+import { triageOps, opsSignalsFromSource } from "../../ops/triage-core.js";
 
 const ENABLE_READMODEL_STEP =
   "Enable an ops read-model in read-models.local.json (mode supabase_readonly) and run `npm run read-models:status`.";
@@ -88,9 +89,11 @@ export function buildOpsPanel(inputs: PanelInputs): DomainPanel {
   }
 
   // ── report-derived fields (DD/analyse + recent reports) ──
+  // De-dupe: cards now each carry their own evidence links (see ops-agent-adapter),
+  // so the same report can appear under multiple cards — collapse before classifying.
   const agentReports = agent?.cards.flatMap((c) => c.latestReportPaths) ?? [];
   const localReports = inputs.reports.filter((r) => r.dir.includes("report")).map((r) => r.relativePath);
-  const { dd, recent } = classifyReports([...agentReports, ...localReports]);
+  const { dd, recent } = classifyReports([...new Set([...agentReports, ...localReports])]);
   if (dd.length > 0) {
     fields.push(okField("dd_reports", "Latest DD / analyse reports", dd.slice(0, 3).join(", "), { source: "local reports", confidence: "medium" }));
     highlights.push(`${dd.length} DD/analyse report(s) available.`);
@@ -120,15 +123,19 @@ export function buildOpsPanel(inputs: PanelInputs): DomainPanel {
   if (src.values["active_cards"]) highlights.push(`${src.values["active_cards"]!.value} active card(s).`);
   if (src.values["pending_approvals"] && Number(src.values["pending_approvals"]!.value) > 0) highlights.push(`${src.values["pending_approvals"]!.value} pending approval(s).`);
 
-  // ── next operational action ──
-  let opAction: string;
-  if (blocked && Number(blocked) > 0) opAction = `Triage ${blocked} blocked/at-risk card(s) first.`;
-  else if (urgent && Number(urgent) > 0) opAction = `Action ${urgent} urgent card(s).`;
-  else if (waiting && Number(waiting) > 0) opAction = `Unblock ${waiting} card(s) waiting on Hart.`;
-  else if (stale && Number(stale) > 0) opAction = `Review ${stale} stale card(s) with no recent activity.`;
-  else if (detected) opAction = "No urgent/blocked signal detected from available sources — review latest sync + reports.";
-  else opAction = "Configure ops data sources before HartOS can recommend an operational action.";
-  fields.push(okField("next_action", "Next operational action", opAction, { source: "derived", confidence: "low" }));
+  // ── next operational action — deterministic TRIAGE core (impact-ranked) ──
+  // Ranks ALL fronts (not first-match), honest confidence (no longer hardcoded "low"),
+  // and a caveat when the import is stale so the counts aren't trusted blindly.
+  const triage = triageOps(opsSignalsFromSource(src));
+  const opAction = detected ? triage.primaryAction : "Configure ops data sources before HartOS can recommend an operational action.";
+  fields.push(okField("next_action", "Next operational action", opAction, { source: "derived (triage)", confidence: detected ? triage.confidence : "low" }));
+  if (detected && triage.queue.length) {
+    const q = triage.queue.map((i) => (i.count > 0 ? `${i.category} ${i.count}` : i.category)).join(" → ");
+    fields.push(okField("triage_queue", "Triage queue (priority order)", q, { source: "derived (triage)", confidence: triage.confidence }));
+  }
+  if (detected && triage.caveats.length) {
+    fields.push(okField("triage_caveat", "Triage caveat", triage.caveats.join(" "), { source: "derived (triage)", confidence: triage.confidence }));
+  }
 
   for (const card of agent?.cards ?? []) {
     for (const miss of card.missingSources) {

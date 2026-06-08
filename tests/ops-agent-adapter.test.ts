@@ -46,6 +46,15 @@ describe("ops agent adapter", () => {
     assert.ok(handoverCard.latestReportPaths.length >= 1);
   });
 
+  it("links evidence on the claim-bearing cards (fixes the zero-links bug)", async () => {
+    const rm2 = await buildOpsAgentReadModel(config, dir);
+    // Was: only card[1] carried report links → 3 of 4 cards were dead ends.
+    assert.ok(rm2.cards[0]!.latestReportPaths.length >= 1, "System Status links its latest report");
+    assert.ok(rm2.cards[3]!.latestReportPaths.length >= 1, "Recent Activity links the recent reports");
+    const cardsWithLinks = rm2.cards.filter((c) => c.latestReportPaths.length > 0).length;
+    assert.ok(cardsWithLinks >= 3, `expected ≥3 cards to carry evidence, got ${cardsWithLinks}`);
+  });
+
   it("never surfaces executable/mutation actions", async () => {
     const rm2 = await buildOpsAgentReadModel(config, dir);
     for (const card of rm2.cards) {

@@ -62,10 +62,15 @@ export async function buildOpsAgentReadModel(
 
   const status: AgentStatus = !repoDetected && config.repoPath ? "missing" : missingSources.length > 0 ? "degraded" : "ok";
 
+  // Each claim-bearing card now links the evidence behind it (was: only the
+  // Reports/Handover card carried links → 3 of 4 cards were dead ends). The Known-Gaps
+  // card intentionally carries no report links — its evidence is the missingSources it
+  // already lists, not a report.
   const cards: AgentStatusCard[] = [
     {
       ...baseCard(config, status),
       missingSources,
+      latestReportPaths: repoDetected ? reports.slice(0, 1) : [],
       summary: repoDetected
         ? `Ops agent repo detected at ${config.repoPath}.`
         : "Ops agent repo not found at the configured path.",
@@ -86,6 +91,7 @@ export async function buildOpsAgentReadModel(
     },
     {
       ...baseCard(config, status),
+      latestReportPaths: reports.slice(0, 3),
       summary: lastActivity ? `Most recent local activity: ${lastActivity}.` : "No recent local activity detected.",
       metrics: lastActivity ? { lastActivity } : {},
     },
