@@ -26,6 +26,7 @@ import { generateProposals, type GateEnv } from "./proposals/index.js";
 import { planAgentCreation } from "./agent-planner/index.js";
 import type { SourceDiagnosticsReport } from "./sources/index.js";
 import { buildFreshnessReport, type FreshnessReport, type FreshnessVerdict } from "./freshness-surface.js";
+import { planResearch } from "../research/research-planner.js";
 
 export type CockpitIntent =
   | "system_status"
@@ -36,6 +37,7 @@ export type CockpitIntent =
   | "build_agent"
   | "improve_agent"
   | "strategy_review"
+  | "research"
   | "read_model_status"
   | "proposal_list"
   | "proposal_reject"
@@ -189,6 +191,11 @@ export function detectCockpitIntent(request: string): { intent: CockpitIntent; m
   // 2. Strategy / Prophet style (explicit, before status so "what am I missing" wins).
   m = has(t, "highest leverage", "high leverage", "leverage", "what am i missing", "what's missing", "what is missing", "cto review", "give me a cto", "strategy review", "blind spot", "next best move", "biggest opportunity");
   if (m.length) return { intent: "strategy_review", matchedKeywords: m };
+
+  // 2b. Research (Phase F1) — explicit research verbs only, so it never steals a
+  // build ("create … agent") or strategy ("explore", "what should I build") request.
+  m = has(t, "research", "investigate", "look into", "find out about", "dig into");
+  if (m.length) return { intent: "research", matchedKeywords: m };
 
   // 3. Improve an existing agent (before fitness/ops status, since it mentions them).
   const improveWords = has(t, "improve", "make better", "upgrade", "enhance", "level up");
@@ -769,6 +776,23 @@ function answerDailyBrief(ctx: IntentRouterContext): CockpitIntentResult {
   return base("daily_brief", "Daily Command Brief", lines.join("\n"), highlights, topN(gaps, 5), nextSteps, false);
 }
 
+/** Phase F1 — a deterministic research plan (decompose + name what to gather; never answer). */
+function answerResearch(ctx: IntentRouterContext): CockpitIntentResult {
+  const plan = planResearch(ctx.request);
+  const summary = [
+    `Research plan (${plan.shape}): ${plan.verdict} — ${plan.reason}`,
+    "",
+    "Sub-questions:",
+    ...plan.subQuestions.map((s, i) => `${i + 1}. ${s}`),
+    "",
+    `Needs gathering: ${plan.requiredInputs.join("; ")}.`,
+    `Risk: ${plan.risk}.`,
+    "Note: this PLANS the research and names what to gather — it does not fabricate answers; the sub-questions stay unanswered until sources are gathered.",
+  ].join("\n");
+  const highlights = [`${plan.verdict} — ${plan.shape}-shaped, risk ${plan.risk}.`, ...plan.subQuestions.slice(0, 3)];
+  return base("research", "Research plan", summary, highlights, plan.unknowns.slice(0, 5), [plan.recommendedNextAction], false);
+}
+
 function answerProposalList(ctx: IntentRouterContext): CockpitIntentResult {
   const q = ctx.proposalQueue ?? [];
   if (q.length === 0) {
@@ -881,6 +905,7 @@ export function routeCockpitIntent(ctx: IntentRouterContext): CockpitIntentResul
     case "build_agent": result = answerBuild(ctx); break;
     case "improve_agent": result = answerImprove(ctx); break;
     case "strategy_review": result = answerStrategy(ctx); break;
+    case "research": result = answerResearch(ctx); break;
     case "read_model_status": result = answerReadModelStatus(ctx); break;
     case "proposal_list": result = answerProposalList(ctx); break;
     case "proposal_reject": result = answerProposalRef("proposal_reject", "Reject proposal", "Proposal rejection"); break;

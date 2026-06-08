@@ -68,6 +68,17 @@ describe("hosted /api/ask + read-only data routes", () => {
     assert.equal((await handleCockpitRequest(post(big), {}, ctx)).status, 413);
   });
 
+  it("research questions route to a deterministic research plan (Phase F1)", async () => {
+    const res = await handleCockpitRequest(post("research a travel concierge product"), {}, ctx);
+    assert.equal(res.status, 200);
+    const data = (await res.json()) as { intent: string; title: string; summary: string; proposalCount: number };
+    assert.equal(data.intent, "research");
+    assert.match(data.title, /Research plan/);
+    assert.match(data.summary, /Sub-questions:/);
+    assert.match(data.summary, /does not fabricate answers/);
+    assert.equal(data.proposalCount, 0, "a research plan is not an action proposal");
+  });
+
   it("/api/freshness returns a read-only freshness view", async () => {
     const res = await handleCockpitRequest(new Request(`${base}/api/freshness`), {}, ctx);
     assert.equal(res.status, 200);
