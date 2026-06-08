@@ -1,22 +1,37 @@
 /**
  * src/runtime/cloudflare-cockpit-page.ts
  *
- * Phase 16 — the hosted Command Center cockpit HTML.
+ * Phase 16 / Blueprint v2 Phase C — the hosted Command Center cockpit HTML, in
+ * the "Mission Control" (Style 5) language: a sidebar shell, a computed system
+ * verdict, a fleet of expandable agent cards, ranked attention, and the real
+ * proposal / trust / freshness panels.
  *
- * Three variants, all read-only and secret-free:
+ * Four variants, all read-only and secret-free:
  *   - renderHostedCockpitPage(state, opts)  → the landing cockpit (authed)
+ *   - renderAgentDetailPage(detail, domain) → the full per-agent dashboard (Phase C)
  *   - renderLoginPage(opts)                 → the access-token login screen
- *   - renderLockedPage(opts)                → fail-closed page (auth misconfigured)
+ *   - renderLockedPage()                    → fail-closed page (auth misconfigured)
  *
- * The page is intentionally minimal: server-rendered, grounded sections
- * (Daily Command Brief, Attention Needed, Fitness, Ops, Freshness,
- * Factory/Proposals, Known Gaps) plus an Ask HartOS box that POSTs to /api/ask.
- * Action buttons render DISABLED. No secrets are ever embedded. All dynamic
- * text is HTML-escaped.
+ * Invariants (unchanged): server-rendered; no secrets ever embedded; every
+ * dynamic string HTML-escaped; honest about staleness (nothing fabricated); the
+ * verdict is computed from facts — the deterministic read-only path NEVER fakes
+ * an LLM "voice". The page works without JavaScript: all data is server-rendered
+ * and every agent card is a real link to its full dashboard; the Ask box is a
+ * progressive enhancement that POSTs to /api/ask.
  */
 
 import type { CockpitState } from "../cockpit/cockpit-types.js";
-import { routeHosted, freshnessView, proposalsView, fleetView } from "./cloudflare-cockpit-views.js";
+import {
+  routeHosted,
+  freshnessView,
+  proposalsView,
+  fleetView,
+  readModelStatusView,
+  type ReadModelStatusView,
+  type ProposalsView,
+  type FleetView,
+} from "./cloudflare-cockpit-views.js";
+import type { FreshnessReport } from "../cockpit/freshness-surface.js";
 import { ACTION_EXECUTION } from "./cloudflare-security.js";
 import type { AgentDetail } from "../read-models/agent-detail.js";
 
@@ -41,45 +56,108 @@ function escMultiline(s: string): string {
 }
 
 const STYLE = `
-:root{color-scheme:light dark}
 *{box-sizing:border-box}
-body{font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#0f1115;color:#e7e9ee}
-header{padding:16px 20px;border-bottom:1px solid #232733;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-header h1{font-size:17px;margin:0;font-weight:650}
-.badge{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #333a49;color:#aeb6c6}
-.badge.ro{border-color:#3b5;color:#7fdca0}
-main{max-width:920px;margin:0 auto;padding:20px}
-section{background:#161a22;border:1px solid #232733;border-radius:12px;padding:16px;margin:0 0 16px}
-section h2{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:#8b93a7;margin:0 0 10px}
-.verdict{display:inline-block;font-weight:700;padding:3px 10px;border-radius:8px;font-size:13px}
-.green{background:#15351f;color:#7fdca0;border:1px solid #265e38}
-.amber{background:#3a2f12;color:#e9c46a;border:1px solid #6a521f}
-.red{background:#3a1717;color:#f08f8f;border:1px solid #6a2626}
-.main-action{margin-top:10px;font-size:16px;font-weight:600}
-ol,ul{margin:8px 0;padding-left:20px}
-li{margin:3px 0}
-.muted{color:#8b93a7}
-.kv{margin:4px 0}
-.kv b{color:#cdd3df}
-pre.answer{white-space:pre-wrap;background:#0f1115;border:1px solid #232733;border-radius:8px;padding:12px;margin-top:12px}
-.ask-row{display:flex;gap:8px;margin-top:8px}
-.ask-row input[type=text]{flex:1;padding:10px;border-radius:8px;border:1px solid #333a49;background:#0f1115;color:#e7e9ee}
-button{padding:10px 16px;border-radius:8px;border:1px solid #333a49;background:#1d2330;color:#e7e9ee;cursor:pointer;font-weight:600}
-button:hover{background:#252c3c}
-button[disabled]{opacity:.45;cursor:not-allowed}
-.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.chip{font-size:12px;padding:4px 9px;border-radius:999px;border:1px solid #333a49;background:#10141c;color:#aeb6c6;cursor:pointer}
-.disabled-note{font-size:12px;color:#8b93a7;margin-top:6px}
-footer{max-width:920px;margin:0 auto;padding:0 20px 30px;color:#6b7384;font-size:12px}
-a{color:#7fb2ff}
-.login-card{max-width:420px;margin:8vh auto;padding:24px}
-.err{color:#f08f8f;font-size:13px;margin-top:8px;min-height:18px}
+:root{
+  --bg:#f3f6fa;--panel:#fff;--line:#e6eaf1;--line2:#eef2f7;
+  --txt:#1b2532;--dim:#5f6e80;--faint:#9aa6b6;
+  --green:#15a06a;--amber:#df8a0b;--red:#e0455a;--idle:#b3bdca;
+  --sg:#e7f6ef;--sa:#fcf3e2;--sb:#eef0fe;--sr:#fdecef;
+  --primary:#6b4ef0;--primaryH:#5b3fe0;--accent:#2f6df6;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13.5px;line-height:1.5}
+a{color:var(--accent);text-decoration:none}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;background:var(--line2);border-radius:5px;padding:1px 5px}
+.app{display:grid;grid-template-columns:208px 1fr;min-height:100vh}
+.side{background:var(--panel);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:3px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:800;padding:6px 8px 14px}
+.brand .mk{width:24px;height:24px;border-radius:7px;background:linear-gradient(135deg,var(--primary),#9a7bff);display:grid;place-items:center;color:#fff;font-size:13px}
+.nav{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;color:var(--dim);font-weight:600}
+.nav:hover{background:var(--bg)}
+.nav.active{background:var(--sb);color:var(--primary)}
+.nav .ic{width:16px;text-align:center;opacity:.85}
+.ro{margin-top:10px;font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--green);background:var(--sg);border-radius:6px;padding:5px 8px;text-align:center}
+.who{margin-top:auto;display:flex;align-items:center;gap:9px;padding:8px;color:var(--dim)}
+.who .av{width:28px;height:28px;border-radius:50%;background:#dfe5ee;display:grid;place-items:center;font-weight:700;color:#56697e}
+.main{padding:22px 26px;max-width:1180px}
+.head{display:flex;align-items:flex-start;gap:14px;margin-bottom:14px}
+.h1{font-size:21px;font-weight:800;letter-spacing:-.3px}
+.h1 a{color:var(--txt)}
+.sub{color:var(--faint);font-size:12.5px;margin-top:2px}
+.grow{flex:1}
+.statwrap{text-align:right}
+.statlbl{font-size:10px;letter-spacing:1px;color:var(--faint);font-weight:700}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:8px;font-weight:800;font-size:12px;margin-top:5px}
+.pill.g{background:var(--sg);color:var(--green)}.pill.a{background:var(--sa);color:var(--amber)}.pill.r{background:var(--sr);color:var(--red)}.pill.i{background:#eef1f5;color:var(--faint)}
+.badge2{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:8px;font-size:11px;font-weight:700;background:#eef1f5;color:var(--dim);margin-top:6px}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:0 0 auto}
+.g{background:var(--green)}.a{background:var(--amber)}.r{background:var(--red)}.i{background:var(--idle)}
+.ask{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:9px 12px;margin-bottom:14px;box-shadow:0 1px 2px rgba(20,40,70,.04)}
+.ask input{flex:1;border:none;outline:none;background:transparent;font:inherit;color:var(--txt)}
+.ask .send{width:30px;height:30px;border:none;border-radius:8px;background:var(--primary);color:#fff;cursor:pointer;font-size:14px}
+.ask .send:hover{background:var(--primaryH)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+.chip{font-size:11px;border:1px solid var(--line);border-radius:7px;padding:4px 9px;color:var(--dim);background:var(--panel);cursor:pointer}
+.chip:hover{border-color:var(--primary);color:var(--primary)}
+pre.answer{white-space:pre-wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin:0 0 14px;font:12.5px/1.5 var(--sans)}
+h2{font-size:11px;letter-spacing:1.2px;color:var(--faint);text-transform:uppercase;margin:20px 2px 10px;font-weight:800}
+.attn{border:1px solid var(--line);border-radius:13px;background:var(--panel);overflow:hidden;box-shadow:0 1px 2px rgba(20,40,70,.04)}
+.attn .row{display:flex;align-items:center;gap:13px;padding:12px 16px;border-top:1px solid var(--line2)}
+.attn .row:first-child{border-top:none}
+.rk{width:22px;height:22px;border-radius:50%;background:var(--sa);color:var(--amber);display:grid;place-items:center;font-weight:800;font-size:12px;flex:0 0 auto}
+.rk.ok{background:var(--sg);color:var(--green)}
+.rk.now{background:var(--sb);color:var(--primary)}
+.atext{flex:1}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.card{border:1px solid var(--line);border-radius:13px;background:var(--panel);padding:15px;display:flex;flex-direction:column;gap:9px;box-shadow:0 1px 2px rgba(20,40,70,.04);color:var(--txt)}
+.card:hover{border-color:#cdd5e6;box-shadow:0 6px 18px rgba(20,40,70,.08)}
+.ctop{display:flex;align-items:center;gap:8px}
+.ico{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:14px;background:var(--sb)}
+.cname{font-weight:800}
+.vpill{margin-left:auto;font-size:10px;font-weight:800;padding:3px 8px;border-radius:6px;background:#eef1f5;color:var(--faint)}
+.vpill.g{background:var(--sg);color:var(--green)}.vpill.a{background:var(--sa);color:var(--amber)}.vpill.r{background:var(--sr);color:var(--red)}
+.cstat{font-size:11px;color:var(--faint);font-weight:600}
+.facts{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--dim);font-size:12.5px}
+.facts b{color:var(--txt);font-weight:700}
+.sum{color:#3c4a59;border-top:1px solid var(--line2);padding-top:9px;font-size:12.5px;line-height:1.45}
+.meta{display:flex;align-items:center;gap:8px;margin-top:auto}
+.conf{font-size:10px;padding:3px 8px;border-radius:6px;font-weight:800;background:#eef1f5;color:var(--faint)}
+.conf.high{background:var(--sg);color:var(--green)}.conf.low{background:var(--sa);color:var(--amber)}
+.expandhint{margin-left:auto;font-size:11.5px;color:var(--primary);font-weight:700}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:14px}
+.box{border:1px solid var(--line);border-radius:13px;background:var(--panel);padding:15px 17px;box-shadow:0 1px 2px rgba(20,40,70,.04)}
+.blbl{color:var(--faint);font-size:10.5px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;margin-bottom:10px}
+.li{display:flex;align-items:center;gap:9px;padding:6px 0;color:var(--dim);font-size:12.5px}
+.li b{color:var(--txt)}
+.tag{margin-left:auto;font-size:10px;font-weight:800;border-radius:6px;padding:2px 8px;background:#eef2f7;color:var(--faint)}
+.tag.app{background:var(--sa);color:var(--amber)}.tag.loc{background:var(--sb);color:var(--primary)}.tag.ok{background:var(--sg);color:var(--green)}
+.muted{color:var(--faint);font-size:12px}
+.cap{color:var(--faint);font-size:11px;margin:18px 2px 0}
+footer{color:var(--faint);font-size:11.5px;margin-top:18px;padding-top:12px;border-top:1px solid var(--line2)}
+.verdict{display:inline-block;font-weight:800;padding:3px 10px;border-radius:8px;font-size:12px;background:#eef1f5;color:var(--faint)}
+.verdict.g,.verdict.green{background:var(--sg);color:var(--green)}
+.verdict.a,.verdict.amber{background:var(--sa);color:var(--amber)}
+.verdict.r,.verdict.red{background:var(--sr);color:var(--red)}
+.kv{margin:6px 0}.kv b{color:var(--txt)}
+.why{border-radius:11px;padding:12px 14px;font-size:12.5px;line-height:1.5;margin:10px 0;background:#eef1f5}
+.why.g{background:var(--sg)}.why.a{background:var(--sa)}.why.r{background:var(--sr)}
+.why .wt{font-weight:800;font-size:11px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px}
+th{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);color:var(--faint);font-size:11px;font-weight:700}
+td{padding:6px 10px;border-bottom:1px solid var(--line2)}
+.detail{max-width:920px;margin:0 auto}
+.detail section{margin-bottom:14px}
+.login-card{max-width:420px;margin:9vh auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;box-shadow:0 4px 16px rgba(20,40,70,.06)}
+.login-card h1{font-size:20px;margin:0 0 4px}
+.login-card input{width:100%;padding:10px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--txt);font:inherit;margin-top:10px}
+.btn{font:inherit;font-weight:700;border:1px solid var(--primary);background:var(--primary);color:#fff;border-radius:9px;padding:10px 16px;cursor:pointer}
+.btn:hover{background:var(--primaryH)}
+.err{color:var(--red);font-size:13px;margin-top:8px;min-height:18px}
+button[disabled]{opacity:.5;cursor:not-allowed}
+@media(max-width:980px){.app{grid-template-columns:1fr}.side{flex-direction:row;flex-wrap:wrap;border-right:none;border-bottom:1px solid var(--line)}.who{display:none}.grid4{grid-template-columns:repeat(2,1fr)}.grid3{grid-template-columns:1fr}}
 `;
 
-function verdictClass(v: string): string {
-  const lv = v.toLowerCase();
-  return lv === "green" || lv === "amber" || lv === "red" ? lv : "amber";
-}
+// ─── Shared shell + small helpers ─────────────────────────────────────────────
 
 function shell(title: string, bodyHtml: string): string {
   return (
@@ -92,23 +170,244 @@ function shell(title: string, bodyHtml: string): string {
   );
 }
 
+type Tone = "g" | "a" | "r" | "i";
+
+/**
+ * Map a verdict word to a traffic-light tone, honestly: when the agent can't be
+ * spoken to (unknown confidence / dead-or-unknown freshness) we fall to idle
+ * rather than implying green — except an outright red/error verdict still shows
+ * red. Covers both vocabularies (recovery green/amber/red and ops
+ * clear/waiting/stale/urgent + freshness words).
+ */
+function tone(verdict: string, confidence: string, freshness: string): Tone {
+  const lv = (verdict || "").toLowerCase();
+  const hit = (arr: string[]): boolean => arr.some((x) => lv.includes(x));
+  if (hit(["red", "urgent", "error", "fail", "missing"])) return "r";
+  const speakable = confidence !== "unknown" && freshness !== "dead" && freshness !== "unknown";
+  if (!speakable) return "i";
+  if (hit(["green", "clear", "ok", "good", "fresh", "live", "healthy"])) return "g";
+  if (hit(["amber", "warn", "waiting", "stale", "degraded", "partial", "blocked"])) return "a";
+  return "i";
+}
+
+const AGENT_ICON: Record<string, string> = { fitness: "🏃", ops: "📋", factory: "🏭", research: "🔬" };
+function agentIcon(type: string): string {
+  return AGENT_ICON[type] ?? "🤖";
+}
+function titleCase(s: string): string {
+  return s ? `${s[0]!.toUpperCase()}${s.slice(1)}` : s;
+}
+function prettyKey(k: string): string {
+  return k.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase();
+}
+
+function listHtml(items: string[], ordered = false): string {
+  if (items.length === 0) return `<p class="muted">None.</p>`;
+  const tag = ordered ? "ol" : "ul";
+  return `<${tag}>${items.map((i) => `<li>${escMultiline(i)}</li>`).join("")}</${tag}>`;
+}
+
+function box(label: string, inner: string, id?: string): string {
+  return `<div class="box"${id ? ` id="${id}"` : ""}><div class="blbl">${esc(label)}</div>${inner}</div>`;
+}
+
+// ─── Sidebar (chrome; every link has a real destination) ──────────────────────
+
+function sidebar(active: string): string {
+  const items: Array<[string, string, string, string]> = [
+    ["/", "⌂", "Home", "home"],
+    ["#fleet", "▦", "Agents", "fleet"],
+    ["#proposals", "≣", "Proposals", "proposals"],
+    ["#health", "♥", "System Health", "health"],
+    ["/control", "⟲", "Control Surface", "control"],
+  ];
+  const nav = items
+    .map(([href, ic, label, key]) => `<a class="nav${key === active ? " active" : ""}" href="${href}"><span class="ic">${ic}</span> ${label}</a>`)
+    .join("");
+  return (
+    `<aside class="side"><div class="brand"><span class="mk">◆</span> HartOS</div>` +
+    nav +
+    `<div class="ro">read-only</div>` +
+    `<div class="who"><span class="av">H</span><div><div style="font-weight:700;color:var(--txt)">Hart</div><div style="font-size:11px">Operator</div></div></div>` +
+    `</aside>`
+  );
+}
+
+// ─── Landing panels ───────────────────────────────────────────────────────────
+
+function fleetCard(agent: FleetView["agents"][number]): string {
+  const s = agent.signal;
+  const t = tone(s.verdict, s.confidence, s.freshness);
+  const metrics = s.facts
+    .filter((f) => f.key !== "read_status" && f.key !== "degraded_source" && f.value !== null && f.value !== "")
+    .slice(0, 3);
+  const factsHtml = metrics.length
+    ? metrics.map((f) => `<span><b>${esc(String(f.value))}</b> ${esc(prettyKey(f.key))}</span>`).join("")
+    : `<span class="muted">no metrics resolved</span>`;
+  const confClass = s.confidence === "high" ? "high" : "low";
+  return (
+    `<a class="card" href="/agent/${esc(agent.type)}/ui">` +
+    `<div class="ctop"><span class="ico">${agentIcon(agent.type)}</span><span class="cname">${esc(titleCase(agent.type))}</span>` +
+    `<span class="vpill ${t}">${esc(String(s.verdict).toUpperCase())}</span></div>` +
+    `<div class="cstat">${esc(s.freshness)}${s.approvalNeeded ? " · approval-gated" : ""}</div>` +
+    `<div class="facts">${factsHtml}</div>` +
+    `<div class="sum">${esc(s.reason)}</div>` +
+    `<div class="meta"><span class="conf ${confClass}">${esc(s.confidence.toUpperCase())} · ${esc(s.freshness)}</span><span class="expandhint">expand ↗</span></div>` +
+    `</a>`
+  );
+}
+
+function trustBox(rms: ReadModelStatusView, fr: FreshnessReport | null): string {
+  if (!rms.available) return box("Can I trust the system?", `<div class="muted">${esc(rms.note)}</div>`, "health");
+  const sourceTone = (status: string, freshness: string): Tone => {
+    if (freshness === "stale") return "a";
+    if (status === "ok") return freshness === "dead" || freshness === "unknown" ? "a" : "g";
+    if (status === "degraded") return "a";
+    return "i";
+  };
+  const rows = rms.domains
+    .map((d) => `<div class="li"><span class="dot ${sourceTone(d.status, d.freshness)}"></span>${esc(titleCase(d.domain))}<b style="margin-left:auto">${esc(d.freshness || d.status)}</b></div>`)
+    .join("");
+  const clickup = fr
+    ? `<div class="li"><span class="dot ${fr.clickup.stale ? "a" : "g"}"></span>ClickUp sync<b style="margin-left:auto">${fr.clickup.stale ? "stale" : "current"}</b></div>`
+    : "";
+  const inner = rows || clickup ? rows + clickup : `<div class="muted">No sources resolved.</div>`;
+  return box("Can I trust the system?", inner, "health");
+}
+
+function proposalBox(props: ProposalsView): string {
+  if (!props.available || props.total === 0) {
+    const note = props.available ? "No proposals in the queue." : props.note;
+    return box("Proposal queue", `<div class="muted">${esc(note)}</div>`, "proposals");
+  }
+  const head = `<div class="li"><b>${props.total}</b>&nbsp;total${props.pending ? ` · ${props.pending} pending` : ""}</div>`;
+  const rows = props.proposals
+    .slice(0, 6)
+    .map((p) => {
+      const pending = p.status === "pending_approval" || p.status === "draft";
+      const tg = pending ? "app" : "ok";
+      const label = p.status === "pending_approval" ? "needs approval" : p.status;
+      return `<div class="li">${esc(p.title)} <span class="tag ${tg}">${esc(label)}</span></div>`;
+    })
+    .join("");
+  return box("Proposal queue", head + rows, "proposals");
+}
+
+function freshBox(fr: FreshnessReport | null): string {
+  if (!fr) return box("Data freshness", `<div class="muted">Freshness unavailable (no live read-model data resolved).</div>`);
+  const v = tone(fr.verdict, "high", "live");
+  const domains = fr.domains
+    .map((d) => {
+      const dt: Tone = d.state === "fresh" ? "g" : d.state === "unavailable" ? "i" : "a";
+      return `<div class="li"><span class="dot ${dt}"></span>${esc(titleCase(d.domain))}<b style="margin-left:auto">${esc(d.state)}</b></div>`;
+    })
+    .join("");
+  return box(
+    "Data freshness",
+    `<div class="kv"><span class="verdict ${v}">${esc(fr.verdict.toUpperCase())}</span> ${esc(fr.verdictReason)}</div>` +
+      domains +
+      `<div class="muted" style="margin-top:8px">Safe next step: ${esc(fr.safeNextStep)}</div>`,
+  );
+}
+
+/** The authed landing cockpit. Grounded, read-only, server-rendered. */
+export function renderHostedCockpitPage(state: CockpitState | undefined, opts: HostedPageOptions = {}): string {
+  const now = opts.now ?? opts.generatedAt ?? state?.generatedAt ?? "";
+  const brief = routeHosted(state, "Daily command brief");
+  const fr = freshnessView(state, now);
+  const props = proposalsView(state);
+  const fleet = fleetView(state, now);
+  const rms = readModelStatusView(state);
+
+  const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
+  const mainAction = (brief.highlights.find((h) => h.startsWith("Main action:")) ?? "Main action: review the cockpit.").replace(/^Main action:\s*/i, "");
+  const attention = brief.highlights.filter((h) => !h.startsWith("Overall:") && !h.startsWith("Main action:"));
+  const sysTone = tone(overall, "high", "live");
+
+  const header =
+    `<div class="head">` +
+    `<div><div class="h1">Command Center</div><div class="sub">Mission Control · fleet overview</div></div>` +
+    `<div class="grow"></div>` +
+    `<div class="statwrap"><div class="statlbl">SYSTEM STATUS</div>` +
+    `<span class="pill ${sysTone}"><span class="dot ${sysTone}"></span>${esc(overall.toUpperCase())}</span>` +
+    `<div class="sub">${now ? `as of ${esc(now)}` : "no snapshot time"}</div>` +
+    `<div class="badge2">action execution: ${esc(ACTION_EXECUTION)}</div></div>` +
+    `</div>`;
+
+  const askBar =
+    `<form class="ask" id="ask-form" action="/api/ask" method="post">` +
+    `<input id="q" type="text" placeholder="Ask HartOS anything…" autocomplete="off" aria-label="Ask HartOS">` +
+    `<button class="send" id="ask" type="submit" title="Ask HartOS">&#10148;</button></form>` +
+    `<div class="chips">` +
+    ["What needs my attention today?", "Is my data fresh?", "Anything urgent in ops?", "Show pending proposals"]
+      .map((c) => `<span class="chip" data-q="${esc(c)}">${esc(c)}</span>`)
+      .join("") +
+    `</div>` +
+    `<pre class="answer" id="out" style="display:none"></pre>`;
+
+  const attentionRows =
+    `<div class="row"><span class="rk now">▸</span><span class="atext"><b>${escMultiline(mainAction)}</b></span></div>` +
+    attention.map((t, i) => `<div class="row"><span class="rk">${i + 1}</span><span class="atext">${escMultiline(t)}</span></div>`).join("") +
+    (sysTone !== "r"
+      ? `<div class="row"><span class="rk ok">✓</span><span class="atext" style="color:var(--green);font-weight:700">No red system-health issues</span></div>`
+      : "");
+
+  const fleetSection = fleet.agents.length
+    ? `<div class="grid4">${fleet.agents.map(fleetCard).join("")}</div>`
+    : `<div class="box"><div class="muted">${esc(fleet.note)}</div></div>`;
+
+  const body =
+    `<div class="app">${sidebar("home")}<main class="main">` +
+    header +
+    askBar +
+    `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
+    `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
+    `<div class="grid3">${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}</div>` +
+    `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
+    `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
+    `</main></div>` +
+    `<script>
+(function(){
+  var q=document.getElementById('q'),ask=document.getElementById('ask'),out=document.getElementById('out'),form=document.getElementById('ask-form');
+  function run(text){
+    if(!text){return;}
+    out.style.display='block';out.textContent='…';
+    fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({request:text})})
+      .then(function(r){return r.json()})
+      .then(function(d){
+        if(d&&d.error){out.textContent='Error: '+d.error;return;}
+        var s=(d.title?d.title+'\\n\\n':'')+(d.summary||'');
+        if(d.nextSteps&&d.nextSteps.length){s+='\\n\\nNext steps:\\n- '+d.nextSteps.join('\\n- ');}
+        if(typeof d.proposalCount==='number'){s+='\\n\\nProposals generated: '+d.proposalCount;}
+        out.textContent=s;
+      })
+      .catch(function(){out.textContent='Network error.';});
+  }
+  if(form){form.addEventListener('submit',function(e){e.preventDefault();run(q.value);});}
+  ask.addEventListener('click',function(e){e.preventDefault();run(q.value);});
+  Array.prototype.forEach.call(document.querySelectorAll('.chip'),function(c){
+    c.addEventListener('click',function(){q.value=c.getAttribute('data-q');run(q.value);});
+  });
+})();
+</script>`;
+  return shell("HartOS Command Center", body);
+}
+
+// ─── Login + locked ───────────────────────────────────────────────────────────
+
 /** The access-token login screen. No secret is embedded; the form POSTs to /api/login. */
 export function renderLoginPage(opts: { error?: string; redirectTo?: string } = {}): string {
-  // Same-origin path only (default "/"). Guard against open-redirect: must start
-  // with a single "/" and not "//".
+  // Same-origin path only (default "/"). Guard against open-redirect.
   const target =
-    typeof opts.redirectTo === "string" && /^\/(?!\/)[A-Za-z0-9/_-]*$/.test(opts.redirectTo)
-      ? opts.redirectTo
-      : "/";
+    typeof opts.redirectTo === "string" && /^\/(?!\/)[A-Za-z0-9/_-]*$/.test(opts.redirectTo) ? opts.redirectTo : "/";
   const body =
-    `<main><section class="login-card">` +
-    `<h1 style="margin:0 0 4px">HartOS Command Center</h1>` +
+    `<main><div class="login-card">` +
+    `<h1>HartOS Command Center</h1>` +
     `<p class="muted">Read-only hosted cockpit. Enter your access token to continue.</p>` +
-    `<div class="ask-row" style="flex-direction:column;gap:10px">` +
     `<input id="t" type="password" placeholder="Access token" autocomplete="current-password" autofocus>` +
-    `<button id="go" type="button">Sign in</button></div>` +
+    `<button class="btn" id="go" type="button" style="width:100%;margin-top:10px">Sign in</button>` +
     `<div class="err" id="err">${opts.error ? esc(opts.error) : ""}</div>` +
-    `</section></main>` +
+    `</div></main>` +
     `<script>
 (function(){
   var t=document.getElementById('t'),go=document.getElementById('go'),err=document.getElementById('err');
@@ -129,134 +428,17 @@ export function renderLoginPage(opts: { error?: string; redirectTo?: string } = 
 /** Fail-closed page when auth is required but no access token is configured. */
 export function renderLockedPage(): string {
   const body =
-    `<main><section class="login-card">` +
-    `<h1 style="margin:0 0 4px">HartOS Command Center</h1>` +
-    `<div class="verdict red">LOCKED</div>` +
+    `<main><div class="login-card">` +
+    `<h1>HartOS Command Center</h1>` +
+    `<span class="verdict r">LOCKED</span>` +
     `<p class="muted" style="margin-top:12px">This cockpit is failing closed: an access token is required but ` +
     `<code>HARTOS_COCKPIT_ACCESS_TOKEN</code> is not configured. Set it as a Wrangler secret and redeploy.</p>` +
     `<p class="muted"><code>wrangler secret put HARTOS_COCKPIT_ACCESS_TOKEN</code></p>` +
-    `</section></main>`;
+    `</div></main>`;
   return shell("HartOS Command Center — Locked", body);
 }
 
-function listHtml(items: string[], ordered = false): string {
-  if (items.length === 0) return `<p class="muted">None.</p>`;
-  const tag = ordered ? "ol" : "ul";
-  return `<${tag}>${items.map((i) => `<li>${escMultiline(i)}</li>`).join("")}</${tag}>`;
-}
-
-/** The authed landing cockpit. Grounded, read-only, action buttons disabled. */
-export function renderHostedCockpitPage(state: CockpitState | undefined, opts: HostedPageOptions = {}): string {
-  const now = opts.now ?? opts.generatedAt ?? state?.generatedAt ?? "";
-  const brief = routeHosted(state, "Daily command brief");
-  const fr = freshnessView(state, now);
-  const props = proposalsView(state);
-
-  const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
-  const mainAction = (brief.highlights.find((h) => h.startsWith("Main action:")) ?? "Main action: review the cockpit.").replace(/^Main action:\s*/i, "");
-  const attention = brief.highlights.filter((h) => !h.startsWith("Overall:") && !h.startsWith("Main action:"));
-
-  const fitnessAns = routeHosted(state, "How is my fitness today?");
-  const opsAns = routeHosted(state, "Anything urgent in ops?");
-  const fleet = fleetView(state, now);
-
-  const freshnessSection = fr
-    ? `<div class="kv"><span class="verdict ${verdictClass(fr.verdict)}">${esc(fr.verdict.toUpperCase())}</span> &nbsp;${esc(fr.verdictReason)}</div>` +
-      listHtml(
-        fr.domains.map((d) => `${d.domain[0]!.toUpperCase()}${d.domain.slice(1)}: ${d.state}${d.lastUpdated ? ` (updated ${d.lastUpdated})` : ""}`)
-      ) +
-      (fr.staleReason ? `<p class="muted">${esc(fr.staleReason)}</p>` : "") +
-      `<p class="kv"><b>ClickUp sync:</b> ${fr.clickup.stale ? "STALE" : "current"}; last activity ${esc(fr.clickup.lastImportAt ?? "unknown")}.</p>` +
-      `<p class="muted">Safe next step: ${esc(fr.safeNextStep)}</p>`
-    : `<p class="muted">Freshness is unavailable in this snapshot (no live panels). Bake a snapshot with read-models enabled.</p>`;
-
-  const proposalsSection =
-    `<p class="kv"><b>${props.total}</b> proposal(s)${props.pending ? `, ${props.pending} pending` : ""} — ${esc(props.note)}</p>` +
-    (props.proposals.length
-      ? listHtml(props.proposals.map((p) => `[${p.domain}/${p.riskLevel}] ${p.title} — ${p.status}`))
-      : "") +
-    `<button disabled title="Execution is disabled in the hosted cockpit">Approve / execute (disabled)</button>` +
-    `<div class="disabled-note">Action execution is <b>${esc(ACTION_EXECUTION)}</b>. Proposals are dry-run only and cannot be executed here.</div>`;
-
-  const factoryHosted = opts.runtimeMode === "hosted";
-
-  const body =
-    `<header>` +
-    `<h1>HartOS Command Center</h1>` +
-    `<span class="badge ro">read-only</span>` +
-    `<span class="badge">action execution: ${esc(ACTION_EXECUTION)}</span>` +
-    (opts.generatedAt ? `<span class="badge">snapshot ${esc(opts.generatedAt)}</span>` : "") +
-    `</header><main>` +
-    // Daily Command Brief
-    `<section><h2>Daily Command Brief</h2>` +
-    `<div><span class="verdict ${verdictClass(overall)}">${esc(overall.toUpperCase())}</span></div>` +
-    `<div class="main-action">${esc(mainAction)}</div>` +
-    `</section>` +
-    // Attention Needed
-    `<section><h2>Attention Needed</h2>${listHtml(attention, true)}</section>` +
-    // Fleet — unified cross-agent view (both agents on the shared AgentSignal)
-    `<section><h2>Fleet</h2><pre class="answer">${escMultiline(fleet.rendered)}</pre>` +
-    (fleet.available ? "" : `<div class="disabled-note">${esc(fleet.note)}</div>`) +
-    `</section>` +
-    // Fitness
-    `<section><h2>Fitness</h2><pre class="answer">${escMultiline(fitnessAns.summary)}</pre>` +
-    `<div style="margin-top:8px"><a href="/agent/fitness/ui">View full fitness dashboard →</a></div></section>` +
-    // Ops
-    `<section><h2>Ops</h2><pre class="answer">${escMultiline(opsAns.summary)}</pre>` +
-    `<button disabled title="Execution is disabled">Re-run ClickUp import (disabled)</button>` +
-    `<div class="disabled-note">The hosted cockpit cannot run imports or any action — refresh ClickUp manually.</div>` +
-    `<div style="margin-top:8px"><a href="/agent/ops/ui">View full ops dashboard →</a></div></section>` +
-    // Freshness
-    `<section><h2>Freshness / Sync</h2>${freshnessSection}</section>` +
-    // Factory / Proposals
-    `<section><h2>Factory / Proposals</h2>` +
-    `<p class="kv"><b>Factory:</b> ${factoryHosted ? "local reports unavailable in hosted mode (snapshot only)." : "available locally."}</p>` +
-    proposalsSection +
-    `</section>` +
-    // Known Gaps
-    `<section><h2>Known Gaps</h2>${listHtml(brief.gaps)}</section>` +
-    // Ask HartOS
-    `<section><h2>Ask HartOS</h2>` +
-    `<div class="ask-row"><input id="q" type="text" placeholder="e.g. What needs my attention today?" autocomplete="off">` +
-    `<button id="ask" type="button">Ask</button></div>` +
-    `<div class="chips">` +
-    ["What needs my attention today?", "Is my data fresh?", "Anything urgent in ops?", "Why is ops stale?", "Show pending proposals"]
-      .map((c) => `<span class="chip" data-q="${esc(c)}">${esc(c)}</span>`)
-      .join("") +
-    `</div>` +
-    `<pre class="answer" id="out" style="display:none"></pre>` +
-    `<div class="disabled-note">Status and brief questions never create proposals; the cockpit only reads and recommends.</div>` +
-    `</section>` +
-    `</main>` +
-    `<footer>HartOS Command Center — hosted, read-only. No provider/Supabase/ClickUp/Telegram writes. ` +
-    `<a href="/health">health</a></footer>` +
-    `<script>
-(function(){
-  var q=document.getElementById('q'),ask=document.getElementById('ask'),out=document.getElementById('out');
-  function run(text){
-    if(!text){return;}
-    out.style.display='block';out.textContent='…';
-    fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({request:text})})
-      .then(function(r){return r.json()})
-      .then(function(d){
-        if(d&&d.error){out.textContent='Error: '+d.error;return;}
-        var s=(d.title?d.title+'\\n\\n':'')+(d.summary||'');
-        if(d.nextSteps&&d.nextSteps.length){s+='\\n\\nNext steps:\\n- '+d.nextSteps.join('\\n- ');}
-        out.textContent=s;
-      })
-      .catch(function(){out.textContent='Network error.';});
-  }
-  ask.addEventListener('click',function(){run(q.value);});
-  q.addEventListener('keydown',function(e){if(e.key==='Enter')run(q.value);});
-  Array.prototype.forEach.call(document.querySelectorAll('.chip'),function(c){
-    c.addEventListener('click',function(){q.value=c.getAttribute('data-q');run(q.value);});
-  });
-})();
-</script>`;
-  return shell("HartOS Command Center", body);
-}
-
-// ─── Phase C: per-agent full detail dashboard ────────────────────────────────
+// ─── Phase C: per-agent full detail dashboard ─────────────────────────────────
 
 function fmt(n: number | undefined, dp = 0): string {
   if (n === undefined) return "—";
@@ -265,13 +447,9 @@ function fmt(n: number | undefined, dp = 0): string {
 
 function tableHtml(headers: string[], rows: string[][]): string {
   if (rows.length === 0) return `<p class="muted">None.</p>`;
-  const th = headers
-    .map((h) => `<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #232733;color:#8b93a7;font-size:12px">${esc(h)}</th>`)
-    .join("");
-  const trs = rows
-    .map((r) => `<tr>${r.map((c) => `<td style="padding:6px 10px;border-bottom:1px solid #1b202a">${esc(c)}</td>`).join("")}</tr>`)
-    .join("");
-  return `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+  const th = headers.map((h) => `<th>${esc(h)}</th>`).join("");
+  const trs = rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("");
+  return `<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
 }
 
 /**
@@ -280,50 +458,53 @@ function tableHtml(headers: string[], rows: string[][]): string {
  * (ops). Read-only, grounded in the agent's own read RPCs; an absent detail renders
  * an honest "unavailable" page rather than fabricating data.
  */
-export function renderAgentDetailPage(detail: AgentDetail | null, domain: "fitness" | "ops"): string {
-  const label = `${domain[0]!.toUpperCase()}${domain.slice(1)}`;
-  const header =
-    `<header><h1><a href="/" style="text-decoration:none">← HartOS</a> &nbsp;/&nbsp; ${esc(label)} dashboard</h1>` +
-    `<span class="badge ro">read-only</span></header>`;
+export function renderAgentDetailPage(detail: AgentDetail | null, domain: string): string {
+  const label = titleCase(domain);
+  const head =
+    `<div class="head"><div><div class="h1"><a href="/">← HartOS</a> &nbsp;/&nbsp; ${esc(label)} dashboard</div>` +
+    `<div class="sub">Read-only · live from the agent's own read RPCs</div></div>` +
+    `<div class="grow"></div><div class="badge2">read-only</div></div>`;
 
   if (!detail) {
     return shell(
       `HartOS — ${label} dashboard`,
-      `${header}<main><section><h2>${esc(label)} detail unavailable</h2>` +
+      `<main class="main detail">${head}<div class="box"><div class="blbl">${esc(label)} detail unavailable</div>` +
         `<p class="muted">No live read-model env resolved for ${esc(domain)}. Nothing is fabricated.</p>` +
-        `<p><a href="/">← back to cockpit</a></p></section></main>`,
+        `<p><a href="/">← back to cockpit</a></p></div></main>`,
     );
   }
 
   let sections: string;
   if (detail.type === "fitness") {
     const f = detail;
+    const rt = tone(f.recovery.status ?? "unknown", "high", "live");
     sections =
-      `<section><h2>Recovery</h2>` +
-      `<div><span class="verdict ${verdictClass(f.recovery.status ?? "amber")}">${esc((f.recovery.status ?? "unknown").toUpperCase())}</span></div>` +
-      `<p class="kv"><b>HRV</b> ${fmt(f.recovery.hrvMs)}ms · <b>RHR</b> ${fmt(f.recovery.restingHr)} bpm · ` +
-      `<b>Sleep</b> ${fmt(f.recovery.sleepHours, 1)}h · <b>Plan</b> ${esc(f.recovery.trainingDayType ?? "—")}` +
-      `${f.recovery.workoutCompleted ? " · completed" : ""}</p></section>` +
-      `<section><h2>Recovery series</h2>${tableHtml(["Date", "HRV (ms)", "RHR (bpm)", "Sleep (h)"], f.series.map((p) => [p.date, fmt(p.hrvMs), fmt(p.restingHr), fmt(p.sleepHours, 1)]))}</section>` +
-      `<section><h2>Bodyweight</h2>${tableHtml(["Date", "kg"], f.bodyweight.map((b) => [b.date, b.kg.toFixed(1)]))}</section>` +
-      `<section><h2>Nutrition (today)</h2><p class="kv"><b>Calories</b> ${fmt(f.nutrition.caloriesConsumed)}/${fmt(f.nutrition.caloriesTarget)} · ` +
-      `<b>Protein</b> ${fmt(f.nutrition.proteinConsumed)}/${fmt(f.nutrition.proteinTarget)}g</p></section>` +
-      `<section><h2>Recent workouts</h2>${tableHtml(["Date", "Type", "Min"], f.workouts.map((w) => [w.date ?? "—", w.type ?? "—", fmt(w.minutes)]))}</section>`;
+      `<section class="box"><div class="blbl">Recovery</div>` +
+      `<div class="why ${rt}"><div class="wt">Recovery verdict</div>` +
+      `<span class="verdict ${rt}">${esc((f.recovery.status ?? "unknown").toUpperCase())}</span> &nbsp;` +
+      `HRV <b>${fmt(f.recovery.hrvMs)}</b>ms · RHR <b>${fmt(f.recovery.restingHr)}</b> bpm · ` +
+      `Sleep <b>${fmt(f.recovery.sleepHours, 1)}</b>h · Plan <b>${esc(f.recovery.trainingDayType ?? "—")}</b>` +
+      `${f.recovery.workoutCompleted ? " · completed" : ""}</div></section>` +
+      `<section class="box"><div class="blbl">Recovery series</div>${tableHtml(["Date", "HRV (ms)", "RHR (bpm)", "Sleep (h)"], f.series.map((p) => [p.date, fmt(p.hrvMs), fmt(p.restingHr), fmt(p.sleepHours, 1)]))}</section>` +
+      `<section class="box"><div class="blbl">Bodyweight</div>${tableHtml(["Date", "kg"], f.bodyweight.map((b) => [b.date, b.kg.toFixed(1)]))}</section>` +
+      `<section class="box"><div class="blbl">Nutrition (today)</div><p class="kv">Calories <b>${fmt(f.nutrition.caloriesConsumed)}</b>/${fmt(f.nutrition.caloriesTarget)} · ` +
+      `Protein <b>${fmt(f.nutrition.proteinConsumed)}</b>/${fmt(f.nutrition.proteinTarget)}g</p></section>` +
+      `<section class="box"><div class="blbl">Recent workouts</div>${tableHtml(["Date", "Type", "Min"], f.workouts.map((w) => [w.date ?? "—", w.type ?? "—", fmt(w.minutes)]))}</section>`;
   } else {
     const o = detail;
     sections =
-      `<section><h2>Counts</h2><p class="kv"><b>Active</b> ${fmt(o.counts.active)} · <b>Urgent</b> ${fmt(o.counts.urgent)} · ` +
-      `<b>Blocked</b> ${fmt(o.counts.blocked)} · <b>Waiting</b> ${fmt(o.counts.waiting)} · <b>Stale</b> ${fmt(o.counts.stale)} · ` +
-      `<b>No next action</b> ${fmt(o.counts.noNextAction)}</p></section>` +
-      `<section><h2>Attention (full list)</h2>${tableHtml(["Title", "Status", "Reason", "Next action", "Due", "Project"], o.attention.map((c) => [c.title, c.status ?? "—", c.reason ?? "—", c.nextAction ?? "—", c.dueAt ?? "—", c.project ?? "—"]))}</section>` +
-      `<section><h2>Recent updates</h2>${tableHtml(["Card", "Summary", "By", "When"], o.updates.map((u) => [u.cardTitle ?? "—", u.summary ?? "—", u.updatedBy ?? "—", u.updatedAt ?? "—"]))}</section>` +
-      `<section><h2>Risk flags</h2>${tableHtml(["Flag", "Severity", "Cards"], o.riskFlags.map((r) => [r.flag, r.severity ?? "—", fmt(r.cardCount)]))}</section>`;
+      `<section class="box"><div class="blbl">Counts</div><p class="kv">Active <b>${fmt(o.counts.active)}</b> · Urgent <b>${fmt(o.counts.urgent)}</b> · ` +
+      `Blocked <b>${fmt(o.counts.blocked)}</b> · Waiting <b>${fmt(o.counts.waiting)}</b> · Stale <b>${fmt(o.counts.stale)}</b> · ` +
+      `No next action <b>${fmt(o.counts.noNextAction)}</b></p></section>` +
+      `<section class="box"><div class="blbl">Attention (full list)</div>${tableHtml(["Title", "Status", "Reason", "Next action", "Due", "Project"], o.attention.map((c) => [c.title, c.status ?? "—", c.reason ?? "—", c.nextAction ?? "—", c.dueAt ?? "—", c.project ?? "—"]))}</section>` +
+      `<section class="box"><div class="blbl">Recent updates</div>${tableHtml(["Card", "Summary", "By", "When"], o.updates.map((u) => [u.cardTitle ?? "—", u.summary ?? "—", u.updatedBy ?? "—", u.updatedAt ?? "—"]))}</section>` +
+      `<section class="box"><div class="blbl">Risk flags</div>${tableHtml(["Flag", "Severity", "Cards"], o.riskFlags.map((r) => [r.flag, r.severity ?? "—", fmt(r.cardCount)]))}</section>`;
   }
 
-  const notes = detail.notes.length ? `<section><h2>Data notes</h2>${listHtml(detail.notes)}</section>` : "";
+  const notes = detail.notes.length ? `<section class="box"><div class="blbl">Data notes</div>${listHtml(detail.notes)}</section>` : "";
   return shell(
     `HartOS — ${label} dashboard`,
-    `${header}<main>${sections}${notes}` +
+    `<main class="main detail">${head}${sections}${notes}` +
       `<footer>Read-only, live from the agent's read RPCs. Nothing is fabricated. <a href="/">← back to cockpit</a></footer></main>`,
   );
 }

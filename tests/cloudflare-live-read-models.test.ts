@@ -242,15 +242,19 @@ describe("hosted fleet view — unified cross-agent render surfaced in the live 
     assert.match(body.rendered, /ops \(ops\)/);
   });
 
-  it("GET / (hosted HTML) embeds the unified fleet view for both agents", async () => {
+  it("GET / (hosted HTML) renders a fleet card per agent (Style 5), with verdict + approval gating", async () => {
     const res = await handleCockpitRequest(new Request("https://c/"), env, await liveCtx());
     assert.equal(res.status, 200);
     const html = await res.text();
-    assert.match(html, /HartOS Fleet/);
-    assert.match(html, /fitness \(fitness\)/);
-    assert.match(html, /ops \(ops\)/);
-    assert.match(html, /approval=required/, "ops requires approval");
-    assert.match(html, /approval=no/, "fitness is advisory");
+    // Style 5 — each agent is a real card linking to its full dashboard (works w/o JS).
+    assert.match(html, /Fleet · click any agent to expand/);
+    assert.match(html, /class="card" href="\/agent\/fitness\/ui"/);
+    assert.match(html, /class="card" href="\/agent\/ops\/ui"/);
+    // Verdicts are surfaced from each agent's own data (uppercased in the pill).
+    assert.match(html, /GREEN/, "fitness verdict");
+    assert.match(html, /URGENT/, "ops verdict");
+    // Ops needs human approval → its card is approval-gated; fitness is advisory.
+    assert.match(html, /approval-gated/, "ops requires approval");
   });
 
   it("the fleet route never leaks the read-only key", async () => {
