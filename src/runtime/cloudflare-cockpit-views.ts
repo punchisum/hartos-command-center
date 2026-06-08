@@ -11,9 +11,10 @@
  */
 
 import type { CockpitState } from "../cockpit/cockpit-types.js";
-import { routeCockpitIntent, type CockpitIntentResult, type IntentRouterContext } from "../cockpit/cockpit-intent-router.js";
+import { routeCockpitIntent, type CockpitIntentResult, type IntentRouterContext, type IntentOrchestratorContext } from "../cockpit/cockpit-intent-router.js";
 import { buildFreshnessReport, type FreshnessReport } from "../cockpit/freshness-surface.js";
 import type { ProposalQueueItem } from "../cockpit/proposals/index.js";
+import { buildHostedOrchestratorContext } from "../cockpit/hosted-cto-context.js";
 import { fleetSignals, renderFleetView, type FleetSignal } from "../read-models/agent-signal.js";
 
 /** Build a read-only intent-router context from a cockpit snapshot. */
@@ -51,6 +52,13 @@ export function hostedIntentContext(
     ...(now ? { now } : {}),
     ...(state?.sourceDiagnostics ? { diagnostics: state.sourceDiagnostics } : {}),
     proposalQueue: state?.proposalQueue ?? [],
+    // Phase E — the deterministic CTO input brain. Attached ONLY for
+    // build/strategy requests; undefined for status queries (which are left
+    // exactly as before, including the zero-proposals guarantee).
+    ...((): { orchestrator?: IntentOrchestratorContext } => {
+      const orchestrator = buildHostedOrchestratorContext(request);
+      return orchestrator ? { orchestrator } : {};
+    })(),
   };
 }
 
