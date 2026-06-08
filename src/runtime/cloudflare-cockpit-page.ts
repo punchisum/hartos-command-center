@@ -38,6 +38,7 @@ import type { GenericAgentDetail, DetailSection } from "../read-models/agent-det
 import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spine.js";
 import { perceive, type PerceptionReport } from "../rinnegan/perception.js";
 import { collectFleetTasks, assessFleetLoad, type FleetWork } from "../fleet/fleet-work.js";
+import { orchestrateFleet, type FleetPlan } from "../fleet/orchestrator.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -359,6 +360,32 @@ function perceptionBox(p: PerceptionReport, work: FleetWork): string {
   );
 }
 
+/** Orchestration (Fleet OS — F4) panel: the proposed schedule + honest deferrals. */
+function orchestrationBox(plan: FleetPlan): string {
+  const t: Tone = plan.verdict === "needs_agent" ? "r" : plan.verdict === "blocked_capacity" ? "a" : plan.verdict === "ready" ? "g" : "i";
+  if (!plan.assignments.length && !plan.deferred.length) {
+    return box("Orchestration (Fleet OS)", `<div class="kv"><span class="verdict i">IDLE</span></div><div class="muted">No open work to schedule.</div>`, "orchestration");
+  }
+  const rows = plan.assignments
+    .slice(0, 5)
+    .map((a) => `<div class="li"><span class="tag">W${a.order}</span><span>${esc(a.agentName)} · ${esc(a.task.title)}</span></div>`)
+    .join("");
+  const inner = rows || `<div class="muted">Nothing scheduled — everything is deferred.</div>`;
+  const load = plan.perAgent.map((a) => `${esc(a.name)} ${a.assigned}/${a.capacity}`).join(" · ");
+  const loadLine = load ? `<div class="muted" style="margin-top:8px">Load: ${load}</div>` : "";
+  const deferred = plan.deferred.length
+    ? `<div class="muted" style="margin-top:8px"><b style="color:var(--${plan.verdict === "needs_agent" ? "red" : "amber"})">${plan.deferred.length} deferred</b>` +
+      `${plan.deferred.some((d) => d.reason === "capability_gap") ? " · gap (build an agent)" : ""}` +
+      `${plan.deferred.some((d) => d.reason === "capacity") ? " · capacity" : ""}</div>`
+    : "";
+  const note = plan.reconciliation.length ? `<div class="muted" style="margin-top:8px">${esc(plan.reconciliation[0]!)}</div>` : "";
+  return box(
+    "Orchestration (Fleet OS)",
+    `<div class="kv"><span class="verdict ${t}">${esc(plan.verdict.toUpperCase().replace(/_/g, " "))}</span></div>${inner}${loadLine}${deferred}${note}`,
+    "orchestration",
+  );
+}
+
 /** Recent-activity panel — the Phase D thread spine surfaced (server-rendered). */
 function activityBox(threads: CockpitThreadSummary[]): string {
   if (!threads.length) return box("Recent activity", `<div class="muted">No recent threads yet. Ask HartOS to start one.</div>`, "activity");
@@ -380,6 +407,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const threads = opts.threads ?? [];
   const perception = perceive({ now, freshness: fr, proposals: state?.proposalQueue ?? [], missingSources: rms.missingSources, fleetSignals: fleet.agents });
   const fleetWork = collectFleetTasks({ perception });
+  const fleetPlan = orchestrateFleet(fleetWork);
 
   const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
   const mainAction = (brief.highlights.find((h) => h.startsWith("Main action:")) ?? "Main action: review the cockpit.").replace(/^Main action:\s*/i, "");
@@ -425,7 +453,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     askBar +
     `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
     `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
-    `<div class="grid3">${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${activityBox(threads)}</div>` +
+    `<div class="grid3">${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${activityBox(threads)}</div>` +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</main></div>` +

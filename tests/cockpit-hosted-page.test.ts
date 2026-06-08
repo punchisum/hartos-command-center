@@ -51,11 +51,12 @@ describe("hosted cockpit page — Style 5 structure + depth", () => {
     assert.match(html, /build_agent/);
   });
 
-  it("renders the trust + proposals + freshness + perception panels", () => {
+  it("renders the trust + proposals + freshness + perception + orchestration panels", () => {
     assert.match(html, /Can I trust the system\?/);
     assert.match(html, /Proposal queue/);
     assert.match(html, /Data freshness/);
     assert.match(html, /Perception \(Rinnegan\)/);
+    assert.match(html, /Orchestration \(Fleet OS\)/);
   });
 
   it("HTML-escapes dynamic thread content (no injection)", () => {
