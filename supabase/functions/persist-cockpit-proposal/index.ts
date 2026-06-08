@@ -1,23 +1,16 @@
 // supabase/functions/persist-cockpit-proposal/index.ts
 //
 // Phase E (Gap E) — the ONLY write path for "Ask HartOS → a proposal in the
-// queue". This server-side Edge Function is where write power lives: the service
-// role is auto-injected into the function sandbox, so the hosted read-only Worker
-// never holds a DB/service key — it calls this function with a shared CAPABILITY
-// token. Propose-only by construction: it writes ONLY `draft` / `pending_approval`
-// rows into public.cockpit_proposals and forces `executable:false`; nothing
-// executable can ever be persisted here. Every row is secret-scanned before write.
+// queue". Server-side: the service role is auto-injected, so the hosted read-only
+// Worker never holds a DB/service key — it calls this with a shared CAPABILITY
+// token. Propose-only: writes ONLY draft/pending_approval rows and forces
+// executable:false. Every row is secret-scanned before write.
 //
-// ── DEPLOY (GATED — explicit Hart approval) ──────────────────────────────────
-// Deployed WITHOUT Supabase JWT verification; the shared token is the gate:
-//   supabase functions deploy persist-cockpit-proposal --no-verify-jwt \
-//     --project-ref xbuinrnpfjltimofwrdx
-// Set the shared token (the Worker is given the SAME value as HARTOS_ASK_WRITE_TOKEN):
-//   supabase secrets set HARTOS_ASK_WRITE_TOKEN=<token> --project-ref xbuinrnpfjltimofwrdx
-// SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are auto-provided by the platform.
+// DEPLOYED 2026-06-08 to project xbuinrnpfjltimofwrdx via Supabase MCP with
+// verify_jwt=false (the shared token is the gate). The service_role needs
+// SELECT/INSERT/UPDATE on cockpit_proposals (see migration
+// 2026060900000001_cockpit_spine_service_role_grants.sql), else PostgREST 403s.
 
-// Secret patterns mirror src/llm/redaction.ts (kept inline — Deno can't import the
-// Node build). Defense in depth: the Worker scans too, but this is the last gate.
 const SECRET_PATTERNS: RegExp[] = [
   /sk-[A-Za-z0-9_-]{16,}/,
   /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/,
@@ -35,7 +28,6 @@ function containsSecret(text: string): boolean {
 const ALLOWED_STATUS = new Set(["draft", "pending_approval"]);
 const MAX_PROPOSALS = 20;
 
-/** Length-independent comparison so token checks don't leak via timing. */
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let r = 0;
@@ -47,7 +39,6 @@ function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-// deno-lint-ignore no-explicit-any
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method !== "POST") return json(405, { error: "method not allowed" });
 
@@ -67,15 +58,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
   } catch {
     return json(400, { error: "invalid json" });
   }
-  // deno-lint-ignore no-explicit-any
-  const incoming = Array.isArray((parsed as any)?.proposals) ? (parsed as any).proposals : [];
+  const incoming = Array.isArray((parsed as { proposals?: unknown[] })?.proposals) ? (parsed as { proposals: unknown[] }).proposals : [];
   if (!incoming.length) return json(400, { error: "no proposals" });
   if (incoming.length > MAX_PROPOSALS) return json(413, { error: "too many proposals" });
 
   const nowIso = new Date().toISOString();
   const rows: Record<string, unknown>[] = [];
   const skipped: string[] = [];
-  for (const p of incoming) {
+  for (const item of incoming) {
+    const p = item as Record<string, unknown>;
     if (!p || typeof p !== "object") {
       skipped.push("(non-object)");
       continue;
@@ -85,8 +76,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       skipped.push("(missing id)");
       continue;
     }
-    const status = ALLOWED_STATUS.has(p.status) ? p.status : "draft";
-    const payload = p.payload && typeof p.payload === "object" ? { ...p.payload, executable: false } : { executable: false };
+    const status = ALLOWED_STATUS.has(p.status as string) ? (p.status as string) : "draft";
+    const payloadIn = p.payload && typeof p.payload === "object" ? (p.payload as Record<string, unknown>) : {};
+    const payload = { ...payloadIn, executable: false };
     const row: Record<string, unknown> = {
       id,
       domain: String(p.domain ?? "system"),
