@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 
 import {
   resolveHostedCockpitState,
+  resolveCockpitProposals,
   hostedReadModelsConfigured,
   buildHostedReadModelRegistry,
   HOSTED_READ_MODEL_ENV,
@@ -18,6 +19,8 @@ import {
   FITNESS_ALLOWED_RPCS,
 } from "../src/runtime/cloudflare-live-read-models.js";
 import { handleCockpitRequest } from "../src/runtime/cloudflare-cockpit-worker.js";
+import { proposalsView } from "../src/runtime/cloudflare-cockpit-views.js";
+import { mapRowToProposalQueueItem } from "../src/cockpit/proposals/cockpit-proposal-spine.js";
 import { SupabaseReadClient, type FetchLike } from "../src/read-models/supabase-read-client.js";
 import type { ClientFactory } from "../src/read-models/read-model-report.js";
 import type { ReadModelConfig } from "../src/read-models/read-model-types.js";
@@ -273,5 +276,82 @@ describe("hosted fleet view — unified cross-agent render surfaced in the live 
     const fit = body.agents.find((a) => a.type === "fitness")!;
     assert.equal(fit.signal.verdict, "missing", "unconfigured fitness maps to its read status");
     assert.equal(fit.signal.confidence, "unknown", "confidence is never faked for a missing read");
+  });
+});
+
+describe("hosted proposal spine — live read (Phase D)", () => {
+  function fitnessEnv(): Record<string, string> {
+    return {
+      [HOSTED_READ_MODEL_ENV.fitnessUrl]: "https://fit.example.supabase.co",
+      [HOSTED_READ_MODEL_ENV.fitnessKey]: ANON_KEY,
+    };
+  }
+
+  /** A fetch that returns the spine rows only for the proposals RPC. */
+  function proposalFetch(rows: unknown): FetchLike {
+    return async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (url.includes("/rpc/get_cockpit_proposals") ? rows : []),
+    });
+  }
+
+  const ROW = {
+    id: "p1", domain: "ops", action_type: "ops_followup_plan", title: "Chase supplier",
+    risk_level: "high", status: "pending_approval", source_intent: "ops urgent",
+    spec_id: null, created_at: NOW, updated_at: NOW, expires_at: null,
+  };
+
+  it("resolveCockpitProposals maps spine rows to ProposalQueueItems", async () => {
+    const items = await resolveCockpitProposals(fitnessEnv(), { fetchImpl: proposalFetch([ROW]) });
+    assert.ok(items, "rows should resolve");
+    assert.equal(items!.length, 1);
+    assert.equal(items![0]!.title, "Chase supplier");
+    assert.equal(items![0]!.riskLevel, "high");
+    assert.equal(items![0]!.executable, false);
+  });
+
+  it("returns null when a service-role key is presented (never reads)", async () => {
+    const env = {
+      [HOSTED_READ_MODEL_ENV.fitnessUrl]: "https://fit.example.supabase.co",
+      [HOSTED_READ_MODEL_ENV.fitnessKey]: "service_role_secret_key",
+    };
+    const items = await resolveCockpitProposals(env, { fetchImpl: proposalFetch([ROW]) });
+    assert.equal(items, null);
+  });
+
+  it("returns null when fitness env is absent", async () => {
+    const items = await resolveCockpitProposals({}, { fetchImpl: proposalFetch([ROW]) });
+    assert.equal(items, null);
+  });
+
+  it("never leaks the anon key into the resolved items", async () => {
+    const items = await resolveCockpitProposals(fitnessEnv(), { fetchImpl: proposalFetch([ROW]) });
+    assert.equal(JSON.stringify(items).includes(ANON_KEY), false);
+  });
+
+  it("resolveHostedCockpitState surfaces spine proposals via the injected provider → proposalsView available", async () => {
+    const provider = async () => [
+      mapRowToProposalQueueItem({
+        id: "p9", domain: "system", action_type: "review_plan", title: "Review the spine",
+        risk_level: "low", status: "draft", source_intent: "", spec_id: null,
+        created_at: NOW, updated_at: NOW, expires_at: null,
+      }),
+    ];
+    const state = await resolveHostedCockpitState(fullEnv(), {
+      now: NOW,
+      clientFactory: stubClientFactory(),
+      proposalsProvider: provider,
+    });
+    const view = proposalsView(state!);
+    assert.equal(view.available, true);
+    assert.equal(view.total, 1);
+    assert.equal(view.proposals[0]!.title, "Review the spine");
+  });
+
+  it("a stubbed read-model context with NO provider makes no proposal read (honest local-only fallback)", async () => {
+    const state = await resolveHostedCockpitState(fullEnv(), { now: NOW, clientFactory: stubClientFactory() });
+    const view = proposalsView(state!);
+    assert.equal(view.available, false, "queue omitted → proposalsView reports local-only, no network call");
   });
 });

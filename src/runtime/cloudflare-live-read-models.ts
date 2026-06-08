@@ -49,6 +49,12 @@ import type { CockpitState, CockpitCardGroupView } from "../cockpit/cockpit-type
 import { isServiceRoleKey } from "../cockpit/sources/secret-guard.js";
 import { SupabaseReadClient, type FetchLike } from "../read-models/supabase-read-client.js";
 import { buildFitnessDetail, buildOpsDetail, FITNESS_DETAIL_RPCS, type AgentDetail } from "../read-models/agent-detail.js";
+import type { ProposalQueueItem } from "../cockpit/proposals/proposal-types.js";
+import {
+  COCKPIT_PROPOSALS_RPC,
+  coerceCockpitProposalRows,
+  mapRowToProposalQueueItem,
+} from "../cockpit/proposals/cockpit-proposal-spine.js";
 
 type Env = Record<string, string | undefined>;
 
@@ -149,6 +155,12 @@ export interface ResolveHostedStateOptions {
    * Worker's global fetch.
    */
   clientFactory?: ClientFactory;
+  /**
+   * Phase D — inject the proposal-spine read (tests). When omitted, the live anon
+   * RPC read runs ONLY if no clientFactory is injected (i.e. the real Worker
+   * path); a stubbed read-model context therefore makes NO proposal network call.
+   */
+  proposalsProvider?: () => Promise<ProposalQueueItem[] | null>;
 }
 
 /**
@@ -215,6 +227,16 @@ export async function resolveHostedCockpitState(
     cards: [],
   }));
 
+  // Phase D — resolve the proposal queue from the Supabase spine. Tests inject a
+  // provider; the real Worker path (no clientFactory) does the live anon read;
+  // a stubbed read-model context with no provider makes NO proposal network call.
+  let proposalQueue: ProposalQueueItem[] | null = null;
+  if (options.proposalsProvider) {
+    proposalQueue = await options.proposalsProvider().catch(() => null);
+  } else if (!options.clientFactory) {
+    proposalQueue = await resolveCockpitProposals(env, { now }).catch(() => null);
+  }
+
   return {
     generatedAt: now,
     mode: "hosted",
@@ -247,9 +269,38 @@ export async function resolveHostedCockpitState(
     readModels,
     panels,
     ...(sourceDiagnostics ? { sourceDiagnostics } : {}),
-    // proposalQueue intentionally omitted — it is local-only in the hosted MVP,
-    // so proposalsView reports the correct "local_only" status.
+    // Phase D — the proposal queue now comes from the Supabase spine (read-only,
+    // anon RPC). Present (even empty) when the spine read succeeds; omitted on a
+    // missing/failed read so proposalsView falls back to its honest local-only note.
+    ...(proposalQueue ? { proposalQueue } : {}),
   };
+}
+
+/**
+ * Phase D — read the cockpit proposal spine LIVE from the fitness project via the
+ * anon, read-only RPC. Same strict boundary as the read-models: anon key only
+ * (service-role refused), sent as a header, never echoed. Returns the rows
+ * (possibly empty) on success, or null when the fitness env is absent / a
+ * service-role key is presented / the read fails — in which case proposalsView
+ * falls back to its honest "local-only" note rather than fabricating an empty list.
+ */
+export async function resolveCockpitProposals(
+  env: Env,
+  options: { now?: string; fetchImpl?: FetchLike; limit?: number } = {},
+): Promise<ProposalQueueItem[] | null> {
+  const url = env[HOSTED_READ_MODEL_ENV.fitnessUrl];
+  const key = env[HOSTED_READ_MODEL_ENV.fitnessKey];
+  if (!url || !key || isServiceRoleKey(key)) return null;
+  const client = new SupabaseReadClient(
+    { url, key, allowedTables: [], allowedRpcs: [COCKPIT_PROPOSALS_RPC] },
+    options.fetchImpl,
+  );
+  try {
+    const body = await client.readRpc(COCKPIT_PROPOSALS_RPC, { p_limit: options.limit ?? 50 });
+    return coerceCockpitProposalRows(body).map(mapRowToProposalQueueItem);
+  } catch {
+    return null;
+  }
 }
 
 /**
