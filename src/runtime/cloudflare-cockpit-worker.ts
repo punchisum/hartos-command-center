@@ -55,7 +55,9 @@ import {
   renderLockedPage,
   renderAgentDetailPage,
 } from "./cloudflare-cockpit-page.js";
-import { routeHosted, freshnessView, readModelStatusView, proposalsView, fleetView } from "./cloudflare-cockpit-views.js";
+import { routeHosted, freshnessView, readModelStatusView, proposalsView, fleetView, cockpitSuggestions } from "./cloudflare-cockpit-views.js";
+import { suggestionToProposal } from "../cockpit/suggestions/suggest-actions.js";
+import { stableProposalId } from "../cockpit/proposals/cockpit-proposal-spine.js";
 import {
   resolveHostedCockpitState,
   resolveAgentDetail,
@@ -279,10 +281,36 @@ export async function handleCockpitRequest(
 
   // POST — only validated, read-only routes (no fs, no network, no mutation).
   if (method === "POST") {
-    if (pathname !== "/api/orchestrator/message" && pathname !== "/api/ask") return notFound(cors);
+    if (pathname !== "/api/orchestrator/message" && pathname !== "/api/ask" && pathname !== "/api/suggestions/persist") return notFound(cors);
 
     const raw = await request.text();
     if (raw.length > MAX_REQUEST_BODY_BYTES) return payloadTooLarge(cors);
+
+    // /api/suggestions/persist — gated "queue these for approval". Persists the
+    // cross-system suggested actions to the spine as DRAFTS, but STATUS-SAFE: it
+    // skips any whose stable id already exists in the queue (any status), so it can
+    // never overwrite a proposal Hart already approved/rejected. No request body.
+    if (pathname === "/api/suggestions/persist") {
+      const now = nowFor(dctx);
+      const suggestions = cockpitSuggestions(dctx.state, now);
+      const drafts = suggestions.actions.map((a) => suggestionToProposal(a, now));
+      const existing = new Set((dctx.state?.proposalQueue ?? []).map((p) => p.id));
+      const fresh = drafts.filter((d) => !existing.has(stableProposalId(d.domain, d.actionType, d.title)));
+      const alreadyQueued = drafts.length - fresh.length;
+      let persistence: ProposalPersistResult = { attempted: false, persisted: 0, failed: 0, reason: "nothing new to queue" };
+      if (fresh.length > 0 && ctx.proposalWriteProvider) {
+        persistence = await ctx
+          .proposalWriteProvider(fresh, "suggested-actions")
+          .catch(() => ({ attempted: true, persisted: 0, failed: fresh.length, reason: "writer error" }));
+      } else if (fresh.length > 0) {
+        persistence = { attempted: false, persisted: 0, failed: 0, reason: "write endpoint not configured (advisory-only)" };
+      }
+      return jsonResponse(
+        200,
+        { ok: true, candidates: drafts.length, queued: persistence.persisted, alreadyQueued, attempted: persistence.attempted, failed: persistence.failed, reason: persistence.reason },
+        cors,
+      );
+    }
 
     let parsed: unknown;
     try {
@@ -390,6 +418,7 @@ const LIVE_DATA_ROUTES = new Set<string>([
   "/api/fleet",
   "/api/proposals",
   "/api/ask",
+  "/api/suggestions/persist",
 ]);
 
 /**

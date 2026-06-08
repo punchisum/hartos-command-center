@@ -27,6 +27,7 @@ import {
   proposalsView,
   fleetView,
   readModelStatusView,
+  cockpitSuggestions,
   type ReadModelStatusView,
   type ProposalsView,
   type FleetView,
@@ -42,7 +43,7 @@ import { orchestrateFleet, type FleetPlan } from "../fleet/orchestrator.js";
 import { forecast, type ForecastReport } from "../prophet/forecast.js";
 import { coach, type CoachingSignals } from "../fitness/coaching-core.js";
 import { triageOps, type OpsSignals } from "../ops/triage-core.js";
-import { suggestActions, type SuggestionSet } from "../cockpit/suggestions/suggest-actions.js";
+import type { SuggestionSet } from "../cockpit/suggestions/suggest-actions.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -161,6 +162,9 @@ td{padding:6px 10px;border-bottom:1px solid var(--line2)}
 .chart .ct{font-size:11px;font-weight:700;color:var(--faint);letter-spacing:.3px;text-transform:uppercase;margin-bottom:2px}
 svg.spark{display:block;width:100%;height:84px;background:var(--line2);border-radius:8px}
 .sparkmeta{font-size:11px;color:var(--faint);margin-top:3px}
+.qbtn{margin-top:10px;font:inherit;font-size:12px;font-weight:700;border:1px solid var(--line);background:var(--bg);color:var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer}
+.qbtn:disabled{opacity:.6;cursor:default}
+.qmsg{font-size:11.5px;margin-left:8px}
 .detail{max-width:920px;margin:0 auto}
 .detail section{margin-bottom:14px}
 .login-card{max-width:420px;margin:9vh auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;box-shadow:0 4px 16px rgba(20,40,70,.06)}
@@ -417,7 +421,8 @@ function suggestionsBox(s: SuggestionSet): string {
   const rows = s.actions
     .map((a) => `<div class="li"><span class="dot ${pri(a.priority)}"></span><span><b>${esc(a.title)}</b><br><span class="muted">${esc(a.rationale)} · via ${esc(a.source)}</span></span></div>`)
     .join("");
-  return box("Suggested actions", rows + `<div class="muted" style="margin-top:8px">${esc(s.note)}</div>`, "suggestions");
+  const queue = `<button class="qbtn" id="queue-suggestions">Queue ${s.actions.length} for approval →</button><span class="qmsg muted" id="queue-msg"></span>`;
+  return box("Suggested actions", rows + `<div class="muted" style="margin-top:8px">${esc(s.note)}</div>` + queue, "suggestions");
 }
 
 /** Forecast (Prophet — F5) panel: the consequence of inaction, projected not fabricated. */
@@ -457,7 +462,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const fleetPlan = orchestrateFleet(fleetWork);
   const fleetForecast = forecast({ now, perception, plan: fleetPlan, proposals: state?.proposalQueue ?? [] });
   // Cross-system synthesis: one ranked "do next" list, deduped against the live queue.
-  const suggestions = suggestActions({ perception, forecast: fleetForecast, plan: fleetPlan, existingTitles: (state?.proposalQueue ?? []).map((p) => p.title) });
+  // Shared with the persist route via cockpitSuggestions so the panel and the writer agree.
+  const suggestions = cockpitSuggestions(state, now);
 
   const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
   const mainAction = (brief.highlights.find((h) => h.startsWith("Main action:")) ?? "Main action: review the cockpit.").replace(/^Main action:\s*/i, "");
@@ -561,6 +567,15 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   }
   if(ov){ov.addEventListener('click',closeDrawer);}
   if(dbody){dbody.addEventListener('click',function(e){if(e.target&&e.target.id==='dx'){closeDrawer();}});}
+  var qb=document.getElementById('queue-suggestions'),qm=document.getElementById('queue-msg');
+  if(qb){qb.addEventListener('click',function(){qb.disabled=true;if(qm){qm.textContent='queuing…';}
+    fetch('/api/suggestions/persist',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})
+     .then(function(r){return r.json()}).then(function(d){
+       var msg=d.queued>0?('Queued '+d.queued+' for approval — reloading…'):(d.alreadyQueued>0?'All already in the queue.':'Nothing new to queue.');
+       if(qm){qm.textContent=msg;}
+       if(d.queued>0){setTimeout(function(){location.reload();},900);}else{qb.disabled=false;}
+     }).catch(function(){if(qm){qm.textContent='Network error.';}qb.disabled=false;});
+  });}
   Array.prototype.forEach.call(document.querySelectorAll('.card[data-agent]'),function(card){card.addEventListener('click',function(e){e.preventDefault();openDrawer(card.getAttribute('data-agent'));});});
   document.addEventListener('keydown',function(e){
     if((e.metaKey||e.ctrlKey)&&(e.key==='k'||e.key==='K')){e.preventDefault();openK();}

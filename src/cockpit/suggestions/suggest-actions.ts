@@ -18,7 +18,7 @@
 import type { PerceptionReport } from "../../rinnegan/perception.js";
 import type { ForecastReport } from "../../prophet/forecast.js";
 import type { FleetPlan } from "../../fleet/orchestrator.js";
-import type { ProposalDomain, ProposalActionType } from "../proposals/proposal-types.js";
+import type { ProposalDomain, ProposalActionType, ActionProposal } from "../proposals/proposal-types.js";
 
 export type SuggestionPriority = "high" | "medium" | "low";
 export type SuggestionSource = "forecast" | "orchestrator" | "perception" | "coach" | "triage";
@@ -138,4 +138,35 @@ export function suggestActions(input: SuggestInput): SuggestionSet {
     : "No actions to suggest — the live intelligence is clear, or everything actionable is already in the queue.";
 
   return { actions, note };
+}
+
+/**
+ * Map a suggested action into a non-executable proposal DRAFT, so it can be persisted
+ * to the Gap E spine for approval. It is a draft (status "draft", executable false,
+ * approval = Hart); the persist path is responsible for skipping ids already decided
+ * in the queue (status-safe — it never overwrites an existing row's status).
+ */
+export function suggestionToProposal(a: SuggestedAction, now: string): ActionProposal {
+  return {
+    id: a.id,
+    domain: a.domain,
+    actionType: a.actionType,
+    title: a.title,
+    description: a.rationale,
+    sourceIntent: `suggested:${a.source}`,
+    proposedPayload: {},
+    expectedEffect: a.rationale,
+    riskLevel: a.actionType === "build_agent_plan" ? "medium" : "low",
+    requiredApproval: "Hart",
+    status: "draft",
+    createdAt: now,
+    expiresAt: null,
+    safetyNotes: [
+      "Auto-suggested by the cockpit synthesis — review before approving.",
+      "Propose-only: nothing executes on approval.",
+    ],
+    blockedReason: "Execution is disabled in the read-only cockpit; this is a draft for review.",
+    dryRunResult: null,
+    executable: false,
+  };
 }

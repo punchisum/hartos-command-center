@@ -10,7 +10,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { suggestActions } from "../src/cockpit/suggestions/suggest-actions.js";
+import { suggestActions, suggestionToProposal } from "../src/cockpit/suggestions/suggest-actions.js";
 import { perceive } from "../src/rinnegan/perception.js";
 import { forecast } from "../src/prophet/forecast.js";
 import { orchestrateFleet } from "../src/fleet/orchestrator.js";
@@ -77,6 +77,19 @@ describe("suggest-actions (close the loop)", () => {
     const { actions } = suggestActions({ perception, forecast: forecast({ now: NOW, perception }), limit: 3 });
     assert.ok(actions.length <= 3, "respects the cap");
     assert.equal(actions[0]!.priority, "high", "highest priority first");
+  });
+
+  it("maps a suggestion into a non-executable draft proposal", () => {
+    const perception = perceive({ now: NOW, freshness: fresh([dom("ops", "stale")]) });
+    const action = suggestActions({ perception }).actions[0]!;
+    const draft = suggestionToProposal(action, NOW);
+    assert.equal(draft.status, "draft");
+    assert.equal(draft.executable, false);
+    assert.equal(draft.requiredApproval, "Hart");
+    assert.equal(draft.domain, action.domain);
+    assert.equal(draft.actionType, action.actionType);
+    assert.equal(draft.title, action.title);
+    assert.match(draft.sourceIntent, /^suggested:/);
   });
 
   it("is honest + deterministic when there is nothing to suggest", () => {

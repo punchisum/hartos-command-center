@@ -16,6 +16,11 @@ import { buildFreshnessReport, type FreshnessReport } from "../cockpit/freshness
 import type { ProposalQueueItem } from "../cockpit/proposals/index.js";
 import { buildHostedOrchestratorContext } from "../cockpit/hosted-cto-context.js";
 import { fleetSignals, renderFleetView, type FleetSignal } from "../read-models/agent-signal.js";
+import { perceive } from "../rinnegan/perception.js";
+import { collectFleetTasks } from "../fleet/fleet-work.js";
+import { orchestrateFleet } from "../fleet/orchestrator.js";
+import { forecast } from "../prophet/forecast.js";
+import { suggestActions, type SuggestionSet } from "../cockpit/suggestions/suggest-actions.js";
 
 /** Build a read-only intent-router context from a cockpit snapshot. */
 export function hostedIntentContext(
@@ -230,4 +235,30 @@ export function fleetView(state: CockpitState | undefined, now: string): FleetVi
     agents,
     rendered,
   };
+}
+
+/**
+ * The cross-system "Suggested actions" synthesis for a snapshot. Shared by the
+ * landing page (to render the panel) and the persist route (to write drafts) so the
+ * two never diverge — both see exactly the same ranked, deduped suggestions. Pure.
+ */
+export function cockpitSuggestions(state: CockpitState | undefined, now: string): SuggestionSet {
+  const fr = freshnessView(state, now);
+  const rms = readModelStatusView(state);
+  const fleet = fleetView(state, now);
+  const perception = perceive({
+    now,
+    freshness: fr,
+    proposals: state?.proposalQueue ?? [],
+    missingSources: rms.missingSources,
+    fleetSignals: fleet.agents,
+  });
+  const plan = orchestrateFleet(collectFleetTasks({ perception }));
+  const fcast = forecast({ now, perception, plan, proposals: state?.proposalQueue ?? [] });
+  return suggestActions({
+    perception,
+    forecast: fcast,
+    plan,
+    existingTitles: (state?.proposalQueue ?? []).map((p) => p.title),
+  });
 }
