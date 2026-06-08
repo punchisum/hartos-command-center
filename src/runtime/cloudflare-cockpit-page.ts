@@ -35,12 +35,15 @@ import type { FreshnessReport } from "../cockpit/freshness-surface.js";
 import { ACTION_EXECUTION } from "./cloudflare-security.js";
 import type { AgentDetail } from "../read-models/agent-detail.js";
 import type { GenericAgentDetail, DetailSection } from "../read-models/agent-detail-registry.js";
+import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spine.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
   generatedAt?: string | null;
   /** ISO now used for freshness; defaults to the snapshot generatedAt. */
   now?: string;
+  /** Phase D — recent thread summaries from the spine, for the activity panel. */
+  threads?: CockpitThreadSummary[];
 }
 
 function esc(s: string): string {
@@ -155,6 +158,25 @@ td{padding:6px 10px;border-bottom:1px solid var(--line2)}
 .btn:hover{background:var(--primaryH)}
 .err{color:var(--red);font-size:13px;margin-top:8px;min-height:18px}
 button[disabled]{opacity:.5;cursor:not-allowed}
+.ask kbd{margin-left:auto}
+.expandhint,.card{cursor:pointer}
+/* detail drawer (quick-peek) */
+.overlay{position:fixed;inset:0;background:rgba(20,30,45,.34);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40}
+.overlay.show{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:460px;max-width:92vw;background:var(--panel);border-left:1px solid var(--line);box-shadow:-12px 0 40px rgba(20,40,70,.16);transform:translateX(100%);transition:transform .26s cubic-bezier(.4,0,.2,1);z-index:50;overflow-y:auto}
+.drawer.show{transform:translateX(0)}
+.dwrap{padding:20px 22px 40px}
+.dhead{display:flex;align-items:center;gap:11px;margin-bottom:6px}
+.dname{font-size:18px;font-weight:800}
+.x{margin-left:auto;width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--dim);font-size:15px}
+.dstatus{color:var(--faint);font-size:12px;margin-bottom:12px}
+.dseclbl{font-size:10.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--faint);margin:14px 0 6px}
+/* command palette */
+.kbar{position:fixed;top:14vh;left:50%;transform:translateX(-50%) scale(.98);width:min(620px,92vw);opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:60}
+.kbar.show{opacity:1;pointer-events:auto;transform:translateX(-50%) scale(1)}
+.kbox{background:var(--panel);border:1px solid var(--line);border-radius:13px;box-shadow:0 18px 50px rgba(20,40,70,.22);padding:14px 16px}
+.kbox input{width:100%;border:none;outline:none;background:transparent;font:16px var(--sans);color:var(--txt)}
+kbd{border:1px solid var(--line);border-radius:5px;padding:1px 6px;font:11px var(--sans);color:var(--faint);background:var(--bg)}
 @media(max-width:980px){.app{grid-template-columns:1fr}.side{flex-direction:row;flex-wrap:wrap;border-right:none;border-bottom:1px solid var(--line)}.who{display:none}.grid4{grid-template-columns:repeat(2,1fr)}.grid3{grid-template-columns:1fr}}
 `;
 
@@ -247,7 +269,7 @@ function fleetCard(agent: FleetView["agents"][number]): string {
     : `<span class="muted">no metrics resolved</span>`;
   const confClass = s.confidence === "high" ? "high" : "low";
   return (
-    `<a class="card" href="/agent/${esc(agent.type)}/ui">` +
+    `<a class="card" href="/agent/${esc(agent.type)}/ui" data-agent="${esc(agent.type)}">` +
     `<div class="ctop"><span class="ico">${agentIcon(agent.type)}</span><span class="cname">${esc(titleCase(agent.type))}</span>` +
     `<span class="vpill ${t}">${esc(String(s.verdict).toUpperCase())}</span></div>` +
     `<div class="cstat">${esc(s.freshness)}${s.approvalNeeded ? " · approval-gated" : ""}</div>` +
@@ -311,6 +333,16 @@ function freshBox(fr: FreshnessReport | null): string {
   );
 }
 
+/** Recent-activity panel — the Phase D thread spine surfaced (server-rendered). */
+function activityBox(threads: CockpitThreadSummary[]): string {
+  if (!threads.length) return box("Recent activity", `<div class="muted">No recent threads yet. Ask HartOS to start one.</div>`, "activity");
+  const rows = threads
+    .slice(0, 6)
+    .map((t) => `<div class="li"><span>${esc(t.latestRequest || t.threadId)}</span><span class="tag">${esc(t.latestIntent || "—")}</span></div>`)
+    .join("");
+  return box("Recent activity", rows, "activity");
+}
+
 /** The authed landing cockpit. Grounded, read-only, server-rendered. */
 export function renderHostedCockpitPage(state: CockpitState | undefined, opts: HostedPageOptions = {}): string {
   const now = opts.now ?? opts.generatedAt ?? state?.generatedAt ?? "";
@@ -319,6 +351,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const props = proposalsView(state);
   const fleet = fleetView(state, now);
   const rms = readModelStatusView(state);
+  const threads = opts.threads ?? [];
 
   const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
   const mainAction = (brief.highlights.find((h) => h.startsWith("Main action:")) ?? "Main action: review the cockpit.").replace(/^Main action:\s*/i, "");
@@ -338,6 +371,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const askBar =
     `<form class="ask" id="ask-form" action="/api/ask" method="post">` +
     `<input id="q" type="text" placeholder="Ask HartOS anything…" autocomplete="off" aria-label="Ask HartOS">` +
+    `<kbd>⌘K</kbd>` +
     `<button class="send" id="ask" type="submit" title="Ask HartOS">&#10148;</button></form>` +
     `<div class="chips">` +
     ["What needs my attention today?", "Is my data fresh?", "Anything urgent in ops?", "Show pending proposals"]
@@ -363,31 +397,68 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     askBar +
     `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
     `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
-    `<div class="grid3">${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}</div>` +
+    `<div class="grid3">${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}${activityBox(threads)}</div>` +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</main></div>` +
+    // Quick-peek drawer (card click) + ⌘K command palette — progressive enhancement.
+    `<div class="overlay" id="ov"></div>` +
+    `<aside class="drawer" id="drawer" aria-hidden="true"><div class="dwrap" id="dbody"></div></aside>` +
+    `<div class="overlay" id="kov"></div>` +
+    `<div class="kbar" id="kbar"><div class="kbox"><input id="kq" type="text" placeholder="Ask HartOS… (Enter to ask, Esc to close)" autocomplete="off" aria-label="Ask HartOS"><pre class="answer" id="kout" style="display:none;margin:10px 0 0"></pre></div></div>` +
     `<script>
 (function(){
-  var q=document.getElementById('q'),ask=document.getElementById('ask'),out=document.getElementById('out'),form=document.getElementById('ask-form');
-  function run(text){
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function fmt(d){
+    if(d&&d.error){return 'Error: '+d.error;}
+    var s=(d.title?d.title+'\\n\\n':'')+(d.summary||'');
+    if(d.nextSteps&&d.nextSteps.length){s+='\\n\\nNext steps:\\n- '+d.nextSteps.join('\\n- ');}
+    if(typeof d.proposalCount==='number'){s+='\\n\\nProposals generated: '+d.proposalCount;}
+    return s;
+  }
+  function ask(text,out){
     if(!text){return;}
     out.style.display='block';out.textContent='…';
     fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({request:text})})
-      .then(function(r){return r.json()})
-      .then(function(d){
-        if(d&&d.error){out.textContent='Error: '+d.error;return;}
-        var s=(d.title?d.title+'\\n\\n':'')+(d.summary||'');
-        if(d.nextSteps&&d.nextSteps.length){s+='\\n\\nNext steps:\\n- '+d.nextSteps.join('\\n- ');}
-        if(typeof d.proposalCount==='number'){s+='\\n\\nProposals generated: '+d.proposalCount;}
-        out.textContent=s;
-      })
+      .then(function(r){return r.json()}).then(function(d){out.textContent=fmt(d);})
       .catch(function(){out.textContent='Network error.';});
   }
-  if(form){form.addEventListener('submit',function(e){e.preventDefault();run(q.value);});}
-  ask.addEventListener('click',function(e){e.preventDefault();run(q.value);});
-  Array.prototype.forEach.call(document.querySelectorAll('.chip'),function(c){
-    c.addEventListener('click',function(){q.value=c.getAttribute('data-q');run(q.value);});
+  var q=document.getElementById('q'),inBtn=document.getElementById('ask'),out=document.getElementById('out'),form=document.getElementById('ask-form');
+  if(form){form.addEventListener('submit',function(e){e.preventDefault();ask(q.value,out);});}
+  if(inBtn){inBtn.addEventListener('click',function(e){e.preventDefault();ask(q.value,out);});}
+  Array.prototype.forEach.call(document.querySelectorAll('.chip'),function(c){c.addEventListener('click',function(){q.value=c.getAttribute('data-q');ask(q.value,out);});});
+  var kbar=document.getElementById('kbar'),kov=document.getElementById('kov'),kq=document.getElementById('kq'),kout=document.getElementById('kout');
+  function openK(){kov.classList.add('show');kbar.classList.add('show');kq.focus();}
+  function closeK(){kov.classList.remove('show');kbar.classList.remove('show');}
+  if(kov){kov.addEventListener('click',closeK);}
+  if(kq){kq.addEventListener('keydown',function(e){if(e.key==='Enter'){ask(kq.value,kout);}else if(e.key==='Escape'){closeK();}});}
+  var ov=document.getElementById('ov'),drawer=document.getElementById('drawer'),dbody=document.getElementById('dbody');
+  function closeDrawer(){if(ov){ov.classList.remove('show');}if(drawer){drawer.classList.remove('show');drawer.setAttribute('aria-hidden','true');}}
+  function kv(k,v){return '<div class="li"><span>'+esc(k)+'</span><b style="margin-left:auto">'+esc(v==null?'—':v)+'</b></div>';}
+  function drawerHtml(domain,d){
+    var name=domain.charAt(0).toUpperCase()+domain.slice(1);
+    var head='<div class="dhead"><span class="dname">'+esc(name)+'</span><button class="x" id="dx" aria-label="Close">✕</button></div>';
+    var link='<div style="margin-top:16px"><a class="btn" href="/agent/'+encodeURIComponent(domain)+'/ui">View full dashboard →</a></div>';
+    if(!d||d.available===false){return head+'<div class="muted">'+esc((d&&d.note)||'Detail unavailable. Nothing is fabricated.')+'</div>'+link;}
+    var b='<div class="dstatus">status: '+esc(d.status||'—')+'</div>';
+    if(d.kind==='generic'&&d.sections){d.sections.forEach(function(s){b+='<div class="dseclbl">'+esc(s.title)+'</div>';(s.rows||[]).slice(0,4).forEach(function(r){b+='<div class="li">'+r.map(esc).join(' · ')+'</div>';});});}
+    else if(d.type==='fitness'){var rec=d.recovery||{},n=d.nutrition||{};b+=kv('Recovery',rec.status)+kv('HRV',rec.hrvMs!=null?rec.hrvMs+'ms':null)+kv('Sleep',rec.sleepHours!=null?rec.sleepHours+'h':null)+kv('Calories',n.caloriesConsumed!=null?(n.caloriesConsumed+'/'+(n.caloriesTarget!=null?n.caloriesTarget:'—')):null);}
+    else if(d.type==='ops'){var c=d.counts||{};b+=kv('Urgent',c.urgent)+kv('Blocked',c.blocked)+kv('Waiting',c.waiting)+kv('Stale',c.stale);}
+    if(d.notes&&d.notes.length){b+='<div class="dseclbl">Notes</div>';d.notes.forEach(function(x){b+='<div class="muted">'+esc(x)+'</div>';});}
+    return head+b+link;
+  }
+  function openDrawer(domain){
+    if(!drawer){return;}
+    ov.classList.add('show');drawer.classList.add('show');drawer.setAttribute('aria-hidden','false');
+    dbody.innerHTML='<div class="muted">Loading '+esc(domain)+'…</div>';
+    fetch('/agent/'+encodeURIComponent(domain)).then(function(r){return r.json()}).then(function(d){dbody.innerHTML=drawerHtml(domain,d);}).catch(function(){dbody.innerHTML=drawerHtml(domain,{available:false});});
+  }
+  if(ov){ov.addEventListener('click',closeDrawer);}
+  if(dbody){dbody.addEventListener('click',function(e){if(e.target&&e.target.id==='dx'){closeDrawer();}});}
+  Array.prototype.forEach.call(document.querySelectorAll('.card[data-agent]'),function(card){card.addEventListener('click',function(e){e.preventDefault();openDrawer(card.getAttribute('data-agent'));});});
+  document.addEventListener('keydown',function(e){
+    if((e.metaKey||e.ctrlKey)&&(e.key==='k'||e.key==='K')){e.preventDefault();openK();}
+    else if(e.key==='Escape'){closeK();closeDrawer();}
   });
 })();
 </script>`;

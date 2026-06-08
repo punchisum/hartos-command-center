@@ -1,0 +1,74 @@
+/**
+ * tests/cockpit-hosted-page.test.ts — Blueprint v2 reskin + depth (Phase C/D).
+ *
+ * Locks in the Style 5 hosted landing structure and the progressive-enhancement
+ * depth: sidebar shell + system verdict, inline Ask + ⌘K palette, the quick-peek
+ * detail drawer, and the Recent-activity panel surfacing the Gap D thread spine.
+ * Renders with an undefined state (honest placeholders) so it tests structure, not
+ * data — and that dynamic thread content is HTML-escaped.
+ */
+
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { renderHostedCockpitPage } from "../src/runtime/cloudflare-cockpit-page.js";
+
+const NOW = "2026-06-08T10:00:00Z";
+const html = renderHostedCockpitPage(undefined, {
+  runtimeMode: "hosted",
+  generatedAt: NOW,
+  now: NOW,
+  threads: [
+    { threadId: "thread-1", createdAt: NOW, updatedAt: NOW, entryCount: 2, latestRequest: "Create a tax agent", latestIntent: "build_agent", latestSummary: "Build plan drafted." },
+  ],
+});
+
+describe("hosted cockpit page — Style 5 structure + depth", () => {
+  it("renders the Style 5 shell (sidebar + system verdict + read-only)", () => {
+    assert.match(html, /<!doctype html>/i);
+    assert.match(html, /class="app"/);
+    assert.match(html, /class="side"/);
+    assert.match(html, /SYSTEM STATUS/);
+    assert.match(html, /read-only/);
+  });
+
+  it("includes the inline Ask bar AND the ⌘K command palette", () => {
+    assert.match(html, /id="ask-form"/);
+    assert.match(html, /id="q"/);
+    assert.match(html, /id="kbar"/);
+    assert.match(html, /id="kq"/);
+    assert.match(html, /⌘K/);
+  });
+
+  it("includes the quick-peek detail drawer scaffold", () => {
+    assert.match(html, /id="drawer"/);
+    assert.match(html, /id="dbody"/);
+    assert.match(html, /class="overlay"/);
+  });
+
+  it("surfaces recent threads (Gap D spine) in the activity panel", () => {
+    assert.match(html, /Recent activity/);
+    assert.match(html, /Create a tax agent/);
+    assert.match(html, /build_agent/);
+  });
+
+  it("renders the trust + proposals + freshness panels", () => {
+    assert.match(html, /Can I trust the system\?/);
+    assert.match(html, /Proposal queue/);
+    assert.match(html, /Data freshness/);
+  });
+
+  it("HTML-escapes dynamic thread content (no injection)", () => {
+    const evil = renderHostedCockpitPage(undefined, {
+      now: NOW,
+      threads: [{ threadId: "t", createdAt: NOW, updatedAt: NOW, entryCount: 1, latestRequest: "<script>x</script>", latestIntent: "i", latestSummary: "s" }],
+    });
+    assert.ok(!evil.includes("<script>x</script>"), "raw injected markup must not appear");
+    assert.match(evil, /&lt;script&gt;x&lt;\/script&gt;/);
+  });
+
+  it("works without threads (honest empty activity, no fabrication)", () => {
+    const bare = renderHostedCockpitPage(undefined, { now: NOW });
+    assert.match(bare, /Recent activity/);
+    assert.match(bare, /No recent threads/);
+  });
+});

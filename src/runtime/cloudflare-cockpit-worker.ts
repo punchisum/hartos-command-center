@@ -69,6 +69,7 @@ import {
   renderHostedControlSurfacePage,
 } from "./cloudflare-control-surface.js";
 import type { ControlSurfaceRender } from "../cockpit/control-surface/index.js";
+import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spine.js";
 
 export const SUPPORTED_ROUTES = [
   "GET /",
@@ -200,7 +201,10 @@ export async function handleCockpitRequest(
     }
 
     if (pathname === "/" || pathname === "/index.html") {
-      return htmlResponse(dctx.html ?? hostedHtml(dctx), cors);
+      if (dctx.html) return htmlResponse(dctx.html, cors);
+      // Phase D — surface recent threads from the spine in the activity panel.
+      const threads = dctx.threadsProvider ? await dctx.threadsProvider().catch(() => null) : null;
+      return htmlResponse(hostedHtml(dctx, threads ?? undefined), cors);
     }
     if (pathname === "/api/state") {
       return jsonResponse(200, dctx.state ?? { hosted: true, note: "snapshot not embedded" }, cors);
@@ -449,11 +453,12 @@ async function ensureLiveState(ctx: CockpitWorkerContext, pathname: string): Pro
 }
 
 /** Render the hosted page from the context's snapshot (no fs at request time). */
-function hostedHtml(ctx: CockpitWorkerContext): string {
+function hostedHtml(ctx: CockpitWorkerContext, threads?: CockpitThreadSummary[]): string {
   return renderHostedCockpitPage(ctx.state, {
     runtimeMode: ctx.runtimeMode ?? "hosted",
     generatedAt: ctx.generatedAt ?? ctx.state?.generatedAt ?? null,
     now: nowFor(ctx),
+    ...(threads ? { threads } : {}),
   });
 }
 
