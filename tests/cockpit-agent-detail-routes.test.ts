@@ -70,4 +70,63 @@ describe("hosted per-agent detail routes (Phase C)", () => {
     assert.equal(body.available, false);
     assert.equal(body.type, "fitness");
   });
+
+  it("GET /agent/fitness/ui renders the full fitness dashboard as HTML", async () => {
+    const detail: AgentDetail = {
+      type: "fitness",
+      status: "ok",
+      generatedAt: NOW,
+      recovery: { status: "green", hrvMs: 55, sleepHours: 8 },
+      series: [{ date: "2026-06-06", hrvMs: 55, sleepHours: 8 }],
+      bodyweight: [{ date: "2026-06-06", kg: 80 }],
+      nutrition: { caloriesTarget: 3100 },
+      workouts: [],
+      notes: [],
+    };
+    const res = await handleCockpitRequest(new Request("https://c/agent/fitness/ui"), env, {
+      runtimeMode: "hosted",
+      agentDetailProvider: async (d) => (d === "fitness" ? detail : null),
+    });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /text\/html/);
+    const html = await res.text();
+    assert.match(html, /<!doctype html>/i);
+    assert.match(html, /Recovery series/);
+    assert.match(html, /Bodyweight/);
+    assert.match(html, /GREEN/);
+  });
+
+  it("GET /agent/ops/ui renders the full ops dashboard as HTML", async () => {
+    const detail: AgentDetail = {
+      type: "ops",
+      status: "ok",
+      generatedAt: NOW,
+      counts: { urgent: 2 },
+      attention: [{ title: "Wire to supplier", reason: "urgent" }],
+      updates: [],
+      riskFlags: [],
+      notes: [],
+    };
+    const res = await handleCockpitRequest(new Request("https://c/agent/ops/ui"), env, {
+      runtimeMode: "hosted",
+      agentDetailProvider: async () => detail,
+    });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /text\/html/);
+    const html = await res.text();
+    assert.match(html, /Attention/);
+    assert.match(html, /Wire to supplier/);
+  });
+
+  it("GET /agent/fitness/ui renders an honest 'unavailable' page when no detail resolves", async () => {
+    const res = await handleCockpitRequest(new Request("https://c/agent/ops/ui"), env, {
+      runtimeMode: "hosted",
+      agentDetailProvider: async () => null,
+    });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /text\/html/);
+    const html = await res.text();
+    assert.match(html, /unavailable/i);
+    assert.match(html, /Nothing is fabricated/i);
+  });
 });

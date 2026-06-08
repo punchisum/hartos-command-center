@@ -53,6 +53,7 @@ import {
   renderHostedCockpitPage,
   renderLoginPage,
   renderLockedPage,
+  renderAgentDetailPage,
 } from "./cloudflare-cockpit-page.js";
 import { routeHosted, freshnessView, readModelStatusView, proposalsView, fleetView } from "./cloudflare-cockpit-views.js";
 import { resolveHostedCockpitState, resolveAgentDetail } from "./cloudflare-live-read-models.js";
@@ -76,12 +77,28 @@ export const SUPPORTED_ROUTES = [
   "GET /api/fleet",
   "GET /agent/fitness",
   "GET /agent/ops",
+  "GET /agent/fitness/ui",
+  "GET /agent/ops/ui",
   "GET /api/proposals",
   "GET /api/debug/status",
   "POST /api/login",
   "POST /api/ask",
   "POST /api/orchestrator/message",
 ] as const;
+
+/**
+ * GET routes that render an HTML page. When unauthenticated, these serve the
+ * login form (with a same-origin redirect back) instead of a 401 — so an
+ * operator who opens a deep link (e.g. /agent/fitness/ui) lands on sign-in and
+ * is returned to the page they wanted. Every other route fails closed with 401.
+ */
+const HTML_GET_ROUTES = new Set<string>([
+  "/",
+  "/index.html",
+  "/control",
+  "/agent/fitness/ui",
+  "/agent/ops/ui",
+]);
 
 /**
  * Handle one hosted-cockpit request against a pre-built snapshot context.
@@ -125,9 +142,10 @@ export async function handleCockpitRequest(
     // routes return 401. Either way no protected data is served. The control
     // surface (/control) is a UI page too, so it gets the login form and lands
     // the operator back on /control after a successful sign-in.
-    if (method === "GET" && (pathname === "/" || pathname === "/index.html" || pathname === "/control")) {
+    if (method === "GET" && HTML_GET_ROUTES.has(pathname)) {
       if (auth.mode === "misconfigured") return htmlResponse(renderLockedPage(), cors);
-      return htmlResponse(renderLoginPage({ redirectTo: pathname === "/control" ? "/control" : "/" }), cors);
+      const redirectTo = pathname === "/index.html" ? "/" : pathname;
+      return htmlResponse(renderLoginPage({ redirectTo }), cors);
     }
     return unauthorized(cors, auth);
   }
@@ -204,6 +222,14 @@ export async function handleCockpitRequest(
         detail ?? { available: false, type: domain, note: `${domain} detail unavailable (no live read-model env resolved).` },
         cors,
       );
+    }
+    if (pathname === "/agent/fitness/ui" || pathname === "/agent/ops/ui") {
+      // Phase C — the full per-agent dashboard page (HTML). Same read-only detail
+      // as the JSON route, rendered server-side; a null detail yields an honest
+      // "unavailable" page rather than fabricated data.
+      const domain = pathname === "/agent/fitness/ui" ? "fitness" : "ops";
+      const detail = ctx.agentDetailProvider ? await ctx.agentDetailProvider(domain) : null;
+      return htmlResponse(renderAgentDetailPage(detail, domain), cors);
     }
     if (pathname === "/api/proposals") {
       return jsonResponse(200, proposalsView(dctx.state), cors);

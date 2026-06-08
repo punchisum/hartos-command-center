@@ -18,6 +18,7 @@
 import type { CockpitState } from "../cockpit/cockpit-types.js";
 import { routeHosted, freshnessView, proposalsView, fleetView } from "./cloudflare-cockpit-views.js";
 import { ACTION_EXECUTION } from "./cloudflare-security.js";
+import type { AgentDetail } from "../read-models/agent-detail.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -198,11 +199,13 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     (fleet.available ? "" : `<div class="disabled-note">${esc(fleet.note)}</div>`) +
     `</section>` +
     // Fitness
-    `<section><h2>Fitness</h2><pre class="answer">${escMultiline(fitnessAns.summary)}</pre></section>` +
+    `<section><h2>Fitness</h2><pre class="answer">${escMultiline(fitnessAns.summary)}</pre>` +
+    `<div style="margin-top:8px"><a href="/agent/fitness/ui">View full fitness dashboard →</a></div></section>` +
     // Ops
     `<section><h2>Ops</h2><pre class="answer">${escMultiline(opsAns.summary)}</pre>` +
     `<button disabled title="Execution is disabled">Re-run ClickUp import (disabled)</button>` +
-    `<div class="disabled-note">The hosted cockpit cannot run imports or any action — refresh ClickUp manually.</div></section>` +
+    `<div class="disabled-note">The hosted cockpit cannot run imports or any action — refresh ClickUp manually.</div>` +
+    `<div style="margin-top:8px"><a href="/agent/ops/ui">View full ops dashboard →</a></div></section>` +
     // Freshness
     `<section><h2>Freshness / Sync</h2>${freshnessSection}</section>` +
     // Factory / Proposals
@@ -251,4 +254,76 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
 })();
 </script>`;
   return shell("HartOS Command Center", body);
+}
+
+// ─── Phase C: per-agent full detail dashboard ────────────────────────────────
+
+function fmt(n: number | undefined, dp = 0): string {
+  if (n === undefined) return "—";
+  return dp > 0 ? n.toFixed(dp) : String(Math.round(n));
+}
+
+function tableHtml(headers: string[], rows: string[][]): string {
+  if (rows.length === 0) return `<p class="muted">None.</p>`;
+  const th = headers
+    .map((h) => `<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #232733;color:#8b93a7;font-size:12px">${esc(h)}</th>`)
+    .join("");
+  const trs = rows
+    .map((r) => `<tr>${r.map((c) => `<td style="padding:6px 10px;border-bottom:1px solid #1b202a">${esc(c)}</td>`).join("")}</tr>`)
+    .join("");
+  return `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+}
+
+/**
+ * The full per-agent dashboard page — recovery + series + bodyweight + nutrition +
+ * workouts (fitness), or counts + the full attention list + updates + risk flags
+ * (ops). Read-only, grounded in the agent's own read RPCs; an absent detail renders
+ * an honest "unavailable" page rather than fabricating data.
+ */
+export function renderAgentDetailPage(detail: AgentDetail | null, domain: "fitness" | "ops"): string {
+  const label = `${domain[0]!.toUpperCase()}${domain.slice(1)}`;
+  const header =
+    `<header><h1><a href="/" style="text-decoration:none">← HartOS</a> &nbsp;/&nbsp; ${esc(label)} dashboard</h1>` +
+    `<span class="badge ro">read-only</span></header>`;
+
+  if (!detail) {
+    return shell(
+      `HartOS — ${label} dashboard`,
+      `${header}<main><section><h2>${esc(label)} detail unavailable</h2>` +
+        `<p class="muted">No live read-model env resolved for ${esc(domain)}. Nothing is fabricated.</p>` +
+        `<p><a href="/">← back to cockpit</a></p></section></main>`,
+    );
+  }
+
+  let sections: string;
+  if (detail.type === "fitness") {
+    const f = detail;
+    sections =
+      `<section><h2>Recovery</h2>` +
+      `<div><span class="verdict ${verdictClass(f.recovery.status ?? "amber")}">${esc((f.recovery.status ?? "unknown").toUpperCase())}</span></div>` +
+      `<p class="kv"><b>HRV</b> ${fmt(f.recovery.hrvMs)}ms · <b>RHR</b> ${fmt(f.recovery.restingHr)} bpm · ` +
+      `<b>Sleep</b> ${fmt(f.recovery.sleepHours, 1)}h · <b>Plan</b> ${esc(f.recovery.trainingDayType ?? "—")}` +
+      `${f.recovery.workoutCompleted ? " · completed" : ""}</p></section>` +
+      `<section><h2>Recovery series</h2>${tableHtml(["Date", "HRV (ms)", "RHR (bpm)", "Sleep (h)"], f.series.map((p) => [p.date, fmt(p.hrvMs), fmt(p.restingHr), fmt(p.sleepHours, 1)]))}</section>` +
+      `<section><h2>Bodyweight</h2>${tableHtml(["Date", "kg"], f.bodyweight.map((b) => [b.date, b.kg.toFixed(1)]))}</section>` +
+      `<section><h2>Nutrition (today)</h2><p class="kv"><b>Calories</b> ${fmt(f.nutrition.caloriesConsumed)}/${fmt(f.nutrition.caloriesTarget)} · ` +
+      `<b>Protein</b> ${fmt(f.nutrition.proteinConsumed)}/${fmt(f.nutrition.proteinTarget)}g</p></section>` +
+      `<section><h2>Recent workouts</h2>${tableHtml(["Date", "Type", "Min"], f.workouts.map((w) => [w.date ?? "—", w.type ?? "—", fmt(w.minutes)]))}</section>`;
+  } else {
+    const o = detail;
+    sections =
+      `<section><h2>Counts</h2><p class="kv"><b>Active</b> ${fmt(o.counts.active)} · <b>Urgent</b> ${fmt(o.counts.urgent)} · ` +
+      `<b>Blocked</b> ${fmt(o.counts.blocked)} · <b>Waiting</b> ${fmt(o.counts.waiting)} · <b>Stale</b> ${fmt(o.counts.stale)} · ` +
+      `<b>No next action</b> ${fmt(o.counts.noNextAction)}</p></section>` +
+      `<section><h2>Attention (full list)</h2>${tableHtml(["Title", "Status", "Reason", "Next action", "Due", "Project"], o.attention.map((c) => [c.title, c.status ?? "—", c.reason ?? "—", c.nextAction ?? "—", c.dueAt ?? "—", c.project ?? "—"]))}</section>` +
+      `<section><h2>Recent updates</h2>${tableHtml(["Card", "Summary", "By", "When"], o.updates.map((u) => [u.cardTitle ?? "—", u.summary ?? "—", u.updatedBy ?? "—", u.updatedAt ?? "—"]))}</section>` +
+      `<section><h2>Risk flags</h2>${tableHtml(["Flag", "Severity", "Cards"], o.riskFlags.map((r) => [r.flag, r.severity ?? "—", fmt(r.cardCount)]))}</section>`;
+  }
+
+  const notes = detail.notes.length ? `<section><h2>Data notes</h2>${listHtml(detail.notes)}</section>` : "";
+  return shell(
+    `HartOS — ${label} dashboard`,
+    `${header}<main>${sections}${notes}` +
+      `<footer>Read-only, live from the agent's read RPCs. Nothing is fabricated. <a href="/">← back to cockpit</a></footer></main>`,
+  );
 }
