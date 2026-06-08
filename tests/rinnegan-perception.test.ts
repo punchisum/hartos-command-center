@@ -96,6 +96,15 @@ describe("rinnegan perception (Phase F2)", () => {
     assert.ok(r.scanned.includes("fleet health"));
   });
 
+  it("flags an online agent reporting low confidence as drift", () => {
+    const sig = (type: string, freshness: string, confidence: string): FleetSignal =>
+      ({ id: type, type, signal: { verdict: "ok", confidence, freshness, facts: [], reason: "r", nextAction: null, approvalNeeded: false } }) as unknown as FleetSignal;
+    const r = perceive({ now: NOW, freshness: fresh([dom("ops", "fresh")]), fleetSignals: [sig("fitness", "live", "low"), sig("ops", "fresh", "high")] });
+    const fit = r.observations.find((o) => o.subject === "fitness")!;
+    assert.equal(fit.kind, "drift");
+    assert.match(fit.detail, /low confidence/);
+  });
+
   it("is deterministic and summarizes honestly", () => {
     const input = { now: NOW, freshness: fresh([dom("ops", "stale")]) };
     assert.deepEqual(perceive(input), perceive(input));

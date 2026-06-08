@@ -128,3 +128,44 @@ export function collectFleetTasks(input: { plan?: ResearchPlan; perception?: Per
     byCapability,
   };
 }
+
+export interface FleetAgentLoad {
+  id: string;
+  name: string;
+  assigned: number;
+  capacity: number;
+  overloaded: boolean;
+}
+
+export interface FleetLoad {
+  agents: FleetAgentLoad[];
+  /** Agent ids whose routed work exceeds their capacity. */
+  overloaded: string[];
+  totalOpen: number;
+  /** Capability gaps carried through from the work (no agent can take them). */
+  gaps: string[];
+}
+
+/**
+ * Assess per-agent load from the routed work: a task counts toward every agent that
+ * COULD handle it (potential load), and an agent is over-subscribed when that
+ * exceeds its capacity. This is the load model F4's orchestrator routes against, and
+ * — with `gaps` — the two honest "the fleet can't keep up" signals (overloaded +
+ * unhandled), i.e. when to grow the fleet. Pure.
+ */
+export function assessFleetLoad(work: FleetWork, registry: AgentRegistration[] = FLEET_REGISTRY): FleetLoad {
+  const counts: Record<string, number> = {};
+  for (const rt of work.tasks) {
+    for (const h of rt.handlers) counts[h] = (counts[h] ?? 0) + 1;
+  }
+  const agents: FleetAgentLoad[] = registry.map((r) => {
+    const assigned = counts[r.id] ?? 0;
+    return { id: r.id, name: r.name, assigned, capacity: r.capacity, overloaded: r.capacity > 0 && assigned > r.capacity };
+  });
+  return {
+    agents,
+    overloaded: agents.filter((a) => a.overloaded).map((a) => a.id),
+    totalOpen: work.open,
+    gaps: work.gaps,
+  };
+}

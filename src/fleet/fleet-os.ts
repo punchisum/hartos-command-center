@@ -23,14 +23,16 @@ export interface AgentRegistration {
   kind: AgentKind;
   /** What kinds of work this agent can take (used by task routing — F4 substrate). */
   capabilities: string[];
+  /** Max concurrent tasks before it's over-subscribed (used by load assessment — F4). */
+  capacity: number;
   note?: string;
 }
 
 /** The agents HartOS knows about. Adding an agent = one entry here. */
 export const FLEET_REGISTRY: AgentRegistration[] = [
-  { id: "fitness", name: "Fitness", icon: "🏃", signalType: "fitness", kind: "core", capabilities: ["fitness", "recovery", "nutrition"] },
-  { id: "ops", name: "Ops", icon: "📋", signalType: "ops", kind: "core", capabilities: ["ops", "followup", "refresh", "repair"] },
-  { id: "research", name: "Research", icon: "🔬", kind: "core", capabilities: ["research", "analysis"], note: "planner — no live read-model signal yet" },
+  { id: "fitness", name: "Fitness", icon: "🏃", signalType: "fitness", kind: "core", capabilities: ["fitness", "recovery", "nutrition"], capacity: 2 },
+  { id: "ops", name: "Ops", icon: "📋", signalType: "ops", kind: "core", capabilities: ["ops", "followup", "refresh", "repair"], capacity: 3 },
+  { id: "research", name: "Research", icon: "🔬", kind: "core", capabilities: ["research", "analysis"], capacity: 2, note: "planner — no live read-model signal yet" },
 ];
 
 export type AgentHealth = "online" | "stale" | "silent" | "advisory";

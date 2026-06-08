@@ -179,6 +179,14 @@ export function perceive(input: PerceptionInput): PerceptionReport {
           detail: `${a.name} agent's signal is stale.`,
           recommendation: `Refresh the ${a.name} agent's data.`,
         });
+      } else if (a.health === "online" && a.confidence === "low") {
+        observations.push({
+          kind: "drift",
+          severity: "info",
+          subject: a.id,
+          detail: `${a.name}'s verdict is reporting low confidence — its numbers are shaky.`,
+          recommendation: `Improve ${a.name}'s data completeness before relying on its verdict.`,
+        });
       }
     }
   }

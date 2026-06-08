@@ -9,7 +9,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { planToTasks, perceptionToTasks, routeTask, collectFleetTasks } from "../src/fleet/fleet-work.js";
+import { planToTasks, perceptionToTasks, routeTask, collectFleetTasks, assessFleetLoad } from "../src/fleet/fleet-work.js";
 import { FLEET_REGISTRY } from "../src/fleet/fleet-os.js";
 import { planResearch } from "../src/research/research-planner.js";
 import { perceive } from "../src/rinnegan/perception.js";
@@ -63,6 +63,19 @@ describe("fleet work — shared task layer (F-depth)", () => {
     const work = collectFleetTasks({ perception, registry: noRepair });
     assert.ok(work.unrouted >= 1);
     assert.ok(work.gaps.includes("repair"));
+  });
+
+  it("assessFleetLoad attributes routed tasks to handlers and flags over-subscription", () => {
+    // ops stale + fitness unavailable + factory stale + clickup stale → 4 refresh/repair
+    // tasks, all routing to ops (capacity 3) → ops over-subscribed.
+    const perception = perceive({ now: NOW, freshness: fresh([dom("ops", "stale"), dom("fitness", "unavailable"), dom("factory", "stale")], true) });
+    const work = collectFleetTasks({ perception });
+    const load = assessFleetLoad(work);
+    const ops = load.agents.find((a) => a.id === "ops")!;
+    assert.equal(ops.capacity, 3);
+    assert.ok(ops.assigned > ops.capacity, "ops over-subscribed by the routed work");
+    assert.ok(load.overloaded.includes("ops"));
+    assert.equal(load.totalOpen, work.open);
   });
 
   it("is deterministic", () => {
