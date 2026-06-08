@@ -35,6 +35,8 @@ export interface CoachingSignals {
   proteinTarget?: number;
   /** Raw weekly-load string — unit-ambiguous, surfaced as context, never thresholded. */
   weeklyLoadRaw?: string;
+  /** Bodyweight direction over the recent series — context (e.g. cut/bulk), not a readiness signal. */
+  bodyweightTrend?: "rising" | "falling" | "flat";
   /** Today's planned session, free text. */
   trainingPlan?: string;
   /** Whether today's session is already logged. */
@@ -194,6 +196,9 @@ function addContext(s: CoachingSignals, modifiers: string[]): void {
   }
   if (s.weeklyLoadRaw && s.weeklyLoadRaw.trim()) {
     modifiers.push(`Weekly load context: ${s.weeklyLoadRaw.trim()} (unit-ambiguous — informational).`);
+  }
+  if (s.bodyweightTrend) {
+    modifiers.push(`Bodyweight is ${s.bodyweightTrend} over the recent series (context — not today's readiness).`);
   }
 }
 

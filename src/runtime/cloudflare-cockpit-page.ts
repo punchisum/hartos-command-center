@@ -155,6 +155,11 @@ footer{color:var(--faint);font-size:11.5px;margin-top:18px;padding-top:12px;bord
 table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px}
 th{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);color:var(--faint);font-size:11px;font-weight:700}
 td{padding:6px 10px;border-bottom:1px solid var(--line2)}
+.charts{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:4px}
+@media(max-width:700px){.charts{grid-template-columns:1fr}}
+.chart .ct{font-size:11px;font-weight:700;color:var(--faint);letter-spacing:.3px;text-transform:uppercase;margin-bottom:2px}
+svg.spark{display:block;width:100%;height:84px;background:var(--line2);border-radius:8px}
+.sparkmeta{font-size:11px;color:var(--faint);margin-top:3px}
 .detail{max-width:920px;margin:0 auto}
 .detail section{margin-bottom:14px}
 .login-card{max-width:420px;margin:9vh auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;box-shadow:0 4px 16px rgba(20,40,70,.06)}
@@ -659,6 +664,62 @@ function renderGenericAgentDetailPage(detail: GenericAgentDetail): string {
  * (ops). Read-only, grounded in the agent's own read RPCs; an absent detail renders
  * an honest "unavailable" page rather than fabricating data.
  */
+/**
+ * Pure, server-rendered inline SVG line chart (no JS, no deps). Scales the series to
+ * fit, draws an area + line + a dot on the latest point, and captions min/max/last.
+ * Honest with thin data: <2 real points → "not enough data to plot" (never faked).
+ */
+function svgLineChart(points: Array<{ x: string; y: number | undefined }>, opts: { color?: string; dp?: number } = {}): string {
+  const w = 300, h = 84, pad = 8;
+  const dp = opts.dp ?? 0;
+  const pts = points.filter((p): p is { x: string; y: number } => typeof p.y === "number" && Number.isFinite(p.y));
+  if (pts.length < 2) {
+    const one = pts.length === 1 ? ` (only 1 point: ${fmt(pts[0]!.y, dp)})` : "";
+    return `<div class="sparkmeta">Not enough data to plot${one}.</div>`;
+  }
+  const ys = pts.map((p) => p.y);
+  const min = Math.min(...ys), max = Math.max(...ys), range = max - min || 1;
+  const iw = w - pad * 2, ih = h - pad * 2;
+  const xAt = (i: number): number => pad + (i / (pts.length - 1)) * iw;
+  const yAt = (v: number): number => pad + ih - ((v - min) / range) * ih;
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${xAt(i).toFixed(1)},${yAt(p.y).toFixed(1)}`).join(" ");
+  const area = `${line} L${xAt(pts.length - 1).toFixed(1)},${(h - pad).toFixed(1)} L${pad.toFixed(1)},${(h - pad).toFixed(1)} Z`;
+  const color = opts.color ?? "var(--accent)";
+  const last = pts[pts.length - 1]!;
+  return (
+    `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="trend chart">` +
+    `<path d="${area}" fill="${color}" opacity="0.10"/>` +
+    `<path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
+    `<circle cx="${xAt(pts.length - 1).toFixed(1)}" cy="${yAt(last.y).toFixed(1)}" r="3" fill="${color}"/>` +
+    `</svg>` +
+    `<div class="sparkmeta">min ${fmt(min, dp)} · max ${fmt(max, dp)} · last <b>${fmt(last.y, dp)}</b> · ${pts.length} pts</div>`
+  );
+}
+
+function chartCard(title: string, points: Array<{ x: string; y: number | undefined }>, color: string, dp: number): string {
+  return `<div class="chart"><div class="ct">${esc(title)}</div>${svgLineChart(points, { color, dp })}</div>`;
+}
+
+/** Bodyweight direction over the series (0.7kg deadband to ignore weigh-in noise). */
+function bodyweightTrendOf(series: Array<{ date: string; kg: number }>): "rising" | "falling" | "flat" | undefined {
+  if (series.length < 2) return undefined;
+  const sorted = [...series].sort((a, b) => a.date.localeCompare(b.date));
+  const delta = sorted[sorted.length - 1]!.kg - sorted[0]!.kg;
+  if (Math.abs(delta) < 0.7) return "flat";
+  return delta > 0 ? "rising" : "falling";
+}
+
+/** The fitness "Trends" charts grid (bodyweight / HRV / resting HR / sleep). */
+function fitnessChartsSection(f: FitnessDetail): string {
+  const charts: string[] = [];
+  if (f.bodyweight.length >= 2) charts.push(chartCard("Bodyweight (kg)", f.bodyweight.map((b) => ({ x: b.date, y: b.kg })), "var(--accent)", 1));
+  if (f.series.some((p) => p.hrvMs != null)) charts.push(chartCard("HRV (ms)", f.series.map((p) => ({ x: p.date, y: p.hrvMs })), "var(--green)", 0));
+  if (f.series.some((p) => p.restingHr != null)) charts.push(chartCard("Resting HR (bpm)", f.series.map((p) => ({ x: p.date, y: p.restingHr })), "var(--amber)", 0));
+  if (f.series.some((p) => p.sleepHours != null)) charts.push(chartCard("Sleep (h)", f.series.map((p) => ({ x: p.date, y: p.sleepHours })), "var(--primary)", 1));
+  if (!charts.length) return "";
+  return `<section class="box"><div class="blbl">Trends</div><div class="charts">${charts.join("")}</div></section>`;
+}
+
 /** Coaching section for the live fitness detail — runs the coach on the LIVE RPC data. */
 function coachSection(f: FitnessDetail): string {
   const status = f.recovery.status;
@@ -672,6 +733,10 @@ function coachSection(f: FitnessDetail): string {
     ...(f.nutrition.caloriesTarget != null ? { caloriesTarget: f.nutrition.caloriesTarget } : {}),
     ...(f.nutrition.proteinConsumed != null ? { proteinHave: f.nutrition.proteinConsumed } : {}),
     ...(f.nutrition.proteinTarget != null ? { proteinTarget: f.nutrition.proteinTarget } : {}),
+    ...((): { bodyweightTrend?: "rising" | "falling" | "flat" } => {
+      const tr = bodyweightTrendOf(f.bodyweight);
+      return tr ? { bodyweightTrend: tr } : {};
+    })(),
   };
   const a = coach(sig);
   const t: Tone = a.verdict === "train_as_planned" ? "g" : a.verdict === "insufficient_data" ? "i" : "a";
@@ -741,6 +806,7 @@ export function renderAgentDetailPage(detailInput: AgentDetail | GenericAgentDet
       `HRV <b>${fmt(f.recovery.hrvMs)}</b>ms · RHR <b>${fmt(f.recovery.restingHr)}</b> bpm · ` +
       `Sleep <b>${fmt(f.recovery.sleepHours, 1)}</b>h · Plan <b>${esc(f.recovery.trainingDayType ?? "—")}</b>` +
       `${f.recovery.workoutCompleted ? " · completed" : ""}</div></section>` +
+      fitnessChartsSection(f) +
       `<section class="box"><div class="blbl">Recovery series</div>${tableHtml(["Date", "HRV (ms)", "RHR (bpm)", "Sleep (h)"], f.series.map((p) => [p.date, fmt(p.hrvMs), fmt(p.restingHr), fmt(p.sleepHours, 1)]))}</section>` +
       `<section class="box"><div class="blbl">Bodyweight</div>${tableHtml(["Date", "kg"], f.bodyweight.map((b) => [b.date, b.kg.toFixed(1)]))}</section>` +
       `<section class="box"><div class="blbl">Nutrition (today)</div><p class="kv">Calories <b>${fmt(f.nutrition.caloriesConsumed)}</b>/${fmt(f.nutrition.caloriesTarget)} · ` +

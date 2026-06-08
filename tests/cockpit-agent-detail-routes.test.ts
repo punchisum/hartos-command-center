@@ -99,6 +99,35 @@ describe("hosted per-agent detail routes (Phase C)", () => {
     assert.match(html, /TRAIN AS PLANNED/);
   });
 
+  it("plots SVG trend charts on /agent/fitness/ui when the series has ≥2 points", async () => {
+    const detail: AgentDetail = {
+      type: "fitness",
+      status: "ok",
+      generatedAt: NOW,
+      recovery: { status: "green", hrvMs: 60 },
+      series: [
+        { date: "2026-06-04", hrvMs: 55, restingHr: 50, sleepHours: 7 },
+        { date: "2026-06-05", hrvMs: 58, restingHr: 49, sleepHours: 8 },
+        { date: "2026-06-06", hrvMs: 60, restingHr: 48, sleepHours: 7.5 },
+      ],
+      bodyweight: [{ date: "2026-06-01", kg: 80 }, { date: "2026-06-04", kg: 79.2 }, { date: "2026-06-06", kg: 78.5 }],
+      nutrition: {},
+      workouts: [],
+      notes: [],
+    };
+    const res = await handleCockpitRequest(new Request("https://c/agent/fitness/ui"), env, {
+      runtimeMode: "hosted",
+      agentDetailProvider: async () => detail,
+    });
+    const html = await res.text();
+    assert.match(html, /Trends/);
+    assert.match(html, /<svg class="spark"/, "renders an inline SVG chart");
+    assert.match(html, /Bodyweight \(kg\)/);
+    assert.match(html, /min .* max .* last/, "chart caption with min/max/last");
+    // Bodyweight trend (falling 80 → 78.5) is fed to the coach as context.
+    assert.match(html, /Bodyweight is falling/);
+  });
+
   it("GET /agent/ops/ui renders the full ops dashboard as HTML", async () => {
     const detail: AgentDetail = {
       type: "ops",

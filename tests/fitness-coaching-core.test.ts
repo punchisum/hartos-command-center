@@ -98,6 +98,12 @@ describe("fitness coaching core", () => {
     assert.ok(a.modifiers.some((m) => /unit-ambiguous|informational/i.test(m)), "weekly load flagged ambiguous");
   });
 
+  it("surfaces bodyweight trend as context without changing the verdict", () => {
+    const a = coach({ recoveryScore: 80, trainingPlan: "hard intervals", bodyweightTrend: "falling" });
+    assert.equal(a.verdict, "train_as_planned"); // trend is context, not readiness
+    assert.ok(a.modifiers.some((m) => /bodyweight is falling/i.test(m)));
+  });
+
   it("names its blind spots and is deterministic", () => {
     const input = { recoveryScore: 50 };
     const a = coach(input);
