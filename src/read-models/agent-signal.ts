@@ -72,12 +72,36 @@ function n(summary: ReadModelSummary, key: string): number {
   return typeof value === "number" ? value : 0;
 }
 
+// Recovery bands mirror the coach (coaching-core RECOVERY_HIGH/LOW + word-sets) so the
+// fleet-card verdict agrees with the agent's own readiness band — and emits a word the
+// cockpit tone() can color (green/amber/red) instead of a bare score like "66" that
+// silently falls to idle. Genuinely-absent/unrecognized recovery stays "unknown".
+const RECOVERY_HIGH = 67;
+const RECOVERY_LOW = 34;
+const RECOVERY_HIGH_WORDS = /\b(green|high|good|great|optimal|ready|recovered)\b/i;
+const RECOVERY_MID_WORDS = /\b(amber|yellow|moderate|medium|ok|okay|fair|maintain)\b/i;
+const RECOVERY_LOW_WORDS = /\b(red|low|poor|bad|under|fatigued|tired|strain(ed)?)\b/i;
+
+/** Normalize a raw recovery metric (0–100 score or status label) to a tone-legible band word. */
+function recoveryVerdict(recovery: string | number | null | undefined): string {
+  if (recovery == null) return "unknown";
+  const s = String(recovery).trim();
+  if (s === "") return "unknown";
+  if (/^-?\d+(?:\.\d+)?$/.test(s)) {
+    const score = Number(s);
+    return score >= RECOVERY_HIGH ? "green" : score >= RECOVERY_LOW ? "amber" : "red";
+  }
+  if (RECOVERY_LOW_WORDS.test(s)) return "red";
+  if (RECOVERY_HIGH_WORDS.test(s)) return "green";
+  if (RECOVERY_MID_WORDS.test(s)) return "amber";
+  return "unknown";
+}
+
 /** The agent's headline state, from its own data — not the cockpit's read health. */
 function deriveVerdict(summary: ReadModelSummary): string {
   if (!isSpeakable(summary.status)) return summary.status; // missing / error / disabled / unconfigured
   if (summary.type === "fitness") {
-    const recovery = summary.metrics["recovery"];
-    return recovery != null ? String(recovery) : "unknown";
+    return recoveryVerdict(summary.metrics["recovery"]);
   }
   if (summary.type === "ops") {
     if (n(summary, "urgentCards") > 0 || n(summary, "blockedCards") > 0) return "urgent";

@@ -142,7 +142,7 @@ h2{font-size:11px;letter-spacing:1.2px;color:var(--faint);text-transform:upperca
 .li{display:flex;align-items:center;gap:9px;padding:6px 0;color:var(--dim);font-size:12.5px}
 .li b{color:var(--txt)}
 .tag{margin-left:auto;font-size:10px;font-weight:800;border-radius:6px;padding:2px 8px;background:#eef2f7;color:var(--faint)}
-.tag.app{background:var(--sa);color:var(--amber)}.tag.loc{background:var(--sb);color:var(--primary)}.tag.ok{background:var(--sg);color:var(--green)}
+.tag.pend{background:var(--sa);color:var(--amber)}.tag.loc{background:var(--sb);color:var(--primary)}.tag.ok{background:var(--sg);color:var(--green)}
 .muted{color:var(--faint);font-size:12px}
 .cap{color:var(--faint);font-size:11px;margin:18px 2px 0}
 footer{color:var(--faint);font-size:11.5px;margin-top:18px;padding-top:12px;border-top:1px solid var(--line2)}
@@ -339,7 +339,7 @@ function proposalBox(props: ProposalsView): string {
     .slice(0, 6)
     .map((p) => {
       const pending = p.status === "pending_approval" || p.status === "draft";
-      const tg = pending ? "app" : "ok";
+      const tg = pending ? "pend" : "ok";
       const label = p.status === "pending_approval" ? "needs approval" : p.status;
       return `<div class="li">${esc(p.title)} <span class="tag ${tg}">${esc(label)}</span></div>`;
     })

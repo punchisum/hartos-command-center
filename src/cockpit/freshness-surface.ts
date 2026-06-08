@@ -189,8 +189,16 @@ function domainEntry(
       break;
     case "unavailable":
     default:
-      reason = diag?.note ?? `No usable ${domain} data resolved.`;
-      safeNextStep = diag?.setupStep ?? `Configure the ${domain} data source.`;
+      reason =
+        diag?.note ??
+        (domain === "factory"
+          ? "Factory runs locally — reports aren't wired to the hosted cockpit (by design)."
+          : `No usable ${domain} data resolved.`);
+      safeNextStep =
+        diag?.setupStep ??
+        (domain === "factory"
+          ? "View factory reports from the local cockpit; hosted wiring is deferred."
+          : `Configure the ${domain} data source.`);
       break;
   }
   return { domain, state, freshness, lastUpdated, resolvedFields, reason, safeNextStep };

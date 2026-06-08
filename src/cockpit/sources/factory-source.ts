@@ -60,9 +60,16 @@ function finishFactory(values: Record<string, SourceValue>, checked: string[]): 
   };
 }
 
-/** Pure fallback — no reports available in memory. */
+/**
+ * Pure fallback for the hosted cockpit — Workers have no local report filesystem, so
+ * factory data is genuinely absent *by design* (not broken). Carry an honest note so
+ * the cockpit reads "local-only, not wired to hosted" rather than implying breakage.
+ */
 export function deriveFactorySource(): SourceResult {
-  return finishFactory({}, ["(none)"]);
+  const result = finishFactory({}, ["(hosted: no local report filesystem)"]);
+  result.missingReason = "Factory runs locally — its build/verification reports are not wired to the hosted cockpit (by design).";
+  result.setupStep = "View factory reports from the local cockpit (npm run cockpit:web); hosted wiring is deferred (plan P4.2).";
+  return result;
 }
 
 export interface FactorySourceOptions {

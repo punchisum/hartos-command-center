@@ -71,6 +71,19 @@ describe("fleet signals (X1 contract)", () => {
     assert.equal(sig.approvalNeeded, false, "fitness is advisory");
   });
 
+  it("bands a numeric recovery score → tone-legible verdict (the UNKNOWN-on-fresh-data bug)", () => {
+    const verdictFor = (recovery: string): string =>
+      summaryToAgentSignal({ ...fitnessOk, metrics: { ...fitnessOk.metrics, recovery } }, { now }).verdict;
+    assert.equal(verdictFor("80"), "green", "≥67 → green");
+    assert.equal(verdictFor("66"), "amber", '34–66 → amber (was a bare "66" → idle)');
+    assert.equal(verdictFor("20"), "red", "<34 → red");
+  });
+
+  it("ok read with no recovery metric stays unknown — never a faked green", () => {
+    const sig = summaryToAgentSignal({ ...fitnessOk, metrics: { healthVitals: "HRV 55ms" } }, { now });
+    assert.equal(sig.verdict, "unknown");
+  });
+
   it("maps ops counts → urgent verdict; approval required", () => {
     const sig = summaryToAgentSignal(opsUrgent, { now });
     assertShape(sig);

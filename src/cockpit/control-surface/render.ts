@@ -277,7 +277,7 @@ function homeRow(state: ControlSurfaceRender): string {
   return `<div class="grid3">
     <div class="box"><div class="blbl">System health</div>${health || '<div class="li">No providers reported</div>'}</div>
     <div class="box"><div class="blbl">Proposal queue</div>
-      <div class="li">Needs approval <span class="tag app">${q.needsApproval}</span></div>
+      <div class="li">Needs approval <span class="tag pend">${q.needsApproval}</span></div>
       <div class="li">Ready locally <span class="tag loc">${q.readyLocal}</span></div>
       <div class="li">Blocked <span class="tag zero">${q.blocked}</span></div>
       <div class="li">Completed <span class="tag zero">${q.completed}</span></div>
@@ -420,7 +420,7 @@ h2{font-size:11px;letter-spacing:1.2px;color:var(--faint);text-transform:upperca
 .box{border:1px solid var(--line);border-radius:13px;background:var(--panel);padding:15px 17px;box-shadow:0 1px 2px rgba(20,40,70,.04)}
 .blbl{color:var(--faint);font-size:10.5px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;margin-bottom:10px}
 .li{display:flex;align-items:center;gap:9px;padding:6px 0;color:var(--dim);font-size:12.5px}.li b{color:var(--txt)}
-.tag{margin-left:auto;font-size:10px;font-weight:800;border-radius:6px;padding:2px 8px}.tag.app{background:var(--sa);color:var(--amber)}.tag.loc{background:var(--sb);color:var(--primary)}.tag.zero{background:#eef2f7;color:var(--faint)}
+.tag{margin-left:auto;font-size:10px;font-weight:800;border-radius:6px;padding:2px 8px}.tag.pend{background:var(--sa);color:var(--amber)}.tag.loc{background:var(--sb);color:var(--primary)}.tag.zero{background:#eef2f7;color:var(--faint)}
 .panel{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:22px;box-shadow:0 1px 2px rgba(20,40,70,.04)}
 .life{display:flex;align-items:flex-start;justify-content:space-between;margin:6px 0 4px}
 .step{display:flex;flex-direction:column;align-items:center;gap:8px;flex:1;position:relative}
