@@ -55,7 +55,7 @@ import {
   renderLockedPage,
 } from "./cloudflare-cockpit-page.js";
 import { routeHosted, freshnessView, readModelStatusView, proposalsView, fleetView } from "./cloudflare-cockpit-views.js";
-import { resolveHostedCockpitState } from "./cloudflare-live-read-models.js";
+import { resolveHostedCockpitState, resolveAgentDetail } from "./cloudflare-live-read-models.js";
 import {
   resolveHostedControlSurface,
   hostedControlSurfaceJson,
@@ -74,6 +74,8 @@ export const SUPPORTED_ROUTES = [
   "GET /api/freshness",
   "GET /api/read-models/status",
   "GET /api/fleet",
+  "GET /agent/fitness",
+  "GET /agent/ops",
   "GET /api/proposals",
   "GET /api/debug/status",
   "POST /api/login",
@@ -191,6 +193,17 @@ export async function handleCockpitRequest(
       // Workstream C — unified cross-agent fleet view (read-only). Both agents
       // mapped onto the shared AgentSignal from the live read-model summaries.
       return jsonResponse(200, fleetView(dctx.state, nowFor(dctx)), cors);
+    }
+    if (pathname === "/agent/fitness" || pathname === "/agent/ops") {
+      // Phase C — full per-agent detail (read-only). Resolved live from env via the
+      // injected provider; an honest "unavailable" payload when no env is configured.
+      const domain = pathname === "/agent/fitness" ? "fitness" : "ops";
+      const detail = ctx.agentDetailProvider ? await ctx.agentDetailProvider(domain) : null;
+      return jsonResponse(
+        200,
+        detail ?? { available: false, type: domain, note: `${domain} detail unavailable (no live read-model env resolved).` },
+        cors,
+      );
     }
     if (pathname === "/api/proposals") {
       return jsonResponse(200, proposalsView(dctx.state), cors);
@@ -465,6 +478,7 @@ export default {
       // Phase 18F — live 18E control surface (read-only). Always resolves a render
       // (honest UNKNOWN when nothing is configured); never throws.
       controlSurfaceProvider: async () => resolveHostedControlSurface(env),
+      agentDetailProvider: async (domain) => resolveAgentDetail(env, domain),
     });
   },
 };

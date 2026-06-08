@@ -13,6 +13,7 @@
 
 import type { CockpitState, CockpitReportRef } from "../cockpit/cockpit-types.js";
 import type { ControlSurfaceRender } from "../cockpit/control-surface/index.js";
+import type { AgentDetail } from "../read-models/agent-detail.js";
 
 /** Server-side env available to the hosted cockpit. Values are NEVER exposed. */
 export type CloudflareCockpitEnv = Record<string, string | undefined>;
@@ -46,6 +47,12 @@ export interface CockpitWorkerContext {
    * in which case those routes serve the honest UNKNOWN placeholder.
    */
   controlSurfaceProvider?: () => Promise<ControlSurfaceRender | undefined>;
+  /**
+   * Phase C — lazy per-agent DETAIL resolver. Called only for the GET /agent/{domain}
+   * routes, AFTER auth. Returns null to decline (no env configured / read failed),
+   * in which case the route serves an honest "unavailable" payload.
+   */
+  agentDetailProvider?: (domain: "fitness" | "ops") => Promise<AgentDetail | null>;
 }
 
 /** Result of a deploy-gate check, following the Factory gate doctrine. */

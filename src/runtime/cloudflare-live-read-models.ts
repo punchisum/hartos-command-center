@@ -46,6 +46,9 @@ import {
 } from "../cockpit/sources/index.js";
 import type { AgentIntegrationSummary } from "../agents/agent-types.js";
 import type { CockpitState, CockpitCardGroupView } from "../cockpit/cockpit-types.js";
+import { isServiceRoleKey } from "../cockpit/sources/secret-guard.js";
+import { SupabaseReadClient, type FetchLike } from "../read-models/supabase-read-client.js";
+import { buildFitnessDetail, buildOpsDetail, FITNESS_DETAIL_RPCS, type AgentDetail } from "../read-models/agent-detail.js";
 
 type Env = Record<string, string | undefined>;
 
@@ -247,4 +250,36 @@ export async function resolveHostedCockpitState(
     // proposalQueue intentionally omitted — it is local-only in the hosted MVP,
     // so proposalsView reports the correct "local_only" status.
   };
+}
+
+/**
+ * Phase C — resolve one agent's DETAIL read-model LIVE from env, fs-free. Same
+ * read-only anon boundary as the summaries (service-role keys refused). Returns
+ * null when that domain's env isn't configured; the route then serves an honest
+ * "unavailable" payload. The fitness detail allowlist adds the U-F5 bodyweight
+ * series RPC on top of the summary allowlist.
+ */
+export async function resolveAgentDetail(
+  env: Env,
+  domain: "fitness" | "ops",
+  options: { now?: string; fetchImpl?: FetchLike } = {},
+): Promise<AgentDetail | null> {
+  const now = options.now ?? new Date().toISOString();
+  if (domain === "fitness") {
+    const url = env[HOSTED_READ_MODEL_ENV.fitnessUrl];
+    const key = env[HOSTED_READ_MODEL_ENV.fitnessKey];
+    const userId = env[HOSTED_READ_MODEL_ENV.fitnessUserId];
+    const agentId = env[HOSTED_READ_MODEL_ENV.fitnessAgentId];
+    if (!url || !key || !userId || !agentId || isServiceRoleKey(key)) return null;
+    const client = new SupabaseReadClient(
+      { url, key, allowedTables: [], allowedRpcs: [...FITNESS_ALLOWED_RPCS, FITNESS_DETAIL_RPCS.bodyweightSeries] },
+      options.fetchImpl,
+    );
+    return buildFitnessDetail(client, { userId, agentId }, { now });
+  }
+  const url = env[HOSTED_READ_MODEL_ENV.opsUrl];
+  const key = env[HOSTED_READ_MODEL_ENV.opsKey];
+  if (!url || !key || isServiceRoleKey(key)) return null;
+  const client = new SupabaseReadClient({ url, key, allowedTables: [], allowedRpcs: OPS_ALLOWED_RPCS }, options.fetchImpl);
+  return buildOpsDetail(client, { now });
 }
