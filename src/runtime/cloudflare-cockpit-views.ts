@@ -14,6 +14,7 @@ import type { CockpitState } from "../cockpit/cockpit-types.js";
 import { routeCockpitIntent, type CockpitIntentResult, type IntentRouterContext } from "../cockpit/cockpit-intent-router.js";
 import { buildFreshnessReport, type FreshnessReport } from "../cockpit/freshness-surface.js";
 import type { ProposalQueueItem } from "../cockpit/proposals/index.js";
+import { fleetSignals, renderFleetView, type FleetSignal } from "../read-models/agent-signal.js";
 
 /** Build a read-only intent-router context from a cockpit snapshot. */
 export function hostedIntentContext(
@@ -175,5 +176,50 @@ export function proposalsView(state: CockpitState | undefined): ProposalsView {
       status: p.status,
       executable: false as const,
     })),
+  };
+}
+
+export interface FleetView {
+  available: boolean;
+  note: string;
+  generatedAt: string | null;
+  /** One unified AgentSignal per agent (verdict·confidence·freshness·nextAction·approval). */
+  agents: FleetSignal[];
+  /** The unified text render — identical for the HTML page and the JSON API. */
+  rendered: string;
+}
+
+/**
+ * Workstream C wiring — the unified cross-agent fleet view. Maps EVERY agent's
+ * read-model summary (built by the live registry in resolveHostedCockpitState)
+ * onto the shared AgentSignal and renders them identically, with no bespoke
+ * per-agent glue. Derived purely from the snapshot's read-model summaries:
+ * read-only, no I/O, no mutation. confidence/freshness are honest from the data
+ * (see src/read-models/agent-signal.ts); a missing domain still appears, mapped
+ * to unknown — never fabricated.
+ */
+export function fleetView(state: CockpitState | undefined, now: string): FleetView {
+  const summaries = state?.readModels?.summaries ?? [];
+  // Honest "now": only feed a parseable timestamp to freshness derivation; an
+  // empty/invalid snapshot time falls back to the agent-signal default.
+  const parsed = now ? new Date(now) : null;
+  const opts = parsed && !Number.isNaN(parsed.getTime()) ? { now: parsed } : {};
+  const agents = fleetSignals([...summaries], opts);
+  const rendered = renderFleetView(agents);
+  if (summaries.length === 0) {
+    return {
+      available: false,
+      note: "Fleet view is unavailable (no live read-model summaries resolved). Configure the Fitness/Ops read-model env on the Worker.",
+      generatedAt: state?.generatedAt ?? null,
+      agents,
+      rendered,
+    };
+  }
+  return {
+    available: true,
+    note: "Read-only unified fleet view. Each agent is mapped onto the shared AgentSignal; nothing is fabricated.",
+    generatedAt: state?.generatedAt ?? null,
+    agents,
+    rendered,
   };
 }

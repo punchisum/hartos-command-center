@@ -54,7 +54,7 @@ import {
   renderLoginPage,
   renderLockedPage,
 } from "./cloudflare-cockpit-page.js";
-import { routeHosted, freshnessView, readModelStatusView, proposalsView } from "./cloudflare-cockpit-views.js";
+import { routeHosted, freshnessView, readModelStatusView, proposalsView, fleetView } from "./cloudflare-cockpit-views.js";
 import { resolveHostedCockpitState } from "./cloudflare-live-read-models.js";
 import {
   resolveHostedControlSurface,
@@ -73,6 +73,7 @@ export const SUPPORTED_ROUTES = [
   "GET /api/threads",
   "GET /api/freshness",
   "GET /api/read-models/status",
+  "GET /api/fleet",
   "GET /api/proposals",
   "GET /api/debug/status",
   "POST /api/login",
@@ -185,6 +186,11 @@ export async function handleCockpitRequest(
     }
     if (pathname === "/api/read-models/status") {
       return jsonResponse(200, readModelStatusView(dctx.state), cors);
+    }
+    if (pathname === "/api/fleet") {
+      // Workstream C — unified cross-agent fleet view (read-only). Both agents
+      // mapped onto the shared AgentSignal from the live read-model summaries.
+      return jsonResponse(200, fleetView(dctx.state, nowFor(dctx)), cors);
     }
     if (pathname === "/api/proposals") {
       return jsonResponse(200, proposalsView(dctx.state), cors);
@@ -307,6 +313,7 @@ const LIVE_DATA_ROUTES = new Set<string>([
   "/api/state",
   "/api/freshness",
   "/api/read-models/status",
+  "/api/fleet",
   "/api/proposals",
   "/api/ask",
 ]);

@@ -16,7 +16,7 @@
  */
 
 import type { CockpitState } from "../cockpit/cockpit-types.js";
-import { routeHosted, freshnessView, proposalsView } from "./cloudflare-cockpit-views.js";
+import { routeHosted, freshnessView, proposalsView, fleetView } from "./cloudflare-cockpit-views.js";
 import { ACTION_EXECUTION } from "./cloudflare-security.js";
 
 export interface HostedPageOptions {
@@ -157,6 +157,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
 
   const fitnessAns = routeHosted(state, "How is my fitness today?");
   const opsAns = routeHosted(state, "Anything urgent in ops?");
+  const fleet = fleetView(state, now);
 
   const freshnessSection = fr
     ? `<div class="kv"><span class="verdict ${verdictClass(fr.verdict)}">${esc(fr.verdict.toUpperCase())}</span> &nbsp;${esc(fr.verdictReason)}</div>` +
@@ -192,6 +193,10 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     `</section>` +
     // Attention Needed
     `<section><h2>Attention Needed</h2>${listHtml(attention, true)}</section>` +
+    // Fleet — unified cross-agent view (both agents on the shared AgentSignal)
+    `<section><h2>Fleet</h2><pre class="answer">${escMultiline(fleet.rendered)}</pre>` +
+    (fleet.available ? "" : `<div class="disabled-note">${esc(fleet.note)}</div>`) +
+    `</section>` +
     // Fitness
     `<section><h2>Fitness</h2><pre class="answer">${escMultiline(fitnessAns.summary)}</pre></section>` +
     // Ops

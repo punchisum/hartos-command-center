@@ -203,3 +203,75 @@ describe("hosted live read-models — worker wiring (lazy, post-auth, data-route
     assert.equal(spy.calls(), 0);
   });
 });
+
+describe("hosted fleet view — unified cross-agent render surfaced in the live route", () => {
+  const env = {}; // open auth (no token, not production)
+
+  /** A worker context whose live provider serves a real, fs-free hosted state. */
+  async function liveCtx() {
+    const state = await resolveHostedCockpitState(fullEnv(), { now: NOW, clientFactory: stubClientFactory() });
+    assert.ok(state, "live state should resolve");
+    return { runtimeMode: "hosted", liveStateProvider: async () => state ?? undefined };
+  }
+
+  it("GET /api/fleet returns a unified AgentSignal for BOTH agents (no per-agent glue)", async () => {
+    const res = await handleCockpitRequest(new Request("https://c/api/fleet"), env, await liveCtx());
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      available: boolean;
+      agents: { id: string; type: string; signal: { verdict: string; confidence: string; freshness: string; approvalNeeded: boolean } }[];
+      rendered: string;
+    };
+    assert.equal(body.available, true);
+    assert.deepEqual(body.agents.map((a) => a.type).sort(), ["fitness", "ops"]);
+
+    const fit = body.agents.find((a) => a.type === "fitness")!;
+    const ops = body.agents.find((a) => a.type === "ops")!;
+    // Derived from each agent's own read-model data — never fabricated.
+    assert.equal(fit.signal.verdict, "green");
+    assert.equal(fit.signal.approvalNeeded, false, "fitness is advisory");
+    assert.equal(ops.signal.verdict, "urgent");
+    assert.equal(ops.signal.approvalNeeded, true, "ops proposals need approval");
+
+    // The unified text render covers both agents.
+    assert.match(body.rendered, /HartOS Fleet/);
+    assert.match(body.rendered, /fitness \(fitness\)/);
+    assert.match(body.rendered, /ops \(ops\)/);
+  });
+
+  it("GET / (hosted HTML) embeds the unified fleet view for both agents", async () => {
+    const res = await handleCockpitRequest(new Request("https://c/"), env, await liveCtx());
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /HartOS Fleet/);
+    assert.match(html, /fitness \(fitness\)/);
+    assert.match(html, /ops \(ops\)/);
+    assert.match(html, /approval=required/, "ops requires approval");
+    assert.match(html, /approval=no/, "fitness is advisory");
+  });
+
+  it("the fleet route never leaks the read-only key", async () => {
+    const res = await handleCockpitRequest(new Request("https://c/api/fleet"), env, await liveCtx());
+    const raw = await res.text();
+    assert.equal(raw.includes(ANON_KEY), false, "key value must not appear in the fleet response");
+  });
+
+  it("degrades honestly — fleet still lists both agents when a domain is unconfigured", async () => {
+    const opsOnlyEnv = {
+      [HOSTED_READ_MODEL_ENV.opsUrl]: "https://ops.example.supabase.co",
+      [HOSTED_READ_MODEL_ENV.opsKey]: ANON_KEY,
+      // fitness env intentionally absent
+    };
+    const state = await resolveHostedCockpitState(opsOnlyEnv, { now: NOW, clientFactory: stubClientFactory() });
+    const res = await handleCockpitRequest(
+      new Request("https://c/api/fleet"),
+      env,
+      { runtimeMode: "hosted", liveStateProvider: async () => state ?? undefined }
+    );
+    const body = (await res.json()) as { agents: { type: string; signal: { verdict: string; confidence: string } }[] };
+    assert.deepEqual(body.agents.map((a) => a.type).sort(), ["fitness", "ops"]);
+    const fit = body.agents.find((a) => a.type === "fitness")!;
+    assert.equal(fit.signal.verdict, "missing", "unconfigured fitness maps to its read status");
+    assert.equal(fit.signal.confidence, "unknown", "confidence is never faked for a missing read");
+  });
+});
