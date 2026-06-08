@@ -796,7 +796,7 @@ function triageSection(o: OpsDetail): string {
   const tr = triageOps(sig);
   const t: Tone = tr.verdict === "urgent" ? "r" : tr.verdict === "clear" ? "g" : tr.verdict === "insufficient_data" ? "i" : "a";
   const q = tr.queue.length
-    ? tableHtml(["Front", "Count", "Severity"], tr.queue.map((i) => [i.category, i.count > 0 ? String(i.count) : "—", i.severity]))
+    ? tableHtml(["Front", "Count", "Severity", "Next action"], tr.queue.map((i) => [i.category, i.count > 0 ? String(i.count) : "—", i.severity, i.action]))
     : "";
   const caveat = tr.caveats.length ? `<p class="muted">${esc(tr.caveats.join(" "))}</p>` : "";
   return (

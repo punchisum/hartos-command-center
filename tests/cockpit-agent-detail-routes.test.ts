@@ -133,7 +133,7 @@ describe("hosted per-agent detail routes (Phase C)", () => {
       type: "ops",
       status: "ok",
       generatedAt: NOW,
-      counts: { urgent: 2 },
+      counts: { urgent: 2, waiting: 1 },
       attention: [{ title: "Wire to supplier", reason: "urgent" }],
       updates: [],
       riskFlags: [],
@@ -151,6 +151,9 @@ describe("hosted per-agent detail routes (Phase C)", () => {
     // Triage depth surfaced on the live detail (2 urgent → act on them).
     assert.match(html, /Triage verdict/);
     assert.match(html, /Action 2 urgent/);
+    // 1.7: the per-front "Next action" column surfaces the non-leading front's action too
+    // (the waiting front's action only appears via the new column, not the primary line).
+    assert.match(html, /Unblock 1 card\(s\) waiting on Hart/);
   });
 
   it("GET /agent/fitness/ui renders an honest 'unavailable' page when no detail resolves", async () => {
