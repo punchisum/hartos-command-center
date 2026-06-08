@@ -206,6 +206,10 @@ async function buildFromRpcs(
       if (r) {
         const recovery = pickStr(r, "recovery_status", "readiness_status", "recovery_score", "recovery");
         if (recovery != null) metrics["recovery"] = recovery;
+        // Fail loudly on shape drift: today_state resolved but the headline recovery
+        // field is absent (the stale-snapshot cause of the cockpit "UNKNOWN on fresh
+        // data" bug). Mark it degraded so the cockpit shows *why* the verdict is idle.
+        else degradedSources.push("recovery (today_state returned no recovery_status/score — RPC shape drift)");
         const vitals = compact([
           pickNum(r, "hrv_ms") != null ? `HRV ${pickNum(r, "hrv_ms")}ms` : undefined,
           pickNum(r, "resting_hr") != null ? `RHR ${pickNum(r, "resting_hr")} bpm` : undefined,

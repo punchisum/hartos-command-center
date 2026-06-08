@@ -38,6 +38,8 @@ describe("hosted cockpit page — Style 5 structure + depth", () => {
     assert.match(html, /id="kbar"/);
     assert.match(html, /id="kq"/);
     assert.match(html, /⌘K/);
+    // 1.6: the research planner is discoverable via an Ask chip (routes to the research intent)
+    assert.match(html, /data-q="Research if CoachOS is worth building"/);
   });
 
   it("includes the quick-peek detail drawer scaffold", () => {

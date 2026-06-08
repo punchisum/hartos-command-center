@@ -487,7 +487,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     `<kbd>⌘K</kbd>` +
     `<button class="send" id="ask" type="submit" title="Ask HartOS">&#10148;</button></form>` +
     `<div class="chips">` +
-    ["What needs my attention today?", "Is my data fresh?", "Anything urgent in ops?", "Show pending proposals"]
+    ["What needs my attention today?", "Is my data fresh?", "Anything urgent in ops?", "Show pending proposals", "Research if CoachOS is worth building"]
       .map((c) => `<span class="chip" data-q="${esc(c)}">${esc(c)}</span>`)
       .join("") +
     `</div>` +
