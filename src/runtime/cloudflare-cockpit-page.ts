@@ -36,6 +36,7 @@ import { ACTION_EXECUTION } from "./cloudflare-security.js";
 import type { AgentDetail } from "../read-models/agent-detail.js";
 import type { GenericAgentDetail, DetailSection } from "../read-models/agent-detail-registry.js";
 import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spine.js";
+import { perceive, type PerceptionReport } from "../rinnegan/perception.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -333,6 +334,23 @@ function freshBox(fr: FreshnessReport | null): string {
   );
 }
 
+/** Perception (Rinnegan) panel — F2 cross-system observations + honest blind spots. */
+function perceptionBox(p: PerceptionReport): string {
+  const t: Tone = p.verdict === "attention" ? "r" : p.verdict === "watch" ? "a" : "g";
+  const sevDot = (s: string): Tone => (s === "critical" ? "r" : s === "warn" ? "a" : "i");
+  const rows = p.observations
+    .slice(0, 5)
+    .map((o) => `<div class="li"><span class="dot ${sevDot(o.severity)}"></span>${esc(o.detail)}</div>`)
+    .join("");
+  const inner = rows || `<div class="muted">Nothing flagged across systems.</div>`;
+  const blind = p.blindSpots.length ? `<div class="muted" style="margin-top:8px">Blind spots: ${esc(p.blindSpots.join(", "))}</div>` : "";
+  return box(
+    "Perception (Rinnegan)",
+    `<div class="kv"><span class="verdict ${t}">${esc(p.verdict.toUpperCase())}</span></div>${inner}${blind}`,
+    "perception",
+  );
+}
+
 /** Recent-activity panel — the Phase D thread spine surfaced (server-rendered). */
 function activityBox(threads: CockpitThreadSummary[]): string {
   if (!threads.length) return box("Recent activity", `<div class="muted">No recent threads yet. Ask HartOS to start one.</div>`, "activity");
@@ -352,6 +370,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const fleet = fleetView(state, now);
   const rms = readModelStatusView(state);
   const threads = opts.threads ?? [];
+  const perception = perceive({ now, freshness: fr, proposals: state?.proposalQueue ?? [], missingSources: rms.missingSources });
 
   const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
   const mainAction = (brief.highlights.find((h) => h.startsWith("Main action:")) ?? "Main action: review the cockpit.").replace(/^Main action:\s*/i, "");
@@ -397,7 +416,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     askBar +
     `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
     `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
-    `<div class="grid3">${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}${activityBox(threads)}</div>` +
+    `<div class="grid3">${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}${perceptionBox(perception)}${activityBox(threads)}</div>` +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</main></div>` +
