@@ -106,7 +106,10 @@ if (!result.precondition.allowed) {
 if (result.executed && result.outcome) {
   console.log(`EXECUTED: ${result.outcome.summary}`);
   console.log(`  before: ${JSON.stringify(result.outcome.before)}   after: ${JSON.stringify(result.outcome.after)}`);
-  console.log("A durable audit row was written by the Edge Function (proposal_id=refresh-sync, event=refresh_sync_executed).");
+  console.log(
+    `A durable, append-only audit row was written by ${transport === "db" ? "the executor (direct insert)" : "the Edge Function"} ` +
+      `(proposal_id=${proposal.id}, event=refresh_sync_executed).`,
+  );
   console.log("Idempotent: an immediate re-run should expire 0 and leave the queue unchanged.");
   process.exit(0);
 }
