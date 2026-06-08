@@ -11,6 +11,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { renderHostedCockpitPage } from "../src/runtime/cloudflare-cockpit-page.js";
+import type { CockpitState } from "../src/cockpit/cockpit-types.js";
 
 const NOW = "2026-06-08T10:00:00Z";
 const html = renderHostedCockpitPage(undefined, {
@@ -73,5 +74,23 @@ describe("hosted cockpit page — Style 5 structure + depth", () => {
     const bare = renderHostedCockpitPage(undefined, { now: NOW });
     assert.match(bare, /Recent activity/);
     assert.match(bare, /No recent threads/);
+  });
+
+  it("surfaces the coach headline on the fitness fleet card (from the baked panel)", () => {
+    const state = {
+      generatedAt: NOW,
+      readModels: {
+        configPresent: true, configuredReadModels: 1, enabledReadModels: 1,
+        summaries: [{ id: "fitness", type: "fitness", status: "ok", confidence: "high", lines: [], metrics: { recovery: "66" }, recommendation: "read-only", dataFreshness: NOW, degradedSources: [] }],
+      },
+      panels: [{
+        id: "fitness", title: "Fitness Agent", status: "detected", detected: true, summary: "x",
+        fields: [{ key: "adjustment", label: "Next recommended adjustment", value: "Proceed with the planned session", status: "ok", confidence: "medium", source: "derived (coach)" }],
+        highlights: [], gaps: [], nextAction: "x", missingSetupSteps: [], sources: [], confidence: "medium", generatedAt: NOW,
+      }],
+      proposalQueue: [],
+    } as unknown as CockpitState;
+    const html = renderHostedCockpitPage(state, { now: NOW });
+    assert.match(html, /Proceed with the planned session/, "the coach call appears on the fleet card");
   });
 });

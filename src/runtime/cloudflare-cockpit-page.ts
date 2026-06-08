@@ -33,13 +33,15 @@ import {
 } from "./cloudflare-cockpit-views.js";
 import type { FreshnessReport } from "../cockpit/freshness-surface.js";
 import { ACTION_EXECUTION } from "./cloudflare-security.js";
-import type { AgentDetail } from "../read-models/agent-detail.js";
+import type { AgentDetail, FitnessDetail, OpsDetail } from "../read-models/agent-detail.js";
 import type { GenericAgentDetail, DetailSection } from "../read-models/agent-detail-registry.js";
 import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spine.js";
 import { perceive, type PerceptionReport } from "../rinnegan/perception.js";
 import { collectFleetTasks, assessFleetLoad, type FleetWork } from "../fleet/fleet-work.js";
 import { orchestrateFleet, type FleetPlan } from "../fleet/orchestrator.js";
 import { forecast, type ForecastReport } from "../prophet/forecast.js";
+import { coach, type CoachingSignals } from "../fitness/coaching-core.js";
+import { triageOps, type OpsSignals } from "../ops/triage-core.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -262,7 +264,17 @@ function sidebar(active: string): string {
 
 // ─── Landing panels ───────────────────────────────────────────────────────────
 
-function fleetCard(agent: FleetView["agents"][number]): string {
+/** The agent's headline coaching/triage call, read from the baked panel (same snapshot). */
+function panelAdvice(state: CockpitState | undefined, domain: string): { text: string; confidence: string } | null {
+  const panel = state?.panels?.find((p) => p.id === domain);
+  if (!panel) return null;
+  const key = domain === "fitness" ? "adjustment" : domain === "ops" ? "next_action" : "";
+  const f = key ? panel.fields.find((x) => x.key === key) : undefined;
+  if (!f || f.status !== "ok") return null;
+  return { text: f.value, confidence: f.confidence ?? "low" };
+}
+
+function fleetCard(agent: FleetView["agents"][number], advice?: { text: string; confidence: string } | null): string {
   const s = agent.signal;
   const t = tone(s.verdict, s.confidence, s.freshness);
   const metrics = s.facts
@@ -272,6 +284,10 @@ function fleetCard(agent: FleetView["agents"][number]): string {
     ? metrics.map((f) => `<span><b>${esc(String(f.value))}</b> ${esc(prettyKey(f.key))}</span>`).join("")
     : `<span class="muted">no metrics resolved</span>`;
   const confClass = s.confidence === "high" ? "high" : "low";
+  // The coach/triage headline (fitness → coaching call, ops → top triage action).
+  const adviceHtml = advice
+    ? `<div class="sum" style="margin-top:6px"><b>▸</b> ${esc(advice.text)} <span class="tag">${esc(advice.confidence)}</span></div>`
+    : "";
   return (
     `<a class="card" href="/agent/${esc(agent.type)}/ui" data-agent="${esc(agent.type)}">` +
     `<div class="ctop"><span class="ico">${agentIcon(agent.type)}</span><span class="cname">${esc(titleCase(agent.type))}</span>` +
@@ -279,6 +295,7 @@ function fleetCard(agent: FleetView["agents"][number]): string {
     `<div class="cstat">${esc(s.freshness)}${s.approvalNeeded ? " · approval-gated" : ""}</div>` +
     `<div class="facts">${factsHtml}</div>` +
     `<div class="sum">${esc(s.reason)}</div>` +
+    adviceHtml +
     `<div class="meta"><span class="conf ${confClass}">${esc(s.confidence.toUpperCase())} · ${esc(s.freshness)}</span><span class="expandhint">expand ↗</span></div>` +
     `</a>`
   );
@@ -459,7 +476,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
       : "");
 
   const fleetSection = fleet.agents.length
-    ? `<div class="grid4">${fleet.agents.map(fleetCard).join("")}</div>`
+    ? `<div class="grid4">${fleet.agents.map((a) => fleetCard(a, panelAdvice(state, a.type))).join("")}</div>`
     : `<div class="box"><div class="muted">${esc(fleet.note)}</div></div>`;
 
   const body =
@@ -642,6 +659,60 @@ function renderGenericAgentDetailPage(detail: GenericAgentDetail): string {
  * (ops). Read-only, grounded in the agent's own read RPCs; an absent detail renders
  * an honest "unavailable" page rather than fabricating data.
  */
+/** Coaching section for the live fitness detail — runs the coach on the LIVE RPC data. */
+function coachSection(f: FitnessDetail): string {
+  const status = f.recovery.status;
+  const recScore = status && /^\d+(\.\d+)?$/.test(status.trim()) ? Number(status) : undefined;
+  const sig: CoachingSignals = {
+    ...(recScore != null ? { recoveryScore: recScore } : {}),
+    ...(status ? { recoveryLabel: status } : {}),
+    ...(f.recovery.trainingDayType ? { trainingPlan: f.recovery.trainingDayType } : {}),
+    ...(f.recovery.workoutCompleted !== undefined ? { trainingCompleted: f.recovery.workoutCompleted } : {}),
+    ...(f.nutrition.caloriesConsumed != null ? { caloriesHave: f.nutrition.caloriesConsumed } : {}),
+    ...(f.nutrition.caloriesTarget != null ? { caloriesTarget: f.nutrition.caloriesTarget } : {}),
+    ...(f.nutrition.proteinConsumed != null ? { proteinHave: f.nutrition.proteinConsumed } : {}),
+    ...(f.nutrition.proteinTarget != null ? { proteinTarget: f.nutrition.proteinTarget } : {}),
+  };
+  const a = coach(sig);
+  const t: Tone = a.verdict === "train_as_planned" ? "g" : a.verdict === "insufficient_data" ? "i" : "a";
+  const drivers = a.drivers.length ? listHtml(a.drivers) : "";
+  const mods = a.modifiers.length ? `<p class="muted">${esc(a.modifiers.join(" "))}</p>` : "";
+  const unseen = a.unknowns.length ? ` · Unseen: ${esc(a.unknowns.join(", "))}` : "";
+  return (
+    `<section class="box"><div class="blbl">Coach</div>` +
+    `<div class="why ${t}"><div class="wt">Coaching verdict</div>` +
+    `<span class="verdict ${t}">${esc(a.verdict.replace(/_/g, " ").toUpperCase())}</span> &nbsp; ${esc(a.headline)}</div>` +
+    `<p class="kv">${esc(a.reason)}</p>${drivers}${mods}` +
+    `<p class="muted">Confidence: ${esc(a.confidence)}${unseen}</p></section>`
+  );
+}
+
+/** Triage section for the live ops detail — runs the triage on the LIVE RPC data. */
+function triageSection(o: OpsDetail): string {
+  const sig: OpsSignals = {
+    ...(o.counts.urgent != null ? { urgent: o.counts.urgent } : {}),
+    ...(o.counts.blocked != null ? { blocked: o.counts.blocked } : {}),
+    ...(o.counts.stale != null ? { stale: o.counts.stale } : {}),
+    ...(o.counts.waiting != null ? { waiting: o.counts.waiting } : {}),
+    ...(o.counts.noNextAction != null ? { noNextAction: o.counts.noNextAction } : {}),
+    ...(o.counts.active != null ? { activeCards: o.counts.active } : {}),
+    ...(o.riskFlags.length ? { riskFlags: o.riskFlags.map((r) => r.flag).join(", ") } : {}),
+    syncStale: false, // live RPC data — just queried
+  };
+  const tr = triageOps(sig);
+  const t: Tone = tr.verdict === "urgent" ? "r" : tr.verdict === "clear" ? "g" : tr.verdict === "insufficient_data" ? "i" : "a";
+  const q = tr.queue.length
+    ? tableHtml(["Front", "Count", "Severity"], tr.queue.map((i) => [i.category, i.count > 0 ? String(i.count) : "—", i.severity]))
+    : "";
+  const caveat = tr.caveats.length ? `<p class="muted">${esc(tr.caveats.join(" "))}</p>` : "";
+  return (
+    `<section class="box"><div class="blbl">Triage</div>` +
+    `<div class="why ${t}"><div class="wt">Triage verdict</div>` +
+    `<span class="verdict ${t}">${esc(tr.verdict.replace(/_/g, " ").toUpperCase())}</span> &nbsp; ${esc(tr.primaryAction)}</div>` +
+    `<p class="kv">${esc(tr.reason)} · ${tr.totalActionable} card(s) actionable · confidence ${esc(tr.confidence)}</p>${q}${caveat}</section>`
+  );
+}
+
 export function renderAgentDetailPage(detailInput: AgentDetail | GenericAgentDetail | null, domain: string): string {
   // Gap C — a registered (generic) agent renders through the spec-driven path.
   if (detailInput && "kind" in detailInput && detailInput.kind === "generic") return renderGenericAgentDetailPage(detailInput);
@@ -663,6 +734,7 @@ export function renderAgentDetailPage(detailInput: AgentDetail | GenericAgentDet
     const f = detail;
     const rt = tone(f.recovery.status ?? "unknown", "high", "live");
     sections =
+      coachSection(f) +
       `<section class="box"><div class="blbl">Recovery</div>` +
       `<div class="why ${rt}"><div class="wt">Recovery verdict</div>` +
       `<span class="verdict ${rt}">${esc((f.recovery.status ?? "unknown").toUpperCase())}</span> &nbsp;` +
@@ -677,6 +749,7 @@ export function renderAgentDetailPage(detailInput: AgentDetail | GenericAgentDet
   } else {
     const o = detail;
     sections =
+      triageSection(o) +
       `<section class="box"><div class="blbl">Counts</div><p class="kv">Active <b>${fmt(o.counts.active)}</b> · Urgent <b>${fmt(o.counts.urgent)}</b> · ` +
       `Blocked <b>${fmt(o.counts.blocked)}</b> · Waiting <b>${fmt(o.counts.waiting)}</b> · Stale <b>${fmt(o.counts.stale)}</b> · ` +
       `No next action <b>${fmt(o.counts.noNextAction)}</b></p></section>` +

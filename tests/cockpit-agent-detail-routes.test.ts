@@ -94,6 +94,9 @@ describe("hosted per-agent detail routes (Phase C)", () => {
     assert.match(html, /Recovery series/);
     assert.match(html, /Bodyweight/);
     assert.match(html, /GREEN/);
+    // Coaching depth surfaced on the live detail (green recovery → train as planned).
+    assert.match(html, /Coaching verdict/);
+    assert.match(html, /TRAIN AS PLANNED/);
   });
 
   it("GET /agent/ops/ui renders the full ops dashboard as HTML", async () => {
@@ -116,6 +119,9 @@ describe("hosted per-agent detail routes (Phase C)", () => {
     const html = await res.text();
     assert.match(html, /Attention/);
     assert.match(html, /Wire to supplier/);
+    // Triage depth surfaced on the live detail (2 urgent → act on them).
+    assert.match(html, /Triage verdict/);
+    assert.match(html, /Action 2 urgent/);
   });
 
   it("GET /agent/fitness/ui renders an honest 'unavailable' page when no detail resolves", async () => {
