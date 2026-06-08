@@ -105,6 +105,15 @@ const HTML_GET_ROUTES = new Set<string>([
   "/agent/ops/ui",
 ]);
 
+/** Generic per-agent route shapes — /agent/<domain> (JSON), /agent/<domain>/ui (HTML). */
+const AGENT_UI_RE = /^\/agent\/[a-z0-9_-]+\/ui$/i;
+const AGENT_JSON_RE = /^\/agent\/[a-z0-9_-]+$/i;
+
+/** Any GET that renders an HTML page → unauthenticated requests get the login form. */
+function isHtmlGetRoute(pathname: string): boolean {
+  return HTML_GET_ROUTES.has(pathname) || AGENT_UI_RE.test(pathname);
+}
+
 /**
  * Handle one hosted-cockpit request against a pre-built snapshot context.
  * Pure with respect to the request — tests call this directly with a mocked
@@ -147,7 +156,7 @@ export async function handleCockpitRequest(
     // routes return 401. Either way no protected data is served. The control
     // surface (/control) is a UI page too, so it gets the login form and lands
     // the operator back on /control after a successful sign-in.
-    if (method === "GET" && HTML_GET_ROUTES.has(pathname)) {
+    if (method === "GET" && isHtmlGetRoute(pathname)) {
       if (auth.mode === "misconfigured") return htmlResponse(renderLockedPage(), cors);
       const redirectTo = pathname === "/index.html" ? "/" : pathname;
       return htmlResponse(renderLoginPage({ redirectTo }), cors);
@@ -217,24 +226,23 @@ export async function handleCockpitRequest(
       // mapped onto the shared AgentSignal from the live read-model summaries.
       return jsonResponse(200, fleetView(dctx.state, nowFor(dctx)), cors);
     }
-    if (pathname === "/agent/fitness" || pathname === "/agent/ops") {
-      // Phase C — full per-agent detail (read-only). Resolved live from env via the
-      // injected provider; an honest "unavailable" payload when no env is configured.
-      const domain = pathname === "/agent/fitness" ? "fitness" : "ops";
-      const detail = ctx.agentDetailProvider ? await ctx.agentDetailProvider(domain) : null;
+    // Phase C / Gap C — per-agent detail for ANY domain: fitness/ops bespoke, or a
+    // registered generic agent — with no bespoke route code per agent. /agent/<domain>
+    // = read-only JSON; /agent/<domain>/ui = the full dashboard page. A null detail
+    // yields an honest "unavailable" payload/page rather than fabricated data.
+    const agentUiDomain = AGENT_UI_RE.test(pathname) ? pathname.slice(7, -3) : null;
+    if (agentUiDomain) {
+      const detail = ctx.agentDetailProvider ? await ctx.agentDetailProvider(agentUiDomain) : null;
+      return htmlResponse(renderAgentDetailPage(detail, agentUiDomain), cors);
+    }
+    const agentJsonDomain = AGENT_JSON_RE.test(pathname) ? pathname.slice(7) : null;
+    if (agentJsonDomain) {
+      const detail = ctx.agentDetailProvider ? await ctx.agentDetailProvider(agentJsonDomain) : null;
       return jsonResponse(
         200,
-        detail ?? { available: false, type: domain, note: `${domain} detail unavailable (no live read-model env resolved).` },
+        detail ?? { available: false, type: agentJsonDomain, note: `${agentJsonDomain} detail unavailable (no live read-model env resolved).` },
         cors,
       );
-    }
-    if (pathname === "/agent/fitness/ui" || pathname === "/agent/ops/ui") {
-      // Phase C — the full per-agent dashboard page (HTML). Same read-only detail
-      // as the JSON route, rendered server-side; a null detail yields an honest
-      // "unavailable" page rather than fabricated data.
-      const domain = pathname === "/agent/fitness/ui" ? "fitness" : "ops";
-      const detail = ctx.agentDetailProvider ? await ctx.agentDetailProvider(domain) : null;
-      return htmlResponse(renderAgentDetailPage(detail, domain), cors);
     }
     if (pathname === "/api/proposals") {
       return jsonResponse(200, proposalsView(dctx.state), cors);

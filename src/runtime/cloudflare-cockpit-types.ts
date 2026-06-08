@@ -14,6 +14,7 @@
 import type { CockpitState, CockpitReportRef } from "../cockpit/cockpit-types.js";
 import type { ControlSurfaceRender } from "../cockpit/control-surface/index.js";
 import type { AgentDetail } from "../read-models/agent-detail.js";
+import type { GenericAgentDetail } from "../read-models/agent-detail-registry.js";
 import type { ActionProposal } from "../cockpit/proposals/proposal-types.js";
 import type { ProposalPersistResult } from "./cloudflare-live-read-models.js";
 
@@ -54,7 +55,7 @@ export interface CockpitWorkerContext {
    * routes, AFTER auth. Returns null to decline (no env configured / read failed),
    * in which case the route serves an honest "unavailable" payload.
    */
-  agentDetailProvider?: (domain: "fitness" | "ops") => Promise<AgentDetail | null>;
+  agentDetailProvider?: (domain: string) => Promise<AgentDetail | GenericAgentDetail | null>;
   /**
    * Phase E (Gap E) — gated "Ask HartOS → proposal" writer. Called from POST
    * /api/ask ONLY when the deterministic answer produced proposal drafts. It

@@ -49,6 +49,13 @@ import type { CockpitState, CockpitCardGroupView } from "../cockpit/cockpit-type
 import { isServiceRoleKey } from "../cockpit/sources/secret-guard.js";
 import { SupabaseReadClient, type FetchLike } from "../read-models/supabase-read-client.js";
 import { buildFitnessDetail, buildOpsDetail, FITNESS_DETAIL_RPCS, type AgentDetail } from "../read-models/agent-detail.js";
+import {
+  findAgentDetailSpec,
+  buildGenericAgentDetail,
+  specAllowedRpcs,
+  type AgentDetailSpec,
+  type GenericAgentDetail,
+} from "../read-models/agent-detail-registry.js";
 import type { ActionProposal, ProposalQueueItem } from "../cockpit/proposals/proposal-types.js";
 import {
   COCKPIT_PROPOSALS_RPC,
@@ -314,9 +321,9 @@ export async function resolveCockpitProposals(
  */
 export async function resolveAgentDetail(
   env: Env,
-  domain: "fitness" | "ops",
+  domain: string,
   options: { now?: string; fetchImpl?: FetchLike } = {},
-): Promise<AgentDetail | null> {
+): Promise<AgentDetail | GenericAgentDetail | null> {
   const now = options.now ?? new Date().toISOString();
   if (domain === "fitness") {
     const url = env[HOSTED_READ_MODEL_ENV.fitnessUrl];
@@ -330,11 +337,34 @@ export async function resolveAgentDetail(
     );
     return buildFitnessDetail(client, { userId, agentId }, { now });
   }
-  const url = env[HOSTED_READ_MODEL_ENV.opsUrl];
-  const key = env[HOSTED_READ_MODEL_ENV.opsKey];
+  if (domain === "ops") {
+    const url = env[HOSTED_READ_MODEL_ENV.opsUrl];
+    const key = env[HOSTED_READ_MODEL_ENV.opsKey];
+    if (!url || !key || isServiceRoleKey(key)) return null;
+    const client = new SupabaseReadClient({ url, key, allowedTables: [], allowedRpcs: OPS_ALLOWED_RPCS }, options.fetchImpl);
+    return buildOpsDetail(client, { now });
+  }
+  // Phase C / Gap C — any agent that DECLARED a generic detail spec renders with
+  // no bespoke code. Unknown domains resolve to null (route → honest unavailable).
+  const spec = findAgentDetailSpec(domain);
+  if (spec) return resolveGenericAgentDetail(env, spec, { now, ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}) });
+  return null;
+}
+
+/** Resolve a registered (generic) agent's detail from env — same anon, read-only boundary. */
+async function resolveGenericAgentDetail(
+  env: Env,
+  spec: AgentDetailSpec,
+  options: { now: string; fetchImpl?: FetchLike },
+): Promise<GenericAgentDetail | null> {
+  const url = env[spec.urlEnv];
+  const key = env[spec.keyEnv];
   if (!url || !key || isServiceRoleKey(key)) return null;
-  const client = new SupabaseReadClient({ url, key, allowedTables: [], allowedRpcs: OPS_ALLOWED_RPCS }, options.fetchImpl);
-  return buildOpsDetail(client, { now });
+  const baseArgs: Record<string, unknown> = {};
+  if (spec.userIdEnv && env[spec.userIdEnv]) baseArgs.p_user_id = env[spec.userIdEnv];
+  if (spec.agentIdEnv && env[spec.agentIdEnv]) baseArgs.p_agent_id = env[spec.agentIdEnv];
+  const client = new SupabaseReadClient({ url, key, allowedTables: [], allowedRpcs: specAllowedRpcs(spec) }, options.fetchImpl);
+  return buildGenericAgentDetail(client, spec, baseArgs, { now: options.now });
 }
 
 // ─── Phase E (Gap E) — Ask HartOS → spine WRITE (Worker side; no DB key) ──────

@@ -34,6 +34,7 @@ import {
 import type { FreshnessReport } from "../cockpit/freshness-surface.js";
 import { ACTION_EXECUTION } from "./cloudflare-security.js";
 import type { AgentDetail } from "../read-models/agent-detail.js";
+import type { GenericAgentDetail, DetailSection } from "../read-models/agent-detail-registry.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -452,18 +453,59 @@ function tableHtml(headers: string[], rows: string[][]): string {
   return `<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
 }
 
+/** Shared detail-page header (back link + read-only badge), used by both renderers. */
+function detailHead(label: string): string {
+  return (
+    `<div class="head"><div><div class="h1"><a href="/">← HartOS</a> &nbsp;/&nbsp; ${esc(label)} dashboard</div>` +
+    `<div class="sub">Read-only · live from the agent's own read RPCs</div></div>` +
+    `<div class="grow"></div><div class="badge2">read-only</div></div>`
+  );
+}
+
+// ─── Phase C / Gap C — generic detail render (any registered agent, no bespoke UI)
+
+function renderGenericSection(s: DetailSection): string {
+  if (s.kind === "kv") {
+    const inner = s.rows.length
+      ? s.rows.map((r) => `<div class="li"><span>${esc(r[0] ?? "")}</span><b style="margin-left:auto">${esc(r[1] ?? "—")}</b></div>`).join("")
+      : `<p class="muted">None.</p>`;
+    return `<section class="box"><div class="blbl">${esc(s.title)}</div>${inner}</section>`;
+  }
+  return `<section class="box"><div class="blbl">${esc(s.title)}</div>${tableHtml(s.headers, s.rows)}</section>`;
+}
+
+/**
+ * Render ANY agent that declared a generic detail spec — same Style 5 surface as
+ * the bespoke fitness/ops pages, driven entirely by the spec's sections. This is
+ * the seam that makes Phase C's DoD literally true: a new agent needs no UI code.
+ */
+function renderGenericAgentDetailPage(detail: GenericAgentDetail): string {
+  const label = detail.label || titleCase(detail.type);
+  const t: Tone = detail.status === "ok" ? "g" : detail.status === "degraded" ? "a" : "i";
+  const why =
+    `<div class="why ${t}"><div class="wt">Read status</div>` +
+    `<span class="verdict ${t}">${esc(detail.status.toUpperCase())}</span> ` +
+    `${detail.notes.length ? esc(detail.notes.join("; ")) : "All sections resolved."}</div>`;
+  const sections = detail.sections.map(renderGenericSection).join("");
+  return shell(
+    `HartOS — ${label} dashboard`,
+    `<main class="main detail">${detailHead(label)}${why}${sections}` +
+      `<footer>Read-only, live from the agent's read RPCs. Nothing is fabricated. <a href="/">← back to cockpit</a></footer></main>`,
+  );
+}
+
 /**
  * The full per-agent dashboard page — recovery + series + bodyweight + nutrition +
  * workouts (fitness), or counts + the full attention list + updates + risk flags
  * (ops). Read-only, grounded in the agent's own read RPCs; an absent detail renders
  * an honest "unavailable" page rather than fabricating data.
  */
-export function renderAgentDetailPage(detail: AgentDetail | null, domain: string): string {
+export function renderAgentDetailPage(detailInput: AgentDetail | GenericAgentDetail | null, domain: string): string {
+  // Gap C — a registered (generic) agent renders through the spec-driven path.
+  if (detailInput && "kind" in detailInput && detailInput.kind === "generic") return renderGenericAgentDetailPage(detailInput);
+  const detail = detailInput as AgentDetail | null;
   const label = titleCase(domain);
-  const head =
-    `<div class="head"><div><div class="h1"><a href="/">← HartOS</a> &nbsp;/&nbsp; ${esc(label)} dashboard</div>` +
-    `<div class="sub">Read-only · live from the agent's own read RPCs</div></div>` +
-    `<div class="grow"></div><div class="badge2">read-only</div></div>`;
+  const head = detailHead(label);
 
   if (!detail) {
     return shell(
