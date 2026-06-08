@@ -97,6 +97,8 @@
     "cockpit:threads:backfill": "node --env-file-if-exists=.env.local dist/scripts/cockpit-threads-backfill.js",
     "precockpit:ask": "npm run build",
     "cockpit:ask": "node --env-file-if-exists=.env.local dist/scripts/cockpit-ask.js",
+    "precanary:refresh-sync": "npm run build",
+    "canary:refresh-sync": "node --env-file-if-exists=.env.local dist/scripts/run-canary-refresh-sync.js",
     "prellm:status": "npm run build",
     "llm:status": "node dist/scripts/llm-status.js",
     "prellm:test": "npm run build",
