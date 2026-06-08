@@ -42,6 +42,7 @@ import { orchestrateFleet, type FleetPlan } from "../fleet/orchestrator.js";
 import { forecast, type ForecastReport } from "../prophet/forecast.js";
 import { coach, type CoachingSignals } from "../fitness/coaching-core.js";
 import { triageOps, type OpsSignals } from "../ops/triage-core.js";
+import { suggestActions, type SuggestionSet } from "../cockpit/suggestions/suggest-actions.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -409,6 +410,16 @@ function orchestrationBox(plan: FleetPlan): string {
   );
 }
 
+/** Suggested actions panel — the cross-system synthesis ("do next"), propose-only. */
+function suggestionsBox(s: SuggestionSet): string {
+  const pri = (p: string): Tone => (p === "high" ? "r" : p === "medium" ? "a" : "i");
+  if (!s.actions.length) return box("Suggested actions", `<div class="muted">${esc(s.note)}</div>`, "suggestions");
+  const rows = s.actions
+    .map((a) => `<div class="li"><span class="dot ${pri(a.priority)}"></span><span><b>${esc(a.title)}</b><br><span class="muted">${esc(a.rationale)} · via ${esc(a.source)}</span></span></div>`)
+    .join("");
+  return box("Suggested actions", rows + `<div class="muted" style="margin-top:8px">${esc(s.note)}</div>`, "suggestions");
+}
+
 /** Forecast (Prophet — F5) panel: the consequence of inaction, projected not fabricated. */
 function forecastBox(r: ForecastReport): string {
   const t: Tone = r.verdict === "urgent" ? "r" : r.verdict === "degrading" ? "a" : "g";
@@ -445,6 +456,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const fleetWork = collectFleetTasks({ perception });
   const fleetPlan = orchestrateFleet(fleetWork);
   const fleetForecast = forecast({ now, perception, plan: fleetPlan, proposals: state?.proposalQueue ?? [] });
+  // Cross-system synthesis: one ranked "do next" list, deduped against the live queue.
+  const suggestions = suggestActions({ perception, forecast: fleetForecast, plan: fleetPlan, existingTitles: (state?.proposalQueue ?? []).map((p) => p.title) });
 
   const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
   const mainAction = (brief.highlights.find((h) => h.startsWith("Main action:")) ?? "Main action: review the cockpit.").replace(/^Main action:\s*/i, "");
@@ -490,7 +503,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     askBar +
     `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
     `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
-    `<div class="grid3">${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${forecastBox(fleetForecast)}${activityBox(threads)}</div>` +
+    `<div class="grid3">${suggestionsBox(suggestions)}${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${forecastBox(fleetForecast)}${activityBox(threads)}</div>` +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</main></div>` +

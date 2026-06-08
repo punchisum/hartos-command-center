@@ -59,6 +59,7 @@ describe("hosted cockpit page — Style 5 structure + depth", () => {
     assert.match(html, /Perception \(Rinnegan\)/);
     assert.match(html, /Orchestration \(Fleet OS\)/);
     assert.match(html, /Forecast \(Prophet\)/);
+    assert.match(html, /Suggested actions/);
   });
 
   it("HTML-escapes dynamic thread content (no injection)", () => {
