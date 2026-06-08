@@ -94,9 +94,10 @@ describe("agent contract — the harness catches what it exists to catch", () =>
     assert.ok(validateAgentContract(bad).some((v) => v.facet === "detail"));
   });
 
-  it("catches an approval-intent mismatch", () => {
-    const mismatched: AgentContract = { ...OPS_CONTRACT, approvalRequired: false };
-    const violations = assertOfficiable(mismatched, healthyOps, { now });
-    assert.ok(violations.some((v) => v.facet === "approval"));
+  it("approval intent is contract-driven (a declared approvalRequired is honored, no spurious mismatch)", () => {
+    // The signal now reflects the contract's approval intent, not a hardcoded type check —
+    // so ops (approvalRequired:true) AND a flipped-to-advisory ops both officiate cleanly.
+    assert.deepEqual(assertOfficiable(OPS_CONTRACT, healthyOps, { now }), []);
+    assert.deepEqual(assertOfficiable({ ...OPS_CONTRACT, approvalRequired: false }, healthyOps, { now }), []);
   });
 });

@@ -126,7 +126,7 @@ function factsFrom(summary: ReadModelSummary): AgentSignalFact[] {
 }
 
 /** Map one agent's read-model summary onto the shared AgentSignal. */
-export function summaryToAgentSignal(summary: ReadModelSummary, opts: { now?: Date } = {}): AgentSignal {
+export function summaryToAgentSignal(summary: ReadModelSummary, opts: { now?: Date; approvalRequired?: boolean } = {}): AgentSignal {
   const now = opts.now ?? new Date();
   return {
     verdict: deriveVerdict(summary),
@@ -135,8 +135,9 @@ export function summaryToAgentSignal(summary: ReadModelSummary, opts: { now?: Da
     freshness: freshnessFromAge(summary.dataFreshness, now),
     reason: summary.lines[0] ?? summary.recommendation,
     nextAction: summary.recommendation || null,
-    // Ops surfaces proposals that need human approval to act; Fitness is advisory.
-    approvalNeeded: summary.type === "ops",
+    // Approval intent comes from the agent's CONTRACT when the caller knows it (Phase 4
+    // officiation); otherwise the legacy default — ops proposals gate, fitness is advisory.
+    approvalNeeded: opts.approvalRequired ?? (summary.type === "ops"),
   };
 }
 

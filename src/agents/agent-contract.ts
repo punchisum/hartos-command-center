@@ -115,7 +115,8 @@ export function assertOfficiable(
   if (healthySummary.type !== c.type) {
     v.push({ facet: "read-model", detail: `summary.type "${healthySummary.type}" != contract.type "${c.type}"` });
   }
-  const sig: AgentSignal = summaryToAgentSignal(healthySummary, opts);
+  // Approval intent is contract-driven (Phase 4) — the signal reflects this contract.
+  const sig: AgentSignal = summaryToAgentSignal(healthySummary, { ...opts, approvalRequired: c.approvalRequired });
   const cls = classifyVerdict(sig.verdict);
   if (cls === "unrecognized") {
     v.push({ facet: "signal", detail: `verdict "${sig.verdict}" is a raw passthrough, not a tone-legible band (the UNKNOWN-on-data bug)` });
@@ -124,9 +125,6 @@ export function assertOfficiable(
   }
   if (sig.confidence === "unknown") {
     v.push({ facet: "signal", detail: "a healthy summary produced unknown confidence — confidence must be derived from the read" });
-  }
-  if (sig.approvalNeeded !== c.approvalRequired) {
-    v.push({ facet: "approval", detail: `signal.approvalNeeded (${sig.approvalNeeded}) != contract.approvalRequired (${c.approvalRequired})` });
   }
   return v;
 }

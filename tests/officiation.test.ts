@@ -47,6 +47,15 @@ describe("agent officiation (4.2)", () => {
     assert.equal(r.approvalRequired, false);
   });
 
+  it("an APPROVAL-GATED created agent officiates (approval is contract-driven, not ops-only)", () => {
+    // Previously a non-ops agent that declared approvalRequired:true was refused (the signal
+    // hardcoded approval to ops). It now officiates — the contract drives approval intent.
+    const gated: AgentContract = { ...createdAgent, approvalRequired: true };
+    const r = officiateAgent(gated, healthyCreated, { now });
+    assert.equal(r.officiated, true, JSON.stringify(r.violations));
+    assert.equal(r.approvalRequired, true);
+  });
+
   it("refuses an agent that violates the contract (a generic detail spec with no rpcs)", () => {
     const broken: AgentContract = { ...createdAgent, detail: { domain: "x", label: "X", urlEnv: "U", keyEnv: "K", rpcs: [] } };
     const r = officiateAgent(broken, healthyCreated, { now });
