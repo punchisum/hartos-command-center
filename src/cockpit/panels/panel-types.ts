@@ -72,6 +72,19 @@ export interface PanelField {
   setupStep?: string;
 }
 
+/**
+ * The domain's headline advisory (coach verdict / triage verdict), in a structured
+ * form the cross-system synthesis can consume — so "do next" can include the top
+ * fitness + ops action, not just the cross-system ones. `act` is true only when the
+ * verdict calls for a change worth surfacing.
+ */
+export interface PanelAdvisory {
+  verdict: string;
+  priority: PanelConfidence;
+  act: boolean;
+  headline: string;
+}
+
 export interface DomainPanel {
   id: DomainPanelId;
   title: string;
@@ -92,6 +105,8 @@ export interface DomainPanel {
   /** Source paths / boundaries the panel read from. */
   sources: string[];
   confidence: PanelConfidence;
+  /** Headline coach/triage verdict for the cross-system synthesis (when applicable). */
+  advisory?: PanelAdvisory;
   generatedAt: string;
 }
 

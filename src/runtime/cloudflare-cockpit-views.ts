@@ -16,10 +16,10 @@ import { buildFreshnessReport, type FreshnessReport } from "../cockpit/freshness
 import type { ProposalQueueItem } from "../cockpit/proposals/index.js";
 import { buildHostedOrchestratorContext } from "../cockpit/hosted-cto-context.js";
 import { fleetSignals, renderFleetView, type FleetSignal } from "../read-models/agent-signal.js";
-import { perceive } from "../rinnegan/perception.js";
+import { perceive, type PerceptionReport } from "../rinnegan/perception.js";
 import { collectFleetTasks } from "../fleet/fleet-work.js";
-import { orchestrateFleet } from "../fleet/orchestrator.js";
-import { forecast } from "../prophet/forecast.js";
+import { orchestrateFleet, type FleetPlan } from "../fleet/orchestrator.js";
+import { forecast, type ForecastReport } from "../prophet/forecast.js";
 import { suggestActions, type SuggestionSet } from "../cockpit/suggestions/suggest-actions.js";
 
 /** Build a read-only intent-router context from a cockpit snapshot. */
@@ -238,27 +238,45 @@ export function fleetView(state: CockpitState | undefined, now: string): FleetVi
 }
 
 /**
- * The cross-system "Suggested actions" synthesis for a snapshot. Shared by the
- * landing page (to render the panel) and the persist route (to write drafts) so the
- * two never diverge — both see exactly the same ranked, deduped suggestions. Pure.
+ * The cross-system "Suggested actions" synthesis for a snapshot. Shared by the landing
+ * page (to render the panel) and the persist route (to write drafts) so the two never
+ * diverge. It also folds in the per-agent headline calls (fitness coach + ops triage,
+ * read from the panels' `advisory`) so "do next" includes them, not just the
+ * cross-system items. Pure.
+ *
+ * `pre` lets a caller that already computed perception/plan/forecast (the landing page)
+ * pass them in, so the page doesn't run the whole pipeline twice per render. The persist
+ * route omits `pre` and computes fresh.
  */
-export function cockpitSuggestions(state: CockpitState | undefined, now: string): SuggestionSet {
-  const fr = freshnessView(state, now);
-  const rms = readModelStatusView(state);
-  const fleet = fleetView(state, now);
-  const perception = perceive({
-    now,
-    freshness: fr,
-    proposals: state?.proposalQueue ?? [],
-    missingSources: rms.missingSources,
-    fleetSignals: fleet.agents,
-  });
-  const plan = orchestrateFleet(collectFleetTasks({ perception }));
-  const fcast = forecast({ now, perception, plan, proposals: state?.proposalQueue ?? [] });
+export function cockpitSuggestions(
+  state: CockpitState | undefined,
+  now: string,
+  pre?: { perception?: PerceptionReport; plan?: FleetPlan; forecast?: ForecastReport },
+): SuggestionSet {
+  let perception = pre?.perception;
+  if (!perception) {
+    const fr = freshnessView(state, now);
+    const rms = readModelStatusView(state);
+    const fleet = fleetView(state, now);
+    perception = perceive({ now, freshness: fr, proposals: state?.proposalQueue ?? [], missingSources: rms.missingSources, fleetSignals: fleet.agents });
+  }
+  const plan = pre?.plan ?? orchestrateFleet(collectFleetTasks({ perception }));
+  const fcast = pre?.forecast ?? forecast({ now, perception, plan, proposals: state?.proposalQueue ?? [] });
+
+  // Fold in the per-agent headline calls from the panels' advisory (only when they
+  // call for a change), so the fitness coach + ops triage reach the "do next" list.
+  const panels = state?.panels ?? [];
+  const fitnessAdv = panels.find((p) => p.id === "fitness")?.advisory;
+  const opsAdv = panels.find((p) => p.id === "ops")?.advisory;
+  const coach = fitnessAdv?.act ? { headline: fitnessAdv.headline, priority: fitnessAdv.priority, act: true } : null;
+  const triage = opsAdv?.act ? { action: opsAdv.headline, priority: opsAdv.priority, act: true } : null;
+
   return suggestActions({
     perception,
     forecast: fcast,
     plan,
+    coach,
+    triage,
     existingTitles: (state?.proposalQueue ?? []).map((p) => p.title),
   });
 }

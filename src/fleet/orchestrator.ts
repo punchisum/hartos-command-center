@@ -170,8 +170,8 @@ export function orchestrateFleet(work: FleetWork, opts: { registry?: AgentRegist
     reconciliation.push(`${gapDefers.length} task(s) need a capability no agent has (${caps.join(", ")}) — build an agent for it.`);
   }
   if (capDefers.length > 0) {
-    const agents = [...new Set(capDefers.flatMap((d) => d.task.targetCapability))].sort();
-    reconciliation.push(`${capDefers.length} task(s) deferred for capacity (${agents.join(", ")}) — raise capacity or stagger the work.`);
+    const caps = [...new Set(capDefers.map((d) => d.task.targetCapability))].sort();
+    reconciliation.push(`${capDefers.length} task(s) deferred for capacity (${caps.join(", ")}) — raise capacity or stagger the work.`);
   }
   if (verdict === "ready") {
     reconciliation.push(`All ${assignments.length} task(s) placed within capacity.`);

@@ -12,7 +12,7 @@ import type { AgentReadModel } from "../../agents/agent-types.js";
 import type { ReadModelSummary } from "../../read-models/read-model-types.js";
 import type { SourceResult } from "../sources/source-types.js";
 import { deriveFitnessSource } from "../sources/fitness-source.js";
-import type { DomainPanel, DomainPanelStatus, PanelField, PanelFieldStatus } from "./panel-types.js";
+import type { DomainPanel, DomainPanelStatus, PanelField, PanelFieldStatus, PanelConfidence } from "./panel-types.js";
 import { okField, unavailableField, fieldFromSource } from "./panel-types.js";
 import type { PanelInputs } from "./panel-inputs.js";
 import { coach, signalsFromSource } from "../../fitness/coaching-core.js";
@@ -116,6 +116,9 @@ export function buildFitnessPanel(inputs: PanelInputs): DomainPanel {
   // Cross-reasons recovery band × planned intensity × completed-status; honest
   // confidence rises with data completeness (no longer hardcoded "low"). Pure.
   const advice = coach(signalsFromSource(src));
+  const coachPriority: PanelConfidence = advice.verdict === "prioritize_recovery" ? "high" : advice.verdict === "train_modified" ? "medium" : "low";
+  const coachAct = advice.verdict === "prioritize_recovery" || advice.verdict === "train_modified";
+  const advisory = detected ? { verdict: advice.verdict, priority: coachPriority, act: coachAct, headline: advice.headline } : null;
   const adjustment = detected
     ? advice.headline
     : "Configure fitness data sources before HartOS can recommend a training adjustment.";
@@ -166,6 +169,7 @@ export function buildFitnessPanel(inputs: PanelInputs): DomainPanel {
     missingSetupSteps,
     sources,
     confidence,
+    ...(advisory ? { advisory } : {}),
     generatedAt: inputs.now,
   };
 }

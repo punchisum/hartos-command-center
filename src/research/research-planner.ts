@@ -160,9 +160,14 @@ export function planResearch(rawQuestion: string): ResearchPlan {
   const requiredInputs = [...new Set(inputs)];
 
   // Verdict: honest about whether the question is researchable as stated.
+  // Broadness is SEMANTIC (the BROAD scope markers), not length-based — word count
+  // can't tell "a travel concierge product" (specific) from "the global economy"
+  // (vast). A prior word-count disjunct here was unreachable (it required a single
+  // token after wordCount >= 3) and conflicted with terse-but-specific topics, so it's
+  // removed rather than left as dead code.
   let verdict: ResearchVerdict;
   if (wordCount < 3 || topic === "the topic") verdict = "NEEDS_SCOPING";
-  else if (BROAD.test(question) || (wordCount <= 4 && shape === "open" && !question.includes(" "))) verdict = "TOO_BROAD";
+  else if (BROAD.test(question)) verdict = "TOO_BROAD";
   else verdict = "READY_TO_RESEARCH";
 
   const subQuestions = subQuestionsFor(shape, topic);

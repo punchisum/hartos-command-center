@@ -99,6 +99,7 @@ describe("fitness panel", () => {
     assert.match(adj.value, /recovery|rest|light|swap/i);
     assert.equal(adj.confidence, "medium"); // recovery + plan known ⇒ no longer the old hardcoded "low"
     assert.ok(p.fields.find((f) => f.key === "training_readiness"), "surfaces the coach's reasoning as a field");
+    assert.ok(p.advisory?.act === true && p.advisory?.priority === "high", "exposes coach advisory for the cross-system synthesis");
   });
 
   // ── Phase 13.6B — RPC-aware setup hints ──
@@ -172,6 +173,7 @@ describe("ops panel", () => {
     const q = p.fields.find((f) => f.key === "triage_queue");
     assert.ok(q, "surfaces the full priority queue, not just one action");
     assert.match(q!.value, /blocked 1 → urgent 5/);
+    assert.ok(p.advisory?.act === true && p.advisory?.priority === "high", "exposes triage advisory for the cross-system synthesis");
   });
 });
 

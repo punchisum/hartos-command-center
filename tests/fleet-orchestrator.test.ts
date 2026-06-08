@@ -92,7 +92,7 @@ describe("fleet orchestrator (Phase F4)", () => {
     assert.equal(plan.deferred.length, 3);
     assert.ok(plan.deferred.every((d) => d.reason === "capacity"));
     assert.equal(plan.perAgent.find((a) => a.id === "research")!.assigned, 2);
-    assert.match(plan.reconciliation.join(" "), /deferred for capacity/);
+    assert.match(plan.reconciliation.join(" "), /deferred for capacity \(research\)/); // capability name intact, not shredded into chars
   });
 
   it("defers unhandleable work as needs_agent (grow-the-fleet-by-building signal)", () => {

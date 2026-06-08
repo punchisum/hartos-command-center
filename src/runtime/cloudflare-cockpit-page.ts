@@ -463,7 +463,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const fleetForecast = forecast({ now, perception, plan: fleetPlan, proposals: state?.proposalQueue ?? [] });
   // Cross-system synthesis: one ranked "do next" list, deduped against the live queue.
   // Shared with the persist route via cockpitSuggestions so the panel and the writer agree.
-  const suggestions = cockpitSuggestions(state, now);
+  // Pass the already-computed artifacts so the pipeline isn't run a second time per render.
+  const suggestions = cockpitSuggestions(state, now, { perception, plan: fleetPlan, forecast: fleetForecast });
 
   const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
   const mainAction = (brief.highlights.find((h) => h.startsWith("Main action:")) ?? "Main action: review the cockpit.").replace(/^Main action:\s*/i, "");

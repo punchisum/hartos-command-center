@@ -12,7 +12,7 @@ import type { AgentReadModel } from "../../agents/agent-types.js";
 import type { ReadModelSummary } from "../../read-models/read-model-types.js";
 import type { SourceResult } from "../sources/source-types.js";
 import { deriveOpsSource } from "../sources/ops-source.js";
-import type { DomainPanel, DomainPanelStatus, PanelField, PanelFieldStatus } from "./panel-types.js";
+import type { DomainPanel, DomainPanelStatus, PanelField, PanelFieldStatus, PanelConfidence } from "./panel-types.js";
 import { okField, unavailableField, fieldFromSource } from "./panel-types.js";
 import type { PanelInputs } from "./panel-inputs.js";
 import { triageOps, opsSignalsFromSource } from "../../ops/triage-core.js";
@@ -127,6 +127,9 @@ export function buildOpsPanel(inputs: PanelInputs): DomainPanel {
   // Ranks ALL fronts (not first-match), honest confidence (no longer hardcoded "low"),
   // and a caveat when the import is stale so the counts aren't trusted blindly.
   const triage = triageOps(opsSignalsFromSource(src));
+  const triagePriority: PanelConfidence = triage.verdict === "urgent" ? "high" : triage.verdict === "act" ? "medium" : "low";
+  const triageAct = triage.verdict === "urgent" || triage.verdict === "act";
+  const advisory = detected ? { verdict: triage.verdict, priority: triagePriority, act: triageAct, headline: triage.primaryAction } : null;
   const opAction = detected ? triage.primaryAction : "Configure ops data sources before HartOS can recommend an operational action.";
   fields.push(okField("next_action", "Next operational action", opAction, { source: "derived (triage)", confidence: detected ? triage.confidence : "low" }));
   if (detected && triage.queue.length) {
@@ -169,6 +172,7 @@ export function buildOpsPanel(inputs: PanelInputs): DomainPanel {
     missingSetupSteps,
     sources,
     confidence,
+    ...(advisory ? { advisory } : {}),
     generatedAt: inputs.now,
   };
 }

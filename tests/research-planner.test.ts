@@ -56,6 +56,8 @@ describe("research planner (Phase F1)", () => {
     assert.equal(planResearch("research").verdict, "NEEDS_SCOPING");
     assert.equal(planResearch("ai").verdict, "NEEDS_SCOPING");
     assert.equal(planResearch("tell me everything about machine learning").verdict, "TOO_BROAD");
+    // Broadness is semantic, not length: a terse-but-specific open topic stays researchable.
+    assert.equal(planResearch("a travel concierge product").verdict, "READY_TO_RESEARCH");
   });
 
   it("recommends a concrete next action grounded in the verdict", () => {
