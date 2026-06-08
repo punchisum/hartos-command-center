@@ -16,7 +16,7 @@ import type { ControlSurfaceRender } from "../cockpit/control-surface/index.js";
 import type { AgentDetail } from "../read-models/agent-detail.js";
 import type { GenericAgentDetail } from "../read-models/agent-detail-registry.js";
 import type { ActionProposal } from "../cockpit/proposals/proposal-types.js";
-import type { ProposalPersistResult } from "./cloudflare-live-read-models.js";
+import type { ProposalPersistResult, ProposalTransitionResult, CockpitTransitionAction } from "./cloudflare-live-read-models.js";
 import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spine.js";
 
 /** Server-side env available to the hosted cockpit. Values are NEVER exposed. */
@@ -65,6 +65,13 @@ export interface CockpitWorkerContext {
    * advisory (no write). Must never throw.
    */
   proposalWriteProvider?: (proposals: ActionProposal[], sourceIntent: string) => Promise<ProposalPersistResult>;
+  /**
+   * Phase 2.4 — gated approve/reject. Called from POST /api/proposals/transition. Relays
+   * the transition to the SAME capability-token Edge Function (the Worker holds no DB key);
+   * the Edge Function performs the conditional, status-safe write. Absent ⇒ advisory-only.
+   * Must never throw.
+   */
+  proposalTransitionProvider?: (input: { id: string; action: CockpitTransitionAction }) => Promise<ProposalTransitionResult>;
   /**
    * Phase D — lazy LIVE thread-spine reader. Called only for GET /api/threads,
    * AFTER auth. Returns the thread summaries from Supabase (so the hosted Worker

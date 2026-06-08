@@ -1,15 +1,19 @@
 // supabase/functions/persist-cockpit-proposal/index.ts
 //
-// Phase E (Gap E) — the ONLY write path for "Ask HartOS → a proposal in the
-// queue". Server-side: the service role is auto-injected, so the hosted read-only
-// Worker never holds a DB/service key — it calls this with a shared CAPABILITY
-// token. Propose-only: writes ONLY draft/pending_approval rows and forces
-// executable:false. Every row is secret-scanned before write.
+// The ONLY write path for the cockpit proposal spine. Server-side: the service role
+// is auto-injected, so the hosted read-only Worker never holds a DB/service key — it
+// calls this with a shared CAPABILITY token. Two operations, both status-safe:
 //
-// DEPLOYED 2026-06-08 to project xbuinrnpfjltimofwrdx via Supabase MCP with
-// verify_jwt=false (the shared token is the gate). The service_role needs
-// SELECT/INSERT/UPDATE on cockpit_proposals (see migration
-// 2026060900000001_cockpit_spine_service_role_grants.sql), else PostgREST 403s.
+//   { proposals: [...] }            — Phase E: persist propose-only DRAFT/pending rows.
+//                                     Uses ignore-duplicates (Phase 2.2 #4 fix): a re-ask
+//                                     NEVER overwrites an existing row, so it can never
+//                                     downgrade a proposal Hart already approved/rejected.
+//   { transition: { id, action } }  — Phase 2.4: approve/reject. CONDITIONAL PATCH that
+//                                     only matches an eligible status (never downgrades),
+//                                     then appends an immutable audit row (Phase 2.3).
+//
+// Forces executable:false on persist; every row is secret-scanned before write.
+// DEPLOYED to project xbuinrnpfjltimofwrdx (cockpit_proposals + cockpit_proposal_audit).
 
 const SECRET_PATTERNS: RegExp[] = [
   /sk-[A-Za-z0-9_-]{16,}/,
@@ -28,6 +32,13 @@ function containsSecret(text: string): boolean {
 const ALLOWED_STATUS = new Set(["draft", "pending_approval"]);
 const MAX_PROPOSALS = 20;
 
+// Phase 2.4 — the only cockpit/Worker-settable transitions. Each names its target and
+// the EXACT set of statuses it may act on, so the conditional write never downgrades.
+const TRANSITIONS: Record<string, { to: string; fromFilter: string }> = {
+  approve: { to: "simulated_approved", fromFilter: "status=eq.pending_approval" },
+  reject: { to: "rejected", fromFilter: "status=in.(draft,pending_approval)" },
+};
+
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let r = 0;
@@ -37,6 +48,51 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+/** Phase 2.4 — a conditional, status-safe approve/reject + an append-only audit row. */
+async function handleTransition(
+  transition: { id?: unknown; action?: unknown },
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
+  const id = typeof transition.id === "string" ? transition.id : "";
+  const action = typeof transition.action === "string" ? transition.action : "";
+  const t = TRANSITIONS[action];
+  if (!id || !t) return json(400, { ok: false, error: "invalid transition (need id + action approve|reject)" });
+
+  const nowIso = new Date().toISOString();
+  const headers = {
+    "content-type": "application/json",
+    apikey: serviceKey,
+    authorization: `Bearer ${serviceKey}`,
+  };
+  // Conditional PATCH: only rows whose status is still eligible match. An already
+  // approved/rejected/executed row matches NOTHING — so this can never downgrade.
+  const patch = await fetch(
+    `${supabaseUrl}/rest/v1/cockpit_proposals?id=eq.${encodeURIComponent(id)}&${t.fromFilter}`,
+    {
+      method: "PATCH",
+      headers: { ...headers, prefer: "return=representation" },
+      body: JSON.stringify({ status: t.to, updated_at: nowIso }),
+    },
+  );
+  if (!patch.ok) {
+    const detail = await patch.text().catch(() => "");
+    return json(502, { ok: false, error: `transition write failed (${patch.status})`, detail: detail.slice(0, 200) });
+  }
+  const updated = (await patch.json().catch(() => [])) as unknown[];
+  const changed = Array.isArray(updated) && updated.length > 0;
+
+  if (changed) {
+    // Append-only audit (Phase 2.3). Best-effort — never blocks the transition result.
+    await fetch(`${supabaseUrl}/rest/v1/cockpit_proposal_audit`, {
+      method: "POST",
+      headers: { ...headers, prefer: "return=minimal" },
+      body: JSON.stringify({ proposal_id: id, event: action, to_status: t.to, at: nowIso }),
+    }).catch(() => {});
+  }
+  return json(200, { ok: changed, status: changed ? t.to : null });
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -58,6 +114,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
   } catch {
     return json(400, { error: "invalid json" });
   }
+
+  // Phase 2.4 — approval transition takes priority over persist.
+  const transition = (parsed as { transition?: { id?: unknown; action?: unknown } })?.transition;
+  if (transition && typeof transition === "object") {
+    return await handleTransition(transition, supabaseUrl, serviceKey);
+  }
+
   const incoming = Array.isArray((parsed as { proposals?: unknown[] })?.proposals) ? (parsed as { proposals: unknown[] }).proposals : [];
   if (!incoming.length) return json(400, { error: "no proposals" });
   if (incoming.length > MAX_PROPOSALS) return json(413, { error: "too many proposals" });
@@ -101,15 +164,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
   if (!rows.length) return json(200, { persisted: 0, failed: 0, skipped });
 
-  // Upsert via PostgREST as the service role (bypasses the deny-all RLS). The
-  // table PK is `id`, so merge-duplicates makes re-asks idempotent.
+  // Phase 2.2 #4 — ignore-duplicates (INSERT ... ON CONFLICT DO NOTHING). A re-ask of an
+  // existing id is a no-op, so a persist can NEVER downgrade an approved/rejected row.
   const res = await fetch(`${supabaseUrl}/rest/v1/cockpit_proposals`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       apikey: serviceKey,
       authorization: `Bearer ${serviceKey}`,
-      prefer: "resolution=merge-duplicates,return=minimal",
+      prefer: "resolution=ignore-duplicates,return=minimal",
     },
     body: JSON.stringify(rows),
   });

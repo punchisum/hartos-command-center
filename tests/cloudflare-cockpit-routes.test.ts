@@ -25,6 +25,36 @@ describe("cloudflare cockpit routes", () => {
     assert.ok(SUPPORTED_ROUTES.includes("POST /api/orchestrator/message"));
   });
 
+  it("POST /api/proposals/transition relays approve to the transition provider (2.4)", async () => {
+    let seen: { id: string; action: string } | null = null;
+    const tctx: CockpitWorkerContext = {
+      ...ctx,
+      proposalTransitionProvider: async (input) => { seen = input; return { attempted: true, ok: true, status: "simulated_approved", reason: "ok" }; },
+    };
+    const res = await handleCockpitRequest(
+      new Request(`${base}/api/proposals/transition`, { method: "POST", body: JSON.stringify({ id: "p1", action: "approve" }) }),
+      {},
+      tctx,
+    );
+    assert.equal(res.status, 200);
+    const data = await res.json() as { ok: boolean; status: string };
+    assert.equal(data.ok, true);
+    assert.equal(data.status, "simulated_approved");
+    assert.deepEqual(seen, { id: "p1", action: "approve" });
+  });
+
+  it("POST /api/proposals/transition rejects an invalid action with 400 (no provider call)", async () => {
+    let called = false;
+    const tctx: CockpitWorkerContext = { ...ctx, proposalTransitionProvider: async () => { called = true; return { attempted: true, ok: false, status: null, reason: "x" }; } };
+    const res = await handleCockpitRequest(
+      new Request(`${base}/api/proposals/transition`, { method: "POST", body: JSON.stringify({ id: "p1", action: "delete" }) }),
+      {},
+      tctx,
+    );
+    assert.equal(res.status, 400);
+    assert.equal(called, false);
+  });
+
   it("serves GET /api/reports and /api/threads as arrays", async () => {
     const reports = await (await handleCockpitRequest(new Request(`${base}/api/reports`), {}, ctx)).json() as { reports: unknown[] };
     assert.ok(Array.isArray(reports.reports));

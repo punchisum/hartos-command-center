@@ -62,8 +62,10 @@ import {
   resolveHostedCockpitState,
   resolveAgentDetail,
   persistCockpitProposals,
+  transitionCockpitProposal,
   resolveCockpitThreads,
   type ProposalPersistResult,
+  type ProposalTransitionResult,
 } from "./cloudflare-live-read-models.js";
 import {
   resolveHostedControlSurface,
@@ -281,7 +283,7 @@ export async function handleCockpitRequest(
 
   // POST — only validated, read-only routes (no fs, no network, no mutation).
   if (method === "POST") {
-    if (pathname !== "/api/orchestrator/message" && pathname !== "/api/ask" && pathname !== "/api/suggestions/persist") return notFound(cors);
+    if (pathname !== "/api/orchestrator/message" && pathname !== "/api/ask" && pathname !== "/api/suggestions/persist" && pathname !== "/api/proposals/transition") return notFound(cors);
 
     const raw = await request.text();
     if (raw.length > MAX_REQUEST_BODY_BYTES) return payloadTooLarge(cors);
@@ -310,6 +312,28 @@ export async function handleCockpitRequest(
         { ok: true, candidates: drafts.length, queued: persistence.persisted, alreadyQueued, attempted: persistence.attempted, failed: persistence.failed, reason: persistence.reason },
         cors,
       );
+    }
+
+    // /api/proposals/transition — gated approve/reject. Relays to the capability-token
+    // Edge Function (the Worker holds NO DB key); the Edge Function does the conditional,
+    // status-safe write + the append-only audit. Body: { id, action: "approve"|"reject" }.
+    if (pathname === "/api/proposals/transition") {
+      let body: { id?: unknown; action?: unknown };
+      try {
+        body = JSON.parse(raw) as { id?: unknown; action?: unknown };
+      } catch {
+        return jsonResponse(400, { ok: false, error: "invalid json" }, cors);
+      }
+      const id = typeof body.id === "string" ? body.id : "";
+      const action = body.action === "approve" || body.action === "reject" ? body.action : null;
+      if (!id || !action) return jsonResponse(400, { ok: false, error: "id and action (approve|reject) are required" }, cors);
+      let result: ProposalTransitionResult = { attempted: false, ok: false, status: null, reason: "transition endpoint not configured (advisory-only)" };
+      if (ctx.proposalTransitionProvider) {
+        result = await ctx
+          .proposalTransitionProvider({ id, action })
+          .catch(() => ({ attempted: true, ok: false, status: null, reason: "transition error" }));
+      }
+      return jsonResponse(200, { ok: result.ok, status: result.status, attempted: result.attempted, reason: result.reason }, cors);
     }
 
     let parsed: unknown;
@@ -419,6 +443,7 @@ const LIVE_DATA_ROUTES = new Set<string>([
   "/api/proposals",
   "/api/ask",
   "/api/suggestions/persist",
+  "/api/proposals/transition",
 ]);
 
 /**
@@ -571,6 +596,7 @@ export default {
       controlSurfaceProvider: async () => resolveHostedControlSurface(env),
       agentDetailProvider: async (domain) => resolveAgentDetail(env, domain),
       proposalWriteProvider: async (proposals, sourceIntent) => persistCockpitProposals(env, proposals, { sourceIntent }),
+      proposalTransitionProvider: async (input) => transitionCockpitProposal(env, input),
       threadsProvider: async () => resolveCockpitThreads(env),
     });
   },

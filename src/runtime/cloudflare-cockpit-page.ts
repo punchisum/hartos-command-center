@@ -143,6 +143,10 @@ h2{font-size:11px;letter-spacing:1.2px;color:var(--faint);text-transform:upperca
 .li b{color:var(--txt)}
 .tag{margin-left:auto;font-size:10px;font-weight:800;border-radius:6px;padding:2px 8px;background:#eef2f7;color:var(--faint)}
 .tag.pend{background:var(--sa);color:var(--amber)}.tag.loc{background:var(--sb);color:var(--primary)}.tag.ok{background:var(--sg);color:var(--green)}
+.pact{margin-left:8px;display:inline-flex;gap:5px}
+.pbtn{font:inherit;font-size:11px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer;background:var(--panel)}
+.pbtn.ok{color:var(--green);border-color:#bfe6d2}.pbtn.no{color:var(--red);border-color:#f3c9d0}
+.pbtn:disabled{opacity:.5;cursor:default}
 .muted{color:var(--faint);font-size:12px}
 .cap{color:var(--faint);font-size:11px;margin:18px 2px 0}
 footer{color:var(--faint);font-size:11.5px;margin-top:18px;padding-top:12px;border-top:1px solid var(--line2)}
@@ -341,7 +345,12 @@ function proposalBox(props: ProposalsView): string {
       const pending = p.status === "pending_approval" || p.status === "draft";
       const tg = pending ? "pend" : "ok";
       const label = p.status === "pending_approval" ? "needs approval" : p.status;
-      return `<div class="li">${esc(p.title)} <span class="tag ${tg}">${esc(label)}</span></div>`;
+      // Approve/reject only what is pending. The write goes through the gated, capability-
+      // token Edge Function (the Worker holds no DB key); the row id is the transition target.
+      const actions = p.status === "pending_approval"
+        ? `<span class="pact" data-pid="${esc(p.id)}"><button class="pbtn ok" data-act="approve">Approve</button><button class="pbtn no" data-act="reject">Reject</button></span>`
+        : "";
+      return `<div class="li">${esc(p.title)} <span class="tag ${tg}">${esc(label)}</span>${actions}</div>`;
     })
     .join("");
   return box("Proposal queue", head + rows, "proposals");
@@ -577,6 +586,18 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
        if(d.queued>0){setTimeout(function(){location.reload();},900);}else{qb.disabled=false;}
      }).catch(function(){if(qm){qm.textContent='Network error.';}qb.disabled=false;});
   });}
+  // Phase 2.4 — approve/reject a pending proposal via the gated Edge Function (no DB key here).
+  document.addEventListener('click',function(e){
+    var btn=e.target&&e.target.closest?e.target.closest('.pbtn'):null;
+    if(!btn||btn.disabled){return;}
+    var wrap=btn.closest('.pact');if(!wrap){return;}
+    var id=wrap.getAttribute('data-pid'),act=btn.getAttribute('data-act');
+    if(!id||!act){return;}
+    Array.prototype.forEach.call(wrap.querySelectorAll('.pbtn'),function(b){b.disabled=true;});
+    fetch('/api/proposals/transition',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id,action:act})})
+      .then(function(r){return r.json()}).then(function(d){wrap.innerHTML='<span class="muted">'+(d.ok?(act==='approve'?'approved':'rejected'):'no change')+'</span>';})
+      .catch(function(){wrap.innerHTML='<span class="muted">error</span>';});
+  });
   Array.prototype.forEach.call(document.querySelectorAll('.card[data-agent]'),function(card){card.addEventListener('click',function(e){e.preventDefault();openDrawer(card.getAttribute('data-agent'));});});
   document.addEventListener('keydown',function(e){
     if((e.metaKey||e.ctrlKey)&&(e.key==='k'||e.key==='K')){e.preventDefault();openK();}
