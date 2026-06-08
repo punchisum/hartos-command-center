@@ -39,6 +39,7 @@ import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spi
 import { perceive, type PerceptionReport } from "../rinnegan/perception.js";
 import { collectFleetTasks, assessFleetLoad, type FleetWork } from "../fleet/fleet-work.js";
 import { orchestrateFleet, type FleetPlan } from "../fleet/orchestrator.js";
+import { forecast, type ForecastReport } from "../prophet/forecast.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -386,6 +387,19 @@ function orchestrationBox(plan: FleetPlan): string {
   );
 }
 
+/** Forecast (Prophet — F5) panel: the consequence of inaction, projected not fabricated. */
+function forecastBox(r: ForecastReport): string {
+  const t: Tone = r.verdict === "urgent" ? "r" : r.verdict === "degrading" ? "a" : "g";
+  const sevDot = (s: string): Tone => (s === "high" ? "r" : s === "medium" ? "a" : "i");
+  const rows = r.consequences
+    .slice(0, 5)
+    .map((c) => `<div class="li"><span class="dot ${sevDot(c.severity)}"></span><span>${esc(c.projection)} <span class="tag">${esc(c.horizon)}</span></span></div>`)
+    .join("");
+  const inner = rows || `<div class="muted">No projected consequences of inaction — stable.</div>`;
+  const blind = r.blindSpots.length ? `<div class="muted" style="margin-top:8px">Can't foresee: ${esc(r.blindSpots.join(", "))}</div>` : "";
+  return box("Forecast (Prophet)", `<div class="kv"><span class="verdict ${t}">${esc(r.verdict.toUpperCase())}</span></div>${inner}${blind}`, "forecast");
+}
+
 /** Recent-activity panel — the Phase D thread spine surfaced (server-rendered). */
 function activityBox(threads: CockpitThreadSummary[]): string {
   if (!threads.length) return box("Recent activity", `<div class="muted">No recent threads yet. Ask HartOS to start one.</div>`, "activity");
@@ -408,6 +422,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const perception = perceive({ now, freshness: fr, proposals: state?.proposalQueue ?? [], missingSources: rms.missingSources, fleetSignals: fleet.agents });
   const fleetWork = collectFleetTasks({ perception });
   const fleetPlan = orchestrateFleet(fleetWork);
+  const fleetForecast = forecast({ now, perception, plan: fleetPlan, proposals: state?.proposalQueue ?? [] });
 
   const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
   const mainAction = (brief.highlights.find((h) => h.startsWith("Main action:")) ?? "Main action: review the cockpit.").replace(/^Main action:\s*/i, "");
@@ -453,7 +468,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     askBar +
     `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
     `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
-    `<div class="grid3">${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${activityBox(threads)}</div>` +
+    `<div class="grid3">${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${forecastBox(fleetForecast)}${activityBox(threads)}</div>` +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</main></div>` +
