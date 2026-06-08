@@ -14,6 +14,7 @@ import {
   resolveCockpitProposals,
   resolveCockpitThreads,
   persistCockpitProposals,
+  transitionCockpitProposal,
   hostedReadModelsConfigured,
   buildHostedReadModelRegistry,
   HOSTED_READ_MODEL_ENV,
@@ -423,6 +424,53 @@ describe("Ask HartOS → spine WRITE (Phase E / Gap E)", () => {
     assert.equal(r.attempted, true);
     assert.equal(r.failed, 1);
     assert.equal(r.reason, "write endpoint unreachable");
+  });
+
+  // ── Phase 2.4 — approval transitions (Worker relay; still no DB key) ──
+  it("approve: posts the transition with a bearer token and reports the new status", async () => {
+    let seenUrl = "", seenAuth = "", seenBody = "";
+    const fetchImpl: WriteFetch = async (url, init) => {
+      seenUrl = url; seenAuth = init.headers.authorization; seenBody = init.body;
+      return { ok: true, status: 200, json: async () => ({ ok: true, status: "simulated_approved" }) };
+    };
+    const r = await transitionCockpitProposal(writeEnv, { id: "p1", action: "approve" }, { fetchImpl });
+    assert.equal(r.attempted, true);
+    assert.equal(r.ok, true);
+    assert.equal(r.status, "simulated_approved");
+    assert.equal(seenUrl, ASK_URL);
+    assert.equal(seenAuth, `Bearer ${TOKEN}`);
+    assert.deepEqual(JSON.parse(seenBody), { transition: { id: "p1", action: "approve" } });
+  });
+
+  it("transition stays advisory (no call) when the write env is absent", async () => {
+    let called = false;
+    const fetchImpl: WriteFetch = async () => { called = true; return { ok: true, status: 200, json: async () => ({}) }; };
+    const r = await transitionCockpitProposal({}, { id: "p1", action: "reject" }, { fetchImpl });
+    assert.equal(r.attempted, false);
+    assert.equal(called, false, "must not call the endpoint when unconfigured");
+  });
+
+  it("transition refuses an invalid action without calling the endpoint", async () => {
+    let called = false;
+    const fetchImpl: WriteFetch = async () => { called = true; return { ok: true, status: 200, json: async () => ({}) }; };
+    const r = await transitionCockpitProposal(writeEnv, { id: "p1", action: "delete" as "approve" }, { fetchImpl });
+    assert.equal(r.attempted, false);
+    assert.equal(called, false);
+  });
+
+  it("transition reports a no-op when the Edge Function declines (status not eligible)", async () => {
+    const fetchImpl: WriteFetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: false }) });
+    const r = await transitionCockpitProposal(writeEnv, { id: "p1", action: "approve" }, { fetchImpl });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /no-op/);
+  });
+
+  it("transition never leaks the token + fails safe when the endpoint is unreachable", async () => {
+    const fetchImpl: WriteFetch = async () => { throw new Error("down"); };
+    const r = await transitionCockpitProposal(writeEnv, { id: "p1", action: "approve" }, { fetchImpl });
+    assert.equal(r.attempted, true);
+    assert.equal(r.ok, false);
+    assert.ok(!JSON.stringify(r).includes(TOKEN), "token must never appear in the result");
   });
 });
 

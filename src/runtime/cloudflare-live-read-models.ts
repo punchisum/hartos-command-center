@@ -464,3 +464,54 @@ export async function persistCockpitProposals(
     return { attempted: true, persisted: 0, failed: rows.length, reason: "write endpoint unreachable" };
   }
 }
+
+// ─── Phase 2.4 — Approval transitions (Worker side; still no DB key) ───────────
+
+export type CockpitTransitionAction = "approve" | "reject";
+
+export interface ProposalTransitionResult {
+  attempted: boolean;
+  ok: boolean;
+  /** Resulting status reported by the Edge Function, or null on a no-op/failure. */
+  status: string | null;
+  reason: string;
+}
+
+/**
+ * Approve/reject a proposal via the SAME gated Edge Function. The Worker still holds NO
+ * service-role/DB key — only the shared CAPABILITY token. The Edge Function performs a
+ * CONDITIONAL, status-safe write (approve only acts on a pending_approval row; reject only
+ * on an active row; it never downgrades) and appends an audit event. Best-effort +
+ * fail-safe: it never throws. The approval target is `simulated_approved` — authorizing
+ * real EXECUTION (`approved_for_execution`) is a separate, more deliberate step (Phase 3).
+ */
+export async function transitionCockpitProposal(
+  env: Env,
+  input: { id: string; action: CockpitTransitionAction },
+  options: { fetchImpl?: WriteFetch } = {},
+): Promise<ProposalTransitionResult> {
+  const url = env[ASK_WRITE_ENV.url];
+  const token = env[ASK_WRITE_ENV.token];
+  if (!url || !token) return { attempted: false, ok: false, status: null, reason: "write endpoint not configured (advisory-only)" };
+  if (!input.id || (input.action !== "approve" && input.action !== "reject")) {
+    return { attempted: false, ok: false, status: null, reason: "invalid transition request" };
+  }
+  const doFetch = options.fetchImpl ?? (globalThis.fetch as unknown as WriteFetch);
+  try {
+    const res = await doFetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ transition: { id: input.id, action: input.action } }),
+    });
+    if (!res.ok) return { attempted: true, ok: false, status: null, reason: `transition endpoint returned ${res.status}` };
+    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; status?: string };
+    return {
+      attempted: true,
+      ok: body.ok === true,
+      status: typeof body.status === "string" ? body.status : null,
+      reason: body.ok === true ? "ok" : "no-op (proposal not in an eligible status)",
+    };
+  } catch {
+    return { attempted: true, ok: false, status: null, reason: "transition endpoint unreachable" };
+  }
+}
