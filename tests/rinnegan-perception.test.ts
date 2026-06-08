@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { perceive, summarizePerception } from "../src/rinnegan/perception.js";
 import type { FreshnessReport } from "../src/cockpit/freshness-surface.js";
 import type { ProposalQueueItem } from "../src/cockpit/proposals/proposal-types.js";
+import type { FleetSignal } from "../src/read-models/agent-signal.js";
 
 const NOW = "2026-06-08T12:00:00Z";
 
@@ -83,6 +84,16 @@ describe("rinnegan perception (Phase F2)", () => {
     // critical (ops) before warn (fitness blind spot) before info (missing source X)
     assert.equal(sev[0], "critical");
     assert.ok(sev.indexOf("warn") < sev.indexOf("info"));
+  });
+
+  it("integrates fleet health — a registered-but-silent agent becomes a blind spot", () => {
+    const sig = (type: string, freshness: string): FleetSignal =>
+      ({ id: type, type, signal: { verdict: "ok", confidence: "high", freshness, facts: [], reason: "r", nextAction: null, approvalNeeded: false } }) as unknown as FleetSignal;
+    // ops reports a signal; fitness is registered but absent → silent → blind spot.
+    const r = perceive({ now: NOW, freshness: fresh([dom("ops", "fresh")]), fleetSignals: [sig("ops", "fresh")] });
+    assert.ok(r.observations.some((o) => o.subject === "fitness" && o.kind === "blind_spot"));
+    assert.ok(r.blindSpots.includes("fitness"));
+    assert.ok(r.scanned.includes("fleet health"));
   });
 
   it("is deterministic and summarizes honestly", () => {

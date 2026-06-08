@@ -21,14 +21,16 @@ export interface AgentRegistration {
   /** The read-model type carrying this agent's live signal, if it has one. */
   signalType?: string;
   kind: AgentKind;
+  /** What kinds of work this agent can take (used by task routing — F4 substrate). */
+  capabilities: string[];
   note?: string;
 }
 
 /** The agents HartOS knows about. Adding an agent = one entry here. */
 export const FLEET_REGISTRY: AgentRegistration[] = [
-  { id: "fitness", name: "Fitness", icon: "🏃", signalType: "fitness", kind: "core" },
-  { id: "ops", name: "Ops", icon: "📋", signalType: "ops", kind: "core" },
-  { id: "research", name: "Research", icon: "🔬", kind: "core", note: "planner — no live read-model signal yet" },
+  { id: "fitness", name: "Fitness", icon: "🏃", signalType: "fitness", kind: "core", capabilities: ["fitness", "recovery", "nutrition"] },
+  { id: "ops", name: "Ops", icon: "📋", signalType: "ops", kind: "core", capabilities: ["ops", "followup", "refresh", "repair"] },
+  { id: "research", name: "Research", icon: "🔬", kind: "core", capabilities: ["research", "analysis"], note: "planner — no live read-model signal yet" },
 ];
 
 export type AgentHealth = "online" | "stale" | "silent" | "advisory";

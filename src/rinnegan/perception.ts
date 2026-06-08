@@ -14,6 +14,8 @@
 
 import type { FreshnessReport } from "../cockpit/freshness-surface.js";
 import type { ProposalQueueItem } from "../cockpit/proposals/proposal-types.js";
+import type { FleetSignal } from "../read-models/agent-signal.js";
+import { assessFleet } from "../fleet/fleet-os.js";
 
 export type ObservationKind = "staleness" | "drift" | "blind_spot" | "backlog";
 export type ObservationSeverity = "info" | "warn" | "critical";
@@ -45,6 +47,8 @@ export interface PerceptionInput {
   proposals?: ProposalQueueItem[];
   /** Source NAMES that are configured-but-unresolved (from source diagnostics). */
   missingSources?: string[];
+  /** Live fleet signals — lets perception see registered-but-silent / stale agents. */
+  fleetSignals?: FleetSignal[];
   /** Pending-proposal age (hours) past which it counts as backlog. Default 72. */
   agingHours?: number;
 }
@@ -151,6 +155,31 @@ export function perceive(input: PerceptionInput): PerceptionReport {
         detail: `${pending.length} proposals are pending review.`,
         recommendation: "Triage the proposal queue.",
       });
+    }
+  }
+
+  // ── Fleet health → registered-but-silent / stale agents (integrates F3) ──
+  if (input.fleetSignals) {
+    scanned.push("fleet health");
+    for (const a of assessFleet(input.fleetSignals).agents) {
+      if (a.health === "silent") {
+        observations.push({
+          kind: "blind_spot",
+          severity: "warn",
+          subject: a.id,
+          detail: `${a.name} agent is registered but reporting no signal — silent.`,
+          recommendation: `Check the ${a.name} read-model wiring so the fleet can see it.`,
+        });
+        if (!blindSpots.includes(a.id)) blindSpots.push(a.id);
+      } else if (a.health === "stale") {
+        observations.push({
+          kind: "staleness",
+          severity: "warn",
+          subject: a.id,
+          detail: `${a.name} agent's signal is stale.`,
+          recommendation: `Refresh the ${a.name} agent's data.`,
+        });
+      }
     }
   }
 

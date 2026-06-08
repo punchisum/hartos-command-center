@@ -37,6 +37,7 @@ import type { AgentDetail } from "../read-models/agent-detail.js";
 import type { GenericAgentDetail, DetailSection } from "../read-models/agent-detail-registry.js";
 import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spine.js";
 import { perceive, type PerceptionReport } from "../rinnegan/perception.js";
+import { collectFleetTasks, type FleetWork } from "../fleet/fleet-work.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -334,8 +335,8 @@ function freshBox(fr: FreshnessReport | null): string {
   );
 }
 
-/** Perception (Rinnegan) panel — F2 cross-system observations + honest blind spots. */
-function perceptionBox(p: PerceptionReport): string {
+/** Perception (Rinnegan) panel — F2 observations + honest blind spots + the routed work (F-depth). */
+function perceptionBox(p: PerceptionReport, work: FleetWork): string {
   const t: Tone = p.verdict === "attention" ? "r" : p.verdict === "watch" ? "a" : "g";
   const sevDot = (s: string): Tone => (s === "critical" ? "r" : s === "warn" ? "a" : "i");
   const rows = p.observations
@@ -344,9 +345,13 @@ function perceptionBox(p: PerceptionReport): string {
     .join("");
   const inner = rows || `<div class="muted">Nothing flagged across systems.</div>`;
   const blind = p.blindSpots.length ? `<div class="muted" style="margin-top:8px">Blind spots: ${esc(p.blindSpots.join(", "))}</div>` : "";
+  const byCap = Object.entries(work.byCapability).map(([c, n]) => `${esc(c)} ${n}`).join(" · ");
+  const routing = work.open
+    ? `<div class="muted" style="margin-top:8px">Routed work: ${work.open} task(s)${byCap ? ` → ${byCap}` : ""}${work.gaps.length ? ` · <b style="color:var(--red)">gaps: ${esc(work.gaps.join(", "))}</b>` : ""}</div>`
+    : "";
   return box(
     "Perception (Rinnegan)",
-    `<div class="kv"><span class="verdict ${t}">${esc(p.verdict.toUpperCase())}</span></div>${inner}${blind}`,
+    `<div class="kv"><span class="verdict ${t}">${esc(p.verdict.toUpperCase())}</span></div>${inner}${blind}${routing}`,
     "perception",
   );
 }
@@ -370,7 +375,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const fleet = fleetView(state, now);
   const rms = readModelStatusView(state);
   const threads = opts.threads ?? [];
-  const perception = perceive({ now, freshness: fr, proposals: state?.proposalQueue ?? [], missingSources: rms.missingSources });
+  const perception = perceive({ now, freshness: fr, proposals: state?.proposalQueue ?? [], missingSources: rms.missingSources, fleetSignals: fleet.agents });
+  const fleetWork = collectFleetTasks({ perception });
 
   const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
   const mainAction = (brief.highlights.find((h) => h.startsWith("Main action:")) ?? "Main action: review the cockpit.").replace(/^Main action:\s*/i, "");
@@ -416,7 +422,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     askBar +
     `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
     `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
-    `<div class="grid3">${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}${perceptionBox(perception)}${activityBox(threads)}</div>` +
+    `<div class="grid3">${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${activityBox(threads)}</div>` +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</main></div>` +
