@@ -170,7 +170,13 @@ export function detectCockpitIntent(request: string): { intent: CockpitIntent; m
     "what needs my attention today", "what needs my attention", "needs my attention",
     "what should i focus on today", "what should i focus on", "what should i work on today",
     "what should i prioritise", "what should i prioritize", "attention today", "focus today",
-    "what's on my plate", "whats on my plate", "what matters today", "brief me"
+    "what's on my plate", "whats on my plate", "what matters today", "brief me",
+    "good morning", "morning check", "start of day", "morning",
+    "what should i do today", "what do i do today",
+    "where do i start today", "where should i start today",
+    "what's my priority today", "whats my priority today",
+    "what's today's priority", "todays priority",
+    "what's the plan today", "whats the plan today"
   );
   if (m.length) return { intent: "daily_brief", matchedKeywords: m };
 
@@ -235,6 +241,11 @@ export function detectCockpitIntent(request: string): { intent: CockpitIntent; m
   // 6. Fitness status.
   m = has(t, "fitness", "training", "recovery", "calories", "protein", "workout", "hrv", "rhr", "sleep", "how's recovery", "how is recovery", "macros", "nutrition");
   if (m.length) return { intent: "fitness_status", matchedKeywords: m };
+
+  // 7. Generic "what should I do / where do I start?" — only reached when no domain-specific
+  // keyword matched above, so "fix stale ops" still lands on freshness_status.
+  m = has(t, "what should i do", "what do i do", "what do i do next", "where do i start", "where should i start", "what's my priority", "whats my priority");
+  if (m.length) return { intent: "daily_brief", matchedKeywords: m };
 
   return { intent: "unknown", matchedKeywords: [] };
 }
@@ -331,18 +342,24 @@ function answerFitness(ctx: IntentRouterContext): CockpitIntentResult {
   const p = panelById(ctx.panels, "fitness");
   if (!p) return panelMissing("fitness_status", "Fitness status", "fitness");
   const recovery = field(p, "recovery");
+  const readiness = field(p, "training_readiness");
   const plan = field(p, "training_plan");
   const calories = field(p, "calories");
   const protein = field(p, "protein");
   const adjustment = field(p, "adjustment");
 
+  // Lead with the readiness verdict when available — it's the highest-value derived output.
+  const readinessLine = readiness?.status === "ok" && readiness.value
+    ? `Training readiness: ${readiness.value}${readiness.confidence ? ` (${readiness.confidence} confidence)` : ""}.`
+    : null;
   const lines = [
     p.summary,
+    readinessLine,
     `Recovery: ${recovery?.value ?? "unknown"}.`,
     `Today's plan: ${plan?.value ?? "unknown"}; completed: ${field(p, "training_completed")?.value ?? "unknown"}.`,
     `Nutrition — calories: ${calories?.value ?? "unknown"}, protein: ${protein?.value ?? "unknown"}.`,
     `Next adjustment: ${adjustment?.value ?? "unknown"}.`,
-  ];
+  ].filter((x): x is string => !!x);
   const nextSteps = uniqueNonEmpty([p.nextAction, ...topN(p.missingSetupSteps, 3)]);
   return base("fitness_status", "Fitness status", lines.join("\n"), p.highlights, topN(p.gaps, 5), nextSteps, false);
 }

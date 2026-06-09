@@ -645,7 +645,28 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     askBar +
     `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
     `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
-    `<div class="grid3">${suggestionsBox(suggestions)}${trustBox(rms, fr)}${proposalBox(props)}${mutationCenterBox(mutation)}${mutationDispatchBox(dispatch)}${fleetBrainBox(briefing)}${fleetSynthesisBox(synthesis)}${autonomyBox(autonomy)}${factoryJobBox(factoryJobs)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${forecastBox(fleetForecast)}${auditBox(audit)}${activityBox(threads)}</div>` +
+    `<div class="grid3">` +
+    // Tier 1 — action + decisions (always shown)
+    suggestionsBox(suggestions) +
+    proposalBox(props) +
+    mutationCenterBox(mutation) +
+    fleetBrainBox(briefing) +
+    // Tier 2 — signal health (always shown)
+    freshBox(fr) +
+    trustBox(rms, fr) +
+    fleetSynthesisBox(synthesis) +
+    // Tier 3 — execution + autonomy (shown when relevant)
+    (autonomy.total > 0 ? autonomyBox(autonomy) : "") +
+    mutationDispatchBox(dispatch) +
+    // Tier 4 — audit + activity (always shown)
+    auditBox(audit) +
+    activityBox(threads) +
+    // Tier 5 — intelligence panels (always shown; factory jobs only when jobs exist)
+    perceptionBox(perception, fleetWork) +
+    orchestrationBox(fleetPlan) +
+    forecastBox(fleetForecast) +
+    (factoryJobs.total > 0 ? factoryJobBox(factoryJobs) : "") +
+    `</div>` +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</main></div>` +

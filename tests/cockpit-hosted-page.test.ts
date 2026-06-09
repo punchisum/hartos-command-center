@@ -54,14 +54,21 @@ describe("hosted cockpit page — Style 5 structure + depth", () => {
     assert.match(html, /build_agent/);
   });
 
-  it("renders the trust + proposals + freshness + perception + orchestration panels", () => {
+  it("renders always-present panels: trust + proposals + freshness + suggestions", () => {
     assert.match(html, /Can I trust the system\?/);
     assert.match(html, /Proposal queue/);
     assert.match(html, /Data freshness/);
+    assert.match(html, /Suggested actions/);
+  });
+
+  it("always renders intelligence panels; suppresses factory-jobs when empty", () => {
+    // Intelligence panels (perception, orchestration, forecast) always render — even with
+    // undefined state they're populated from missing-source observations and fleet tasks.
     assert.match(html, /Perception \(Rinnegan\)/);
     assert.match(html, /Orchestration \(Fleet OS\)/);
     assert.match(html, /Forecast \(Prophet\)/);
-    assert.match(html, /Suggested actions/);
+    // Factory jobs box is hidden when no jobs exist (total=0, go-live wiring not yet done).
+    assert.ok(!html.includes("Factory Agent"), "factory-jobs panel should be hidden when total=0");
   });
 
   it("HTML-escapes dynamic thread content (no injection)", () => {
