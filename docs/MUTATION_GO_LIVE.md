@@ -75,14 +75,21 @@ you next intend to fire.
 
 ---
 
-## How this connects to the cockpit "type/voice → approve" UX
+## How this connects to the cockpit "type/voice → approve → it moves" UX
 - In the cockpit, *"this operation has been stalled, put it on hold"* (typed or voiced) →
   the mutate rehearsal resolves the card (via `state.opsCards`) and shows the **READY** T3 proposal.
-- Approving it in the cockpit advances the **proposal's** status (gated Edge Function) — it does NOT
-  itself hit ClickUp. The actual ClickUp move is fired by the Node host (Step 2). Wiring "approved
-  proposal → auto-dispatch the move on the host" is the next optional build; until then the approve
-  + fire are two deliberate steps (approve in cockpit, fire on host), which keeps a human between
-  intent and write.
+- Approving it in the cockpit advances the **proposal's** status to `approved_for_execution`
+  (gated Edge Function) — it does NOT itself hit ClickUp (the Worker holds no key).
+- **The host executor** (`src/execution/approved-executor.ts`, built + tested) reconstructs the
+  move FROM that approved proposal (no CLI args — it reads cardId/from/to from the payload) and
+  dispatches it through the same gate. So "approve → it moves" with no per-card CLI: you run the
+  executor once on your host (one-shot or a short poll), it picks up whatever you approved, and the
+  `ALLOW_EXEC_CLICKUP_MOVE` flag + kill-switch + live read-before-write still decide. It's capped at
+  one card per pass (`max=1`) and only ever touches proposals YOU approved — never autonomous.
+- **Remaining thin wiring** (next build): a `npm run execute:approved` host entrypoint that reads
+  approved proposals from the spine, builds the ClickUp store from `CLICKUP_API_TOKEN`, calls the
+  executor, and advances the proposal to `executed`. The hard part (reconstruction + gated dispatch)
+  is done and tested; this is the mechanical host glue + the post-write status bookkeeping.
 
 ## Invariants (unchanged)
 - Default-OFF per action; global kill-switch overrides; live read-before-write; reversible; audited.
