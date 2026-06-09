@@ -35,6 +35,7 @@ import {
 import { mutationCenterView, type MutationCenterView } from "./views/mutation-center-view.js";
 import { fleetBriefingView, type FleetBrainView } from "./views/fleet-brain-view.js";
 import { mutationDispatchView, type MutationDispatchView } from "./views/mutation-dispatch-view.js";
+import { voiceInputButtonHtml, voiceInputClientScript } from "./views/voice-input.js";
 import type { FreshnessReport } from "../cockpit/freshness-surface.js";
 import { ACTION_EXECUTION } from "./cloudflare-security.js";
 import type { AgentDetail, FitnessDetail, OpsDetail } from "../read-models/agent-detail.js";
@@ -548,6 +549,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     `<form class="ask" id="ask-form" action="/api/ask" method="post">` +
     `<input id="q" type="text" placeholder="Ask HartOS anything…" autocomplete="off" aria-label="Ask HartOS">` +
     `<kbd>⌘K</kbd>` +
+    voiceInputButtonHtml() +
     `<button class="send" id="ask" type="submit" title="Ask HartOS">&#10148;</button></form>` +
     `<div class="chips">` +
     ["What needs my attention today?", "Is my data fresh?", "Anything urgent in ops?", "Show pending proposals", "Research if CoachOS is worth building"]
@@ -582,6 +584,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     `<aside class="drawer" id="drawer" aria-hidden="true"><div class="dwrap" id="dbody"></div></aside>` +
     `<div class="overlay" id="kov"></div>` +
     `<div class="kbar" id="kbar"><div class="kbox"><input id="kq" type="text" placeholder="Ask HartOS… (Enter to ask, Esc to close)" autocomplete="off" aria-label="Ask HartOS"><pre class="answer" id="kout" style="display:none;margin:10px 0 0"></pre></div></div>` +
+    voiceInputClientScript() +
     `<script>
 (function(){
   function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
