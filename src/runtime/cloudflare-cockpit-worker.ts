@@ -65,6 +65,8 @@ import { fleetBriefingView } from "./views/fleet-brain-view.js";
 import { mutationDispatchView } from "./views/mutation-dispatch-view.js";
 import { auditTailView } from "./views/audit-tail-view.js";
 import { recentActivityView } from "./views/recent-activity-view.js";
+import { fleetSynthesisView } from "./views/fleet-synthesis-view.js";
+import { auditRowsFromProposals } from "./views/audit-from-proposals.js";
 import { suggestionToProposal } from "../cockpit/suggestions/suggest-actions.js";
 import { stableProposalId } from "../cockpit/proposals/cockpit-proposal-spine.js";
 import {
@@ -96,6 +98,7 @@ export const SUPPORTED_ROUTES = [
   "GET /api/read-models/status",
   "GET /api/fleet",
   "GET /api/fleet-brain",
+  "GET /api/fleet-synthesis",
   "GET /api/mutation-center",
   "GET /api/mutation-dispatch",
   "GET /api/audit-tail",
@@ -260,6 +263,11 @@ export async function handleCockpitRequest(
       // live signals + proposal queue. Read-only projection; no LLM, no execute.
       return jsonResponse(200, fleetBriefingView(dctx.state, nowFor(dctx)), cors);
     }
+    if (pathname === "/api/fleet-synthesis") {
+      // Cross-agent synthesis rollup — top correlated risks across briefing + perception +
+      // forecast, with §19-clamped confidence (never laundered). Read-only; no LLM, no execute.
+      return jsonResponse(200, fleetSynthesisView(dctx.state, nowFor(dctx)), cors);
+    }
     // Phase C / Gap C — per-agent detail for ANY domain: fitness/ops bespoke, or a
     // registered generic agent — with no bespoke route code per agent. /agent/<domain>
     // = read-only JSON; /agent/<domain>/ui = the full dashboard page. A null detail
@@ -292,9 +300,9 @@ export async function handleCockpitRequest(
       return jsonResponse(200, mutationDispatchView(dctx.state), cors);
     }
     if (pathname === "/api/audit-tail") {
-      // Read-only audit-trail projection. The pg reader is Node-only (never the Worker), so the
-      // Worker serves honest-unavailable until an audit provider supplies rows (go-live wiring).
-      return jsonResponse(200, auditTailView(null), cors);
+      // Read-only audit-trail projection sourced from the proposals' OWN append-only auditEvents in
+      // the live snapshot (zero new infra). The pg reader stays Node-only/off-Worker for go-live.
+      return jsonResponse(200, auditTailView(auditRowsFromProposals(dctx.state)), cors);
     }
     if (pathname === "/api/recent-activity") {
       // Read-only recent StateDeltas. Honest-unavailable until a delta source is wired (go-live).
@@ -493,8 +501,10 @@ const LIVE_DATA_ROUTES = new Set<string>([
   "/api/read-models/status",
   "/api/fleet",
   "/api/fleet-brain",
+  "/api/fleet-synthesis",
   "/api/mutation-center",
   "/api/mutation-dispatch",
+  "/api/audit-tail",
   "/api/proposals",
   "/api/ask",
   "/api/suggestions/persist",

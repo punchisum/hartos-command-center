@@ -36,6 +36,9 @@ import { mutationCenterView, type MutationCenterView } from "./views/mutation-ce
 import { fleetBriefingView, type FleetBrainView } from "./views/fleet-brain-view.js";
 import { mutationDispatchView, type MutationDispatchView } from "./views/mutation-dispatch-view.js";
 import { voiceInputButtonHtml, voiceInputClientScript } from "./views/voice-input.js";
+import { fleetSynthesisView, type FleetSynthesisView } from "./views/fleet-synthesis-view.js";
+import { auditTailView, type AuditTailView } from "./views/audit-tail-view.js";
+import { auditRowsFromProposals } from "./views/audit-from-proposals.js";
 import type { FreshnessReport } from "../cockpit/freshness-surface.js";
 import { ACTION_EXECUTION } from "./cloudflare-security.js";
 import type { AgentDetail, FitnessDetail, OpsDetail } from "../read-models/agent-detail.js";
@@ -408,6 +411,36 @@ function mutationDispatchBox(view: MutationDispatchView): string {
   return box("Dispatch readiness", head + rows, "mutation-dispatch");
 }
 
+function fleetSynthesisBox(view: FleetSynthesisView): string {
+  if (!view.available) {
+    return box("Fleet synthesis · cross-agent risks", `<div class="muted">${esc(view.note)}</div>`, "fleet-synthesis");
+  }
+  const sevDot = (s: number): Tone => (s >= 3 ? "r" : s === 2 ? "a" : "i");
+  const rows = view.topRisks
+    .slice(0, 6)
+    .map((r) => {
+      const sources = r.sources.map((s) => `<span class="tag">${esc(s)}</span>`).join("");
+      return `<div class="li"><span class="dot ${sevDot(r.severity)}"></span><span>${esc(r.subject)} ${sources}<span class="tag">${esc(r.confidence)}</span><div class="muted">${escMultiline(r.why)}</div></span></div>`;
+    })
+    .join("");
+  const inner = rows || `<div class="muted">No cross-agent risks synthesized.</div>`;
+  const absent = view.coverage.absentSources.length
+    ? `<div class="muted" style="margin-top:8px">Reduced coverage — absent: ${esc(view.coverage.absentSources.join(", "))}</div>`
+    : "";
+  return box("Fleet synthesis · cross-agent risks", inner + absent, "fleet-synthesis");
+}
+
+function auditBox(view: AuditTailView): string {
+  if (!view.available || view.rows.length === 0) {
+    return box("Audit trail", `<div class="muted">${esc(view.note)}</div>`, "audit-tail");
+  }
+  const rows = view.rows
+    .slice(0, 8)
+    .map((r) => `<div class="li"><span class="atext">${esc(r.detail)}</span></div>`)
+    .join("");
+  return box("Audit trail", rows, "audit-tail");
+}
+
 function freshBox(fr: FreshnessReport | null): string {
   if (!fr) return box("Data freshness", `<div class="muted">Freshness unavailable (no live read-model data resolved).</div>`);
   const v = tone(fr.verdict, "high", "live");
@@ -519,6 +552,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const mutation = mutationCenterView(state);
   const dispatch = mutationDispatchView(state);
   const briefing = fleetBriefingView(state, now);
+  const synthesis = fleetSynthesisView(state, now);
+  const audit = auditTailView(auditRowsFromProposals(state));
   const rms = readModelStatusView(state);
   const threads = opts.threads ?? [];
   const perception = perceive({ now, freshness: fr, proposals: state?.proposalQueue ?? [], missingSources: rms.missingSources, fleetSignals: fleet.agents });
@@ -575,7 +610,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     askBar +
     `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
     `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
-    `<div class="grid3">${suggestionsBox(suggestions)}${trustBox(rms, fr)}${proposalBox(props)}${mutationCenterBox(mutation)}${mutationDispatchBox(dispatch)}${fleetBrainBox(briefing)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${forecastBox(fleetForecast)}${activityBox(threads)}</div>` +
+    `<div class="grid3">${suggestionsBox(suggestions)}${trustBox(rms, fr)}${proposalBox(props)}${mutationCenterBox(mutation)}${mutationDispatchBox(dispatch)}${fleetBrainBox(briefing)}${fleetSynthesisBox(synthesis)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${forecastBox(fleetForecast)}${auditBox(audit)}${activityBox(threads)}</div>` +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</main></div>` +
