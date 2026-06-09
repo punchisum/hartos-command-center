@@ -98,3 +98,7 @@ export {
   type RuntimeDeployOps,
   type RuntimeStepResult,
 } from "../runtime-provision/runtime-deploy-ops.js";
+
+// ─── §13 — StateDeltaSignal projection (pure; mutation → incremental fleet update) ──
+export { toStateDeltaSignal } from "./state-delta.js";
+export type { StateDeltaSignal } from "./state-delta.js";
