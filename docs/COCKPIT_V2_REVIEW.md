@@ -178,5 +178,48 @@ approve + status all reachable in <30s without horizontal scroll.
 
 ---
 
+## Screenshot audit — Flatlogic "Light Blue" admin template
+
+Reference reviewed (downloaded + viewed): a 960×600 dark-navy analytics admin dashboard —
+left nav (Dashboard/Users/E-commerce/Email/Docs + a long TEMPLATE list), top bar (promo banner,
+search, admin avatar w/ badges, settings/power icons), breadcrumb "YOU ARE HERE", page title
+"Analytics", a row of 4 stat cards (Visits Today / Revenue donut / App Performance bars / Server
+Overview), and a large "Daily Line Chart" traffic area-chart hero. Cards have ×/collapse chrome.
+
+**Verdict:** *adopt the skin, reject the content model.* The visual language is genuinely on-brief
+(deep navy gradient, calm elevated card surfaces, restrained, premium, lightly futuristic). The
+information model is the textbook analytics/KPI board the mission forbids — vanity metrics, a
+traffic chart as the hero, breadcrumb chrome, dismissible cards. None of it answers "what should
+Hart do next."
+
+### Per-component KEEP / MODIFY / MERGE / REMOVE
+
+| Component | Disposition | Why |
+|---|---|---|
+| Dark navy gradient background | **KEEP** (refine) | Validates dark-first; shift V2 base from near-black toward a deep navy/indigo tint — reads more premium + futuristic. See blueprint palette update. |
+| Elevated card surface style | **KEEP** | Subtle panels on dark = exactly the depth language we want (hairline + faint elevation). |
+| 4-stat-card top row | **MODIFY → Executive Brief hero** | Great *structural* pattern (scannable tile strip), wrong content. Repurpose into Focus/Risk/Opp/Approval/System. |
+| Mini bar/line indicators inside cards | **MODIFY → Memory sparklines** | Reuse the micro-chart idea for evidence-based trend sparklines only. |
+| Left sidebar (icon + label + section headers) | **MODIFY → 64px icon rail** | Keep the dark-nav idiom; collapse to the rail; cut the long TEMPLATE list. |
+| Nav badges (Email "9", avatar "13") | **KEEP the pattern** | Repurpose as the live **pending-approvals count** badge — the one badge that earns its place. |
+| Topbar search | **MERGE → ⌘K command** | Becomes the persistent command palette / Ask entry. |
+| Admin avatar + identity | **MODIFY** | Keep minimal identity (H/Hart); drop the vanity counters. |
+| Settings / globe / power icons | **MODIFY** | Keep at most a minimal set; "power"-style indicator can map to *execution status* (still disabled). |
+| Promo banner ("Check out settings…") | **REMOVE** | Pure noise; antithetical to an executive surface. |
+| Breadcrumb "YOU ARE HERE" | **REMOVE** | 5-destination IA + the rail make breadcrumbs redundant. |
+| Page title "Analytics" | **MODIFY** | Destination titles (Overview/Awareness/Fleet/Approvals/Health). |
+| Revenue donut chart | **REMOVE** | Vanity. (A fleet-health distribution dot-row, if ever, is cheaper + honest.) |
+| Daily Line Chart (traffic hero) | **REMOVE as hero** | The prime real estate goes to Executive Brief + Awareness + Today's Focus, not a time-series. A small trend sparkline survives only inside Executive Memory. |
+| Card ×/collapse chrome | **REMOVE** | Executive content isn't dismissible decoration; conditional rendering (empty → hidden) replaces it. |
+| Orange fill + multi-color lines + multi-hue donut | **MODIFY** | Reserve color for **verdicts only** (g/a/r). One calm accent; no decorative palette. |
+
+**Net:** the screenshot *confirms* the V2 dark-premium direction and contributes two concrete
+patterns to adopt (the stat-tile strip → Executive Brief; the nav badge → approvals count) and a
+clear list of anti-patterns to avoid (KPI vanity, chart-as-hero, breadcrumb/close chrome,
+decorative color). It changes the blueprint's **palette** (navy-tinted, below) but not its IA or
+section priorities.
+
+---
+
 *Continues in `COCKPIT_V2_BLUEPRINT.md` (section designs + wireframes) and
 `COCKPIT_V2_IMPLEMENTATION.md` (phased, ROI-ranked roadmap).*

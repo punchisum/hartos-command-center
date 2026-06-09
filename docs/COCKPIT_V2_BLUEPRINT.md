@@ -12,25 +12,31 @@ Linear's calm + Bloomberg's density + Palantir's gravity + Apple Fitness's clari
 Information-dense without feeling busy. The futurism comes from *precision and depth* (hairline
 borders, subtle glow on live signals, monospace accents on data) — never from neon or chrome.
 
-### Color (dark-mode first)
+### Color (dark-mode first — navy-tinted, validated by the reference screenshot)
+The Flatlogic "Light Blue" reference confirmed a **deep navy/indigo** base reads more premium and
+slightly futuristic than a flat near-black. V2 adopts a navy-tinted dark with a very subtle
+top-to-bottom gradient on the app shell (not on cards).
 ```
---bg            #0A0B0D   near-black, faint cool tint (not pure #000 — softer, more premium)
---bg-elev       #111317   elevated surface (cards)
---bg-elev-2     #16181D   hover / nested
---line          #23262D   hairline borders (1px, low contrast — structure without noise)
---line-strong   #2E323A   section dividers
---txt           #E7E9EE   primary text
---txt-dim       #9AA0AC   secondary
---txt-faint     #5C626E   tertiary / captions
---accent        #5B8DEF   single brand accent (calm blue) — used sparingly for focus/active
+--bg            #0B0E16   deep navy-black base (faint indigo tint)
+--bg-grad-top   #0E1220   shell gradient top (subtle, ~6% lighter) — the screenshot's depth cue
+--bg-elev       #141927   elevated surface (cards) — navy, not grey
+--bg-elev-2     #1A2030   hover / nested
+--line          #232A3B   hairline borders (1px, low contrast — structure without noise)
+--line-strong   #2C3550   section dividers
+--txt           #E8EBF2   primary text
+--txt-dim       #9AA3B8   secondary
+--txt-faint     #5B6479   tertiary / captions
+--accent        #5B8DEF   single brand accent (calm blue) — focus/active/primary only
 --accent-glow   rgba(91,141,239,.18)  soft focus halo
 --green         #3FB950   healthy / clear
 --amber         #D29922   watch
 --red           #F85149   attention / urgent
 --idle          #6E7681   unknown / idle
 ```
-Traffic-light hues stay reserved for *verdicts only* — never decoration. One accent color, used
-for focus rings, the active nav item, and primary actions. No rainbow.
+Traffic-light hues stay reserved for *verdicts only* — never decoration (the reference's
+decorative orange/multi-hue is explicitly rejected). One accent color, used for focus rings, the
+active nav item, and primary actions. No rainbow. The futurism is the navy depth + hairlines +
+mono data, not color.
 
 ### Type
 - UI: Inter / system sans. Tight, confident hierarchy.
