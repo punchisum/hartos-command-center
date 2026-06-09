@@ -186,6 +186,33 @@ describe("grounded answers", () => {
     assert.ok(!/INSUFFICIENT_HISTORY/.test(r.summary), "with history it surfaces real patterns");
   });
 
+  it("mutate_request: detection distinct from proposal-hygiene + memory/awareness intents", () => {
+    assert.equal(detectCockpitIntent("reject the draft proposals").intent, "mutate_request");
+    assert.equal(detectCockpitIntent("archive the rejected proposals").intent, "mutate_request");
+    assert.equal(detectCockpitIntent("comment 'paid' on card abc123").intent, "mutate_request");
+    assert.equal(detectCockpitIntent("clear my outstanding").intent, "mutate_request");
+    // neighbors must NOT be cannibalized
+    assert.equal(detectCockpitIntent("reject all fitness proposals").intent, "proposal_reject_all_fitness");
+    assert.equal(detectCockpitIntent("expire duplicate proposals").intent, "proposal_expire_duplicates");
+    assert.equal(detectCockpitIntent("show pending proposals").intent, "proposal_list");
+  });
+
+  it("mutate_request produces a READY dry-run rehearsal for an internal cohort cleanup", () => {
+    const r = routeCockpitIntent({ ...ctx("reject the draft proposals"), now: "2026-06-09T12:00:00.000Z" });
+    assert.equal(r.intent, "mutate_request");
+    assert.match(r.summary, /Status: READY/);
+    assert.match(r.summary, /Tier: T0/);
+    assert.match(r.summary, /REHEARSAL — nothing is written/);
+    assert.equal(r.proposals.length, 0, "rehearsal queues zero proposals (no auto-persist)");
+  });
+
+  it("mutate_request is HONEST about ClickUp targets it cannot resolve", () => {
+    const r = routeCockpitIntent({ ...ctx("comment 'paid' on card abc123"), now: "2026-06-09T12:00:00.000Z" });
+    assert.equal(r.intent, "mutate_request");
+    assert.match(r.summary, /NEEDS_TARGET/);
+    assert.match(r.summary, /REHEARSAL — nothing is written/);
+  });
+
   it("ops_status states an honest confidence + source line", () => {
     const r = routeCockpitIntent(ctx("Anything urgent in ops?"));
     // All core fields resolved + not stale → HIGH confidence, with the source named.

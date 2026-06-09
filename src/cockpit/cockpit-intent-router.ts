@@ -33,12 +33,14 @@ import { planResearch } from "../research/research-planner.js";
 import { proposeResearchJob } from "../research/research-job.js";
 import { strategicAwareness, type StrategicBrief } from "../awareness/strategic-awareness.js";
 import { executiveMemory, type MemorySnapshot, type ExecutiveMemoryReport } from "../awareness/executive-memory.js";
+import { planMutationFromInstruction } from "./mutation/instruction-to-mutation.js";
 
 export type CockpitIntent =
   | "system_status"
   | "daily_brief"
   | "strategic_brief"
   | "executive_memory"
+  | "mutate_request"
   | "fitness_status"
   | "ops_status"
   | "freshness_status"
@@ -152,6 +154,26 @@ const STATUS_AGENT = ["agent", "fitness", "ops", "operations", "tax", "invoice",
 /** Deterministic intent detection. Order matters (build/improve before status). */
 export function detectCockpitIntent(request: string): { intent: CockpitIntent; matchedKeywords: string[] } {
   const t = request.toLowerCase().trim();
+
+  // 0a.−1 MUTATION command (dry-run rehearsal) — an instruction to CHANGE something
+  // ("clear my outstanding", "reject draft proposals", "archive rejected proposals",
+  // "comment '…' on card <id>", "move card <id> to in review"). Placed first so mutation
+  // phrasing isn't swallowed by the generic proposal-reject/list rules; patterns are tight
+  // so "reject all fitness proposals" / "expire duplicates" / "show proposals" still route
+  // to their hygiene intents. Produces a DRY-RUN rehearsal only — never a live write.
+  {
+    const cardish = has(t, "card", "task").length > 0;
+    // Never steal the "reject all fitness proposals" hygiene command (handled in 0a).
+    const isFitnessRejectAll = has(t, "reject all").length > 0 && has(t, "fitness").length > 0 && has(t, "proposal").length > 0;
+    const isMutate = !isFitnessRejectAll && (
+      has(t, "clear my outstanding", "clear the backlog", "clear outstanding", "clean up the queue", "clean the queue").length > 0 ||
+      (has(t, "reject", "clear", "discard").length > 0 && has(t, "draft").length > 0 && has(t, "proposal").length > 0) ||
+      (has(t, "archive", "clear", "purge").length > 0 && has(t, "rejected").length > 0 && has(t, "proposal").length > 0) ||
+      (has(t, "comment", "note").length > 0 && cardish) ||
+      (has(t, "move", "transition", "set status", "change status", "mark").length > 0 && cardish)
+    );
+    if (isMutate) return { intent: "mutate_request", matchedKeywords: ["mutate"] };
+  }
 
   // 0a. Proposal queue HYGIENE commands (Phase 14B cleanup) — must beat the
   // generic reject/list rules below.
@@ -1095,6 +1117,68 @@ function executiveMemoryLines(m: ExecutiveMemoryReport): string[] {
   return lines;
 }
 
+/**
+ * Mutation answer — a DRY-RUN rehearsal of a "do this for me" instruction. Parses the command,
+ * builds the typed, gated mutation proposal it WOULD create, and shows it. NEVER writes: the
+ * proposal is executable:false and the real executor stays flag-gated default-OFF. Honest:
+ * internal cohort cleanups (reject-drafts / archive-rejected) are fully rehearsed; ClickUp
+ * card actions return needs_target because the read-only snapshot carries no individual cards.
+ * Creates ZERO live effects and ZERO queued proposals (rehearsal only).
+ */
+function answerMutate(ctx: IntentRouterContext): CockpitIntentResult {
+  const r = planMutationFromInstruction(ctx.request, { now: ctx.now ?? "" });
+  const banner = "REHEARSAL — nothing is written. This shows the gated proposal HartOS would create; approving + arming an ALLOW_EXEC_* flag is a separate, explicit step.";
+
+  if (r.status === "unrecognized") {
+    return base(
+      "mutate_request",
+      "Mutation — rehearsal",
+      `Status: UNRECOGNIZED.\n${r.note}\n\n${banner}`,
+      [],
+      ["No recognized mutation in the instruction."],
+      ["Try: \"reject the draft proposals\" · \"archive the rejected proposals\" · \"comment 'paid' on card <id>\""],
+      false,
+    );
+  }
+
+  if (r.status === "needs_target") {
+    return base(
+      "mutate_request",
+      "Mutation — rehearsal (needs target)",
+      `Status: NEEDS_TARGET — parsed a ${r.parsed.action} (T3 external).\nReason: ${r.parsed.reason}\n${r.note}\nStill required: ${r.required.join(", ")}.\n\n${banner}`,
+      [`Parsed: ${r.parsed.action}`],
+      [`Target unresolved — the read-only snapshot has no individual ClickUp cards; HartOS will not guess one.`],
+      [`Supply the resolved target (${r.required.join(", ")}), then re-ask to complete the T3 rehearsal.`],
+      false,
+    );
+  }
+
+  // status === "ready" — a complete, tier-valid T0 rehearsal proposal.
+  const p = r.proposal!;
+  const lines = [
+    `Status: READY — ${r.note}`,
+    "",
+    `Proposal: ${p.title}`,
+    `Tier: ${p.tier} · domain: ${p.domain} · risk: ${p.riskLevel} · approval: ${p.requiredApproval}`,
+    `Target: ${p.targetName} (${p.targetId})`,
+    `Effect (dry-run): ${p.dryRunResult?.wouldHappen ?? p.expectedEffect}`,
+    `Rollback: ${p.rollbackOrCorrectionNote}`,
+    `Idempotency: ${p.idempotencyKey}`,
+    `Tier-payload check: ${r.tierCheck?.allowed ? "complete ✓" : `incomplete (${r.tierCheck?.denials.join(", ")})`}`,
+    "",
+    banner,
+  ];
+  return base(
+    "mutate_request",
+    "Mutation — rehearsal (ready)",
+    lines.join("\n"),
+    [`Would create a ${p.tier} ${p.domain} proposal: ${p.title}`],
+    [],
+    ["Approve this proposal in the cockpit, then arm the action's ALLOW_EXEC_* flag on the Node host to execute for real."],
+    false,
+  );
+}
+
 /** Phase F1 — a deterministic research plan (decompose + name what to gather; never answer). */
 function answerResearch(ctx: IntentRouterContext): CockpitIntentResult {
   const plan = planResearch(ctx.request);
@@ -1247,6 +1331,7 @@ export function routeCockpitIntent(ctx: IntentRouterContext): CockpitIntentResul
     case "daily_brief": result = answerDailyBrief(ctx); break;
     case "strategic_brief": result = answerStrategicBrief(ctx); break;
     case "executive_memory": result = answerExecutiveMemory(ctx); break;
+    case "mutate_request": result = answerMutate(ctx); break;
     case "fitness_status": result = answerFitness(ctx); break;
     case "ops_status": result = answerOps(ctx); break;
     case "freshness_status": result = answerFreshness(ctx); break;
