@@ -120,6 +120,7 @@ function summary(
     dataFreshness: string | null;
     degradedSources: string[];
     rpcStatus?: FitnessRpcStatus;
+    attentionCards?: Array<{ cardId: string; cardName: string; status: string }>;
   }
 ): ReadModelSummary {
   return { id: config.id, type: "ops", ...fields };
@@ -133,6 +134,7 @@ async function buildFromRpcs(config: ReadModelConfig, client: SupabaseReadClient
   const failures: Array<number | undefined> = [];
   let reachedAny = false;
   let dataFreshness: string | null = null;
+  let attentionCardRefs: Array<{ cardId: string; cardName: string; status: string }> = [];
 
   const wanted: Array<{ name: string; args: Rec }> = [
     { name: OPS_RPCS.overview, args: { p_stale_days: 14 } },
@@ -189,6 +191,11 @@ async function buildFromRpcs(config: ReadModelConfig, client: SupabaseReadClient
         metrics["attentionTop"] = top.join("; ");
         lines.push(`Attention cards: ${cards.length} (${top.join("; ")}).`);
       }
+      // Cockpit V2 — preserve the card id/name/status tuples (not just the count) so a mutation
+      // instruction can resolve "this operation" to a real card. Only rows with a stable id+title.
+      attentionCardRefs = cards
+        .map((c) => ({ cardId: str(c["card_id"]) ?? "", cardName: str(c["title"]) ?? str(c["card_title"]) ?? "", status: str(c["status"]) ?? "" }))
+        .filter((c) => c.cardId && c.cardName);
     } else if (name === OPS_RPCS.recentUpdates) {
       const updates = asArray(outcome.body);
       metrics["recentUpdateCount"] = updates.length;
@@ -271,6 +278,7 @@ async function buildFromRpcs(config: ReadModelConfig, client: SupabaseReadClient
     dataFreshness,
     degradedSources,
     rpcStatus: "rpc_live",
+    ...(attentionCardRefs.length ? { attentionCards: attentionCardRefs } : {}),
   });
 }
 

@@ -85,6 +85,13 @@ export interface ReadModelSummary {
    * the precise RPC outcome. Undefined for table-backed summaries.
    */
   rpcStatus?: FitnessRpcStatus;
+  /**
+   * Cockpit V2 mutation target resolution — individual ops attention cards (id · name · status)
+   * preserved from get_ops_attention_cards so a mutation instruction ("put this operation on
+   * hold") can resolve to a real card. Ops-only, optional; absent for other read-models. Shape is
+   * structurally OpsCardRef (declared inline to avoid a read-models→cockpit dependency).
+   */
+  attentionCards?: Array<{ cardId: string; cardName: string; status: string }>;
 }
 
 export interface ReadModelRegistrySummary {

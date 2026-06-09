@@ -288,6 +288,10 @@ export async function resolveHostedCockpitState(
     // anon RPC). Present (even empty) when the spine read succeeds; omitted on a
     // missing/failed read so proposalsView falls back to its honest local-only note.
     ...(proposalQueue ? { proposalQueue } : {}),
+    // Cockpit V2 mutation target resolution — individual ops cards (id · name · status) preserved
+    // from get_ops_attention_cards, so a mutation instruction ("put this operation on hold") can
+    // resolve to a real card. Absent when the ops read-model carried no attention cards.
+    ...(opsRm?.attentionCards && opsRm.attentionCards.length ? { opsCards: opsRm.attentionCards } : {}),
   };
 }
 

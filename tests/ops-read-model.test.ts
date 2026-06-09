@@ -132,6 +132,10 @@ describe("ops read model (RPC)", () => {
     assert.equal(s.metrics["staleCards"], 4);
     assert.equal(s.metrics["noNextActionCards"], 5);
     assert.equal(s.metrics["attentionCards"], 2);
+    // Cockpit V2 — the card id/name/status tuples are preserved (not just the count) for
+    // mutation target resolution.
+    assert.equal(s.attentionCards?.length, 2);
+    assert.deepEqual(s.attentionCards?.[0], { cardId: "CU-1", cardName: "Urgent supplier issue", status: "URGENT" });
     assert.equal(s.metrics["recentUpdateCount"], 1);
     assert.ok(String(s.metrics["latestUpdate"]).includes("Logistics"));
     assert.ok(String(s.metrics["statusCounts"]).includes("BLOCKED:2"));
