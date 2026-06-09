@@ -203,7 +203,11 @@ describe("grounded answers", () => {
     assert.match(r.summary, /Status: READY/);
     assert.match(r.summary, /Tier: T0/);
     assert.match(r.summary, /REHEARSAL — nothing is written/);
-    assert.equal(r.proposals.length, 0, "rehearsal queues zero proposals (no auto-persist)");
+    // Phase 1 — the READY proposal is surfaced so it can be persisted + APPROVED (approve→executor),
+    // but it stays a non-executable draft until Hart approves it through the gated transition.
+    assert.equal(r.proposals.length, 1, "the approvable mutation proposal is surfaced");
+    assert.equal(r.proposals[0]!.executable, false);
+    assert.equal(r.proposals[0]!.status, "draft");
   });
 
   it("mutate_request is HONEST about ClickUp targets it cannot resolve", () => {

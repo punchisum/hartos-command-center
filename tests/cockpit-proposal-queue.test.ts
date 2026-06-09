@@ -19,6 +19,8 @@ import {
   resolveRef,
   rejectProposal,
   markSimulatedApproved,
+  approveForExecution,
+  markExecuted,
   expireStaleProposals,
   dryRunProposalInQueue,
   appendAudit,
@@ -49,6 +51,30 @@ function makeProposal(now: string) {
   const ctx: ProposalContext = { request: "Create a tax agent", intent: "build_agent", panels: panels(), now, env: {} };
   return generateProposals(ctx)[0]!;
 }
+
+describe("markExecuted — executor-only terminal transition (Phase 1)", () => {
+  it("advances approved_for_execution → executed; denies any other status", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "queue-exec-"));
+    try {
+      const p = makeProposal("2026-06-04T09:00:00.000Z");
+      const saved = await saveProposal(dir, p, "2026-06-04T09:00:00.000Z");
+      // draft → simulated_approved → approved_for_execution
+      await markSimulatedApproved(dir, { id: saved!.id }, NOW);
+      const approved = await approveForExecution(dir, { id: saved!.id }, NOW);
+      assert.equal(approved!.status, "approved_for_execution");
+      // executor advances to executed
+      const executed = await markExecuted(dir, { id: saved!.id }, NOW, "dispatched clickup-move-status");
+      assert.equal(executed!.status, "executed");
+      assert.ok(executed!.auditEvents.some((e) => e.event === "executed"));
+      // a second call (now status=executed) is denied, leaving it unchanged
+      const again = await markExecuted(dir, { id: saved!.id }, NOW);
+      assert.equal(again!.status, "executed");
+      assert.ok(again!.auditEvents.some((e) => e.event === "executed_denied"));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("proposal queue storage", () => {
   let dir: string;

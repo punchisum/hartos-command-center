@@ -33,7 +33,7 @@ function moveProposal(over: Partial<ProposalQueueItem> = {}): ProposalQueueItem 
 
 describe("commandFromApprovedProposal", () => {
   it("reconstructs a clickup-move command from an approved proposal", () => {
-    const built = commandFromApprovedProposal(moveProposal(), { clickUp: fakeClickUp });
+    const built = commandFromApprovedProposal(moveProposal(), { clickUpMove: fakeClickUp, clickUpComment: fakeClickUp });
     assert.ok(!("skip" in built));
     if ("skip" in built) return;
     assert.equal(built.adapterId, "clickup-move-status");
@@ -45,23 +45,23 @@ describe("commandFromApprovedProposal", () => {
   });
 
   it("skips a proposal that is NOT approved_for_execution", () => {
-    const built = commandFromApprovedProposal(moveProposal({ status: "pending_approval" }), { clickUp: fakeClickUp });
+    const built = commandFromApprovedProposal(moveProposal({ status: "pending_approval" }), { clickUpMove: fakeClickUp, clickUpComment: fakeClickUp });
     assert.ok("skip" in built && /not "approved_for_execution"/.test(built.skip));
   });
 
   it("skips when the adapter route is missing", () => {
-    const built = commandFromApprovedProposal(moveProposal({ proposedPayload: {} }), { clickUp: fakeClickUp });
+    const built = commandFromApprovedProposal(moveProposal({ proposedPayload: {} }), { clickUpMove: fakeClickUp, clickUpComment: fakeClickUp });
     assert.ok("skip" in built && /no mutationRoute/.test(built.skip));
   });
 
   it("skips when the move payload is incomplete", () => {
-    const built = commandFromApprovedProposal(moveProposal({ proposedPayload: { [ADAPTER_ROUTE_KEY]: { adapterId: "clickup-move-status", tier: "T3" }, cardId: "86a" } }), { clickUp: fakeClickUp });
+    const built = commandFromApprovedProposal(moveProposal({ proposedPayload: { [ADAPTER_ROUTE_KEY]: { adapterId: "clickup-move-status", tier: "T3" }, cardId: "86a" } }), { clickUpMove: fakeClickUp, clickUpComment: fakeClickUp });
     assert.ok("skip" in built && /incomplete move payload/.test(built.skip));
   });
 
   it("skips when no ClickUp store is injected", () => {
     const built = commandFromApprovedProposal(moveProposal(), {});
-    assert.ok("skip" in built && /no ClickUp store/.test(built.skip));
+    assert.ok("skip" in built && /no ClickUp move store/.test(built.skip));
   });
 });
 
@@ -81,7 +81,7 @@ describe("executeApprovedProposals", () => {
 
   it("dispatches one approved proposal and reports the write", async () => {
     const d = fakeDispatch(true);
-    const out = await executeApprovedProposals({ proposals: [moveProposal()], stores: { clickUp: fakeClickUp }, env: {}, dispatch: d.fn, now: NOW });
+    const out = await executeApprovedProposals({ proposals: [moveProposal()], stores: { clickUpMove: fakeClickUp, clickUpComment: fakeClickUp }, env: {}, dispatch: d.fn, now: NOW });
     assert.equal(out.executable, 1);
     assert.equal(out.executed, 1);
     assert.equal(out.results[0]!.outcome, "executed");
@@ -91,7 +91,7 @@ describe("executeApprovedProposals", () => {
 
   it("honest no_write when the gate refuses (flag off) — dispatch called, nothing written", async () => {
     const d = fakeDispatch(false);
-    const out = await executeApprovedProposals({ proposals: [moveProposal()], stores: { clickUp: fakeClickUp }, env: {}, dispatch: d.fn, now: NOW });
+    const out = await executeApprovedProposals({ proposals: [moveProposal()], stores: { clickUpMove: fakeClickUp, clickUpComment: fakeClickUp }, env: {}, dispatch: d.fn, now: NOW });
     assert.equal(out.executed, 0);
     assert.equal(out.results[0]!.outcome, "no_write");
     assert.equal(out.results[0]!.wrote, false);
@@ -99,7 +99,7 @@ describe("executeApprovedProposals", () => {
 
   it("never touches a proposal that isn't approved (no dispatch call)", async () => {
     const d = fakeDispatch(true);
-    const out = await executeApprovedProposals({ proposals: [moveProposal({ status: "pending_approval" })], stores: { clickUp: fakeClickUp }, env: {}, dispatch: d.fn, now: NOW });
+    const out = await executeApprovedProposals({ proposals: [moveProposal({ status: "pending_approval" })], stores: { clickUpMove: fakeClickUp, clickUpComment: fakeClickUp }, env: {}, dispatch: d.fn, now: NOW });
     assert.equal(out.executable, 0);
     assert.equal(d.calls(), 0, "no dispatch for an unapproved proposal");
   });
@@ -108,7 +108,7 @@ describe("executeApprovedProposals", () => {
     const d = fakeDispatch(true);
     const out = await executeApprovedProposals({
       proposals: [moveProposal({ id: "a" }), moveProposal({ id: "b", createdAt: "2026-06-09T11:30:00.000Z" })],
-      stores: { clickUp: fakeClickUp }, env: {}, dispatch: d.fn, now: NOW, max: 1,
+      stores: { clickUpMove: fakeClickUp, clickUpComment: fakeClickUp }, env: {}, dispatch: d.fn, now: NOW, max: 1,
     });
     assert.equal(out.executable, 2);
     assert.equal(out.executed, 1, "capped at one write");

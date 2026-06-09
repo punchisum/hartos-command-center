@@ -27,9 +27,10 @@ import type { MutationCommand, MutationAdapterId, DispatchResult, DispatchOption
 import type { ClickUpMoveStore } from "./adapters/clickup-move-status.js";
 import type { ClickUpCommentStore } from "./adapters/clickup-comment.js";
 
-/** The live stores a host injects (one ClickUp client satisfies both interfaces). */
+/** The live stores a host injects (from createClickUpClient: separate move + comment stores). */
 export interface ApprovedExecutorStores {
-  clickUp?: ClickUpMoveStore & ClickUpCommentStore;
+  clickUpMove?: ClickUpMoveStore;
+  clickUpComment?: ClickUpCommentStore;
 }
 
 /** Injected gated dispatcher (the real `dispatchMutation` in production; a fake in tests). */
@@ -87,22 +88,22 @@ export function commandFromApprovedProposal(p: ProposalQueueItem, stores: Approv
   const proposalRef = { id: p.id, status: p.status, expiresAt: p.expiresAt };
 
   if (route.adapterId === "clickup-move-status") {
-    if (!stores.clickUp) return { skip: "no ClickUp store injected" };
+    if (!stores.clickUpMove) return { skip: "no ClickUp move store injected" };
     const cardId = str(payload, "cardId");
     const cardName = str(payload, "cardName");
     const fromStatus = str(payload, "fromStatus");
     const toStatus = str(payload, "toStatus");
     if (!cardId || !cardName || !fromStatus || !toStatus) return { skip: "incomplete move payload (need cardId/cardName/fromStatus/toStatus)" };
-    return { adapterId: "clickup-move-status", proposal: proposalRef, target: { cardId, cardName, fromStatus, toStatus }, store: stores.clickUp };
+    return { adapterId: "clickup-move-status", proposal: proposalRef, target: { cardId, cardName, fromStatus, toStatus }, store: stores.clickUpMove };
   }
 
   if (route.adapterId === "clickup-comment") {
-    if (!stores.clickUp) return { skip: "no ClickUp store injected" };
+    if (!stores.clickUpComment) return { skip: "no ClickUp comment store injected" };
     const cardId = str(payload, "cardId");
     const cardName = str(payload, "cardName");
     const commentText = str(payload, "commentText");
     if (!cardId || !cardName || !commentText) return { skip: "incomplete comment payload (need cardId/cardName/commentText)" };
-    return { adapterId: "clickup-comment", proposal: proposalRef, target: { cardId, cardName, commentText }, store: stores.clickUp };
+    return { adapterId: "clickup-comment", proposal: proposalRef, target: { cardId, cardName, commentText }, store: stores.clickUpComment };
   }
 
   return { skip: `adapter "${route.adapterId}" is not wired for approve→auto-execute yet` };

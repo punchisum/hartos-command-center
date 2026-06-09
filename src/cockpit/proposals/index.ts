@@ -29,6 +29,7 @@ export {
   rejectProposal,
   markSimulatedApproved,
   approveForExecution,
+  markExecuted,
   revokeExecutionApproval,
   executionAuthorizationAgeMs,
   assertCockpitSettableStatus,

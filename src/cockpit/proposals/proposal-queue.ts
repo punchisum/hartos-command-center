@@ -230,6 +230,30 @@ export async function markRuntimeProvisioned(
   });
 }
 
+/**
+ * Phase 1 (mutation go-live) — advance to the terminal `executed` state after a real write landed.
+ * EXECUTOR-ONLY: called by the Node approved-proposal executor AFTER `dispatchMutation` actually
+ * wrote (a non-null StateDelta). The cockpit/Worker can NEVER set this. Only transitions from
+ * `approved_for_execution`; any other status is left unchanged with a denied audit event.
+ */
+export async function markExecuted(
+  cwd: string,
+  ref: ProposalRef,
+  now: string,
+  detail?: string
+): Promise<ProposalQueueItem | null> {
+  return update(cwd, ref, (item) => {
+    if (item.status !== "approved_for_execution") {
+      item.updatedAt = now;
+      item.auditEvents.push(audit("executed_denied", now, `requires status=approved_for_execution, was ${item.status}`));
+      return;
+    }
+    item.status = "executed";
+    item.updatedAt = now;
+    item.auditEvents.push(audit("executed", now, detail ?? "mutation dispatched + written"));
+  });
+}
+
 /** Age (ms) of the current execution authorization, or null when not authorized. Pure. */
 export function executionAuthorizationAgeMs(item: ProposalQueueItem, now: string): number | null {
   if (item.status !== "approved_for_execution" || !item.executionAuthorizedAt) return null;

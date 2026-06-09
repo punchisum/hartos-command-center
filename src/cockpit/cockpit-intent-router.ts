@@ -1207,7 +1207,7 @@ function answerMutate(ctx: IntentRouterContext): CockpitIntentResult {
     "",
     banner,
   ];
-  return base(
+  const result = base(
     "mutate_request",
     "Mutation — rehearsal (ready)",
     lines.join("\n"),
@@ -1216,6 +1216,11 @@ function answerMutate(ctx: IntentRouterContext): CockpitIntentResult {
     ["Approve this proposal in the cockpit, then arm the action's ALLOW_EXEC_* flag on the Node host to execute for real."],
     false,
   );
+  // Phase 1 — surface the READY mutation proposal so it can be PERSISTED + APPROVED (the
+  // approve→executor loop). It stays a draft, executable:false; approval (gated transition) is
+  // what later makes it approved_for_execution, and only then does the host executor act.
+  result.proposals = [p];
+  return result;
 }
 
 /** Phase F1 — a deterministic research plan (decompose + name what to gather; never answer). */
@@ -1389,7 +1394,8 @@ export function routeCockpitIntent(ctx: IntentRouterContext): CockpitIntentResul
   }
   result.matchedKeywords = matchedKeywords;
   // Phase 14A — attach non-executable proposal drafts when a timestamp is given.
-  if (ctx.now) {
+  // mutate_request sets its OWN typed mutation proposal (the rehearsal) — don't clobber it.
+  if (ctx.now && intent !== "mutate_request") {
     result.proposals = generateProposals({
       request: ctx.request,
       intent,

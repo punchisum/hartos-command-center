@@ -125,7 +125,9 @@
     "cockpit:cloudflare:bundle-check": "npm run build && wrangler deploy --dry-run --outdir .wrangler/bundle-check --config wrangler.cockpit.toml",
     "cockpit:control": "npm run build && node dist/scripts/render-control-surface.js",
     "cockpit:live": "npm run build && node dist/scripts/cockpit-live.js",
-    "cockpit:live:smoke": "npm run build && node dist/scripts/cockpit-live.js --smoke"
+    "cockpit:live:smoke": "npm run build && node dist/scripts/cockpit-live.js --smoke",
+    "preexecute:approved": "npm run build",
+    "execute:approved": "node --env-file-if-exists=.env.local dist/scripts/run-approved-executor.js"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
