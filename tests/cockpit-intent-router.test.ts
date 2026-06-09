@@ -157,6 +157,35 @@ describe("grounded answers", () => {
     assert.match(r.summary, /Status: UNKNOWN/, "no evidence → UNKNOWN, never fabricated findings");
   });
 
+  it("executive_memory detection: distinct from strategic_brief / daily_brief / strategy_review", () => {
+    assert.equal(detectCockpitIntent("What's recurring?").intent, "executive_memory");
+    assert.equal(detectCockpitIntent("Lessons learned").intent, "executive_memory");
+    assert.equal(detectCockpitIntent("Show me the trend over time").intent, "executive_memory");
+    assert.equal(detectCockpitIntent("What's drifting?").intent, "strategic_brief");
+    assert.equal(detectCockpitIntent("What needs my attention today?").intent, "daily_brief");
+  });
+
+  it("executive_memory returns INSUFFICIENT_HISTORY when no snapshots are supplied (honesty)", () => {
+    const r = routeCockpitIntent(ctx("What's recurring?"));
+    assert.equal(r.intent, "executive_memory");
+    assert.match(r.summary, /INSUFFICIENT_HISTORY/, "no history → honest, never invented patterns");
+    assert.equal(r.proposals.length, 0);
+  });
+
+  it("executive_memory surfaces recurring patterns when the snapshot seam is populated", () => {
+    const at = (d: number) => new Date(Date.parse("2026-06-09T12:00:00.000Z") - d * 86400000).toISOString();
+    const mk = (a: string, subj: string) => ({ at: a, riskSubjects: [subj], driftSubjects: [], opportunitySubjects: [], blindSpotSubjects: [], metrics: [] });
+    const r = routeCockpitIntent({
+      ...ctx("What keeps happening?"),
+      now: "2026-06-09T12:00:00.000Z",
+      memorySnapshots: [mk(at(30), "ops stale"), mk(at(15), "ops stale"), mk(at(3), "ops stale")],
+    });
+    assert.equal(r.intent, "executive_memory");
+    assert.match(r.summary, /Recurring patterns:/);
+    assert.match(r.summary, /ops stale/);
+    assert.ok(!/INSUFFICIENT_HISTORY/.test(r.summary), "with history it surfaces real patterns");
+  });
+
   it("ops_status states an honest confidence + source line", () => {
     const r = routeCockpitIntent(ctx("Anything urgent in ops?"));
     // All core fields resolved + not stale → HIGH confidence, with the source named.

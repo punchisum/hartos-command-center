@@ -26,6 +26,14 @@ import type { ProposalQueueItem } from "../cockpit/proposals/proposal-types.js";
 import type { PerceptionReport } from "../rinnegan/perception.js";
 import type { ForecastReport } from "../prophet/forecast.js";
 import type { FleetSynthesis } from "../fleet/fleet-synthesis.js";
+import {
+  executiveMemory,
+  historicalContextFor,
+  type MemorySnapshot,
+  type MemoryStatus,
+  type RecurringPattern,
+  type Lesson,
+} from "./executive-memory.js";
 
 export type AwarenessConfidence = "high" | "medium" | "low";
 
@@ -35,6 +43,8 @@ export interface StrategicRisk {
   evidence: string;
   confidence: AwarenessConfidence;
   suggestedAction: string;
+  /** Executive-memory annotation when this risk has recurred before (e.g. "4× in 60d"). */
+  historicalContext?: string;
 }
 
 export interface StrategicOpportunity {
@@ -70,6 +80,15 @@ export interface StrategicBrief {
   recommendedFocus: string | null;
   /** Honest one-liner: what was scanned + what could not be seen. */
   note: string;
+  // ── Executive Memory evolution (Part F) — present only when history was supplied ──
+  /** Recurring patterns from history; empty/absent when history is insufficient. */
+  recurringPatterns?: RecurringPattern[];
+  /** Evidence-based lessons; empty/absent when history is insufficient. */
+  lessons?: Lesson[];
+  /** Compact trend summary lines; empty/absent when history is insufficient. */
+  trendSummary?: string[];
+  /** "ok" | "insufficient_history" | undefined (no history supplied at all). */
+  memoryStatus?: MemoryStatus;
 }
 
 export interface StrategicAwarenessInput {
@@ -83,6 +102,13 @@ export interface StrategicAwarenessInput {
   synthesis?: FleetSynthesis | null;
   /** Proposals older than this many hours count as backlog drift (default 72h). */
   agingHours?: number;
+  /**
+   * Executive Memory (Part F) — a supplied history of compact snapshots. When present, the
+   * brief is enriched with recurring patterns / lessons / trend summary, and live risks get
+   * a historicalContext annotation. Absent on the stateless Ask path; supplied by a future
+   * persister/host. The brief is byte-identical to the no-history form when this is omitted.
+   */
+  history?: MemorySnapshot[];
 }
 
 // ─── small helpers ───────────────────────────────────────────────────────────
@@ -386,7 +412,26 @@ export function strategicAwareness(input: StrategicAwarenessInput): StrategicBri
     ? `${risks.length} risk(s), ${opportunities.length} opportunity(ies), ${drift.length} drift signal(s), ${blindSpots.length} blind spot(s) — surfaced from grounded signals only.`
     : "Nothing meaningful to surface right now — no risks, drift, or opportunities crossed the threshold. That's a clear read, not a blind one.";
 
-  return { status: "ok", risks, opportunities, drift, blindSpots, recommendedFocus, note };
+  const brief: StrategicBrief = { status: "ok", risks, opportunities, drift, blindSpots, recommendedFocus, note };
+
+  // ── Executive Memory evolution (Part F) — enrich ONLY when history was supplied ──
+  // When omitted, the brief above is returned unchanged (backward compatible).
+  if (input.history) {
+    const memory = executiveMemory(input.history, { now: input.now });
+    brief.memoryStatus = memory.status;
+    if (memory.status === "ok") {
+      // Annotate live risks that have recurred before — "ops stale: 4× in 60d".
+      for (const r of brief.risks) {
+        const ctx = historicalContextFor(r.risk, memory);
+        if (ctx) r.historicalContext = ctx;
+      }
+      brief.recurringPatterns = memory.recurringPatterns;
+      brief.lessons = memory.lessons;
+      brief.trendSummary = memory.trends.map((t) => `${t.metric}: ${t.direction} (${t.from}→${t.to})`);
+    }
+  }
+
+  return brief;
 }
 
 /** One-line, deterministic summary of a brief (for embedding / a panel header). */

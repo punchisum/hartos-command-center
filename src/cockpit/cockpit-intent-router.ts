@@ -32,11 +32,13 @@ import { buildFreshnessReport, type FreshnessReport, type FreshnessVerdict } fro
 import { planResearch } from "../research/research-planner.js";
 import { proposeResearchJob } from "../research/research-job.js";
 import { strategicAwareness, type StrategicBrief } from "../awareness/strategic-awareness.js";
+import { executiveMemory, type MemorySnapshot, type ExecutiveMemoryReport } from "../awareness/executive-memory.js";
 
 export type CockpitIntent =
   | "system_status"
   | "daily_brief"
   | "strategic_brief"
+  | "executive_memory"
   | "fitness_status"
   | "ops_status"
   | "freshness_status"
@@ -109,6 +111,15 @@ export interface IntentRouterContext {
    * registry (no created agents exist yet — this only establishes the seam).
    */
   createdAgentContracts?: AgentContract[];
+  /**
+   * Executive Memory seam (Part L) — a supplied history of compact memory snapshots. PLAIN
+   * DATA ONLY (no file/db read) to stay Worker-safe, mirroring createdAgentContracts. The
+   * stateless Ask path supplies none, so the executive_memory intent honestly returns
+   * INSUFFICIENT_HISTORY today; a future persister/host populates this and the same code
+   * produces real patterns/trends/lessons. Also threaded into the strategic brief for
+   * historical context when present.
+   */
+  memorySnapshots?: MemorySnapshot[];
 }
 
 export interface CockpitIntentResult {
@@ -163,6 +174,19 @@ export function detectCockpitIntent(request: string): { intent: CockpitIntent; m
   if (m.length || ((has(t, "dry run", "dry-run", "dryrun", "simulate").length) && has(t, "proposal").length)) return { intent: "proposal_dryrun", matchedKeywords: m.length ? m : ["dry-run", "proposal"] };
   m = has(t, "pending proposals", "show proposals", "list proposals", "show pending proposals", "proposal queue", "saved proposals", "my proposals");
   if (m.length) return { intent: "proposal_list", matchedKeywords: m };
+
+  // 0a.3 Executive Memory — "what's recurring / what have we learned / show me the trend /
+  // historical context / lessons learned". Placed before the strategic brief so memory-
+  // specific asks ("recurring", "lessons", "history", "trend over time") land here.
+  m = has(
+    t,
+    "executive memory", "recurring patterns", "what's recurring", "whats recurring", "what is recurring",
+    "what keeps happening", "recurring issues", "recurring risks", "recurring problems",
+    "lessons learned", "what have we learned", "what did we learn", "any lessons",
+    "historical context", "what's the history", "whats the history", "over time",
+    "trend over time", "long term trend", "long-term trend", "patterns over time", "what patterns"
+  );
+  if (m.length) return { intent: "executive_memory", matchedKeywords: m };
 
   // 0a.4 Strategic Awareness Brief — "what should I be aware of / what's drifting / what
   // am I not seeing". Distinct from the daily brief (today's to-do) and strategy review
@@ -947,6 +971,8 @@ function answerStrategicBrief(ctx: IntentRouterContext): CockpitIntentResult {
     panels: ctx.panels,
     freshness: fr,
     proposals: ctx.proposalQueue ?? [],
+    // Executive Memory enrichment — present only when a host has supplied history.
+    ...(ctx.memorySnapshots ? { history: ctx.memorySnapshots } : {}),
   });
 
   if (brief.status === "insufficient_evidence") {
@@ -981,7 +1007,10 @@ function strategicBriefLines(b: StrategicBrief): string[] {
   if (b.recommendedFocus) lines.push(`Recommended focus: ${b.recommendedFocus}`);
   if (b.risks.length) {
     lines.push("", "Top risks:");
-    for (const r of b.risks) lines.push(`- ${r.risk} (${r.confidence}) — ${r.why} Evidence: ${r.evidence} → ${r.suggestedAction}`);
+    for (const r of b.risks) {
+      const hist = r.historicalContext ? ` [History: ${r.historicalContext}]` : "";
+      lines.push(`- ${r.risk} (${r.confidence}) — ${r.why} Evidence: ${r.evidence}${hist} → ${r.suggestedAction}`);
+    }
   }
   if (b.opportunities.length) {
     lines.push("", "Top opportunities:");
@@ -995,7 +1024,74 @@ function strategicBriefLines(b: StrategicBrief): string[] {
     lines.push("", "Blind spots (questions to ask):");
     for (const s of b.blindSpots) lines.push(`- ${s.blindSpot}`);
   }
+  // Executive Memory sections (present only when history was supplied).
+  if (b.recurringPatterns && b.recurringPatterns.length) {
+    lines.push("", "Recurring patterns:");
+    for (const p of b.recurringPatterns) lines.push(`- ${p.subject} (${p.kind}) — ${p.evidence}`);
+  }
+  if (b.lessons && b.lessons.length) {
+    lines.push("", "Lessons learned:");
+    for (const l of b.lessons) lines.push(`- ${l.lesson} (${l.confidence}) — ${l.basis}`);
+  }
+  if (b.trendSummary && b.trendSummary.length) {
+    lines.push("", `Trend summary: ${b.trendSummary.join("; ")}.`);
+  }
   lines.push("", b.note);
+  return lines;
+}
+
+/**
+ * Executive Memory answer — the historical/pattern/trend/lesson view. Uses the supplied
+ * memory-snapshot seam (ctx.memorySnapshots). HONEST: the stateless Ask path supplies no
+ * history, so this returns INSUFFICIENT_HISTORY today — never invents patterns or lessons.
+ * A future persister populates ctx.memorySnapshots and the same code surfaces real memory.
+ * Creates ZERO proposals.
+ */
+function answerExecutiveMemory(ctx: IntentRouterContext): CockpitIntentResult {
+  const snapshots = ctx.memorySnapshots ?? [];
+  const memory = executiveMemory(snapshots, { now: ctx.now ?? "" });
+
+  if (memory.status === "insufficient_history") {
+    return base(
+      "executive_memory",
+      "Executive memory",
+      `Status: INSUFFICIENT_HISTORY.\n${memory.note}\n\nExecutive memory is earned from a history of snapshots; none are wired into this (stateless) path yet, so HartOS will not invent patterns, trends, or lessons. When a persister supplies history, this surfaces recurring patterns, trends, and evidence-based lessons.`,
+      [],
+      ["No memory history supplied — patterns/trends/lessons require a persisted snapshot stream."],
+      ["Wire a memory-snapshot persister (Part L seam: ctx.memorySnapshots), then re-ask."],
+      false,
+    );
+  }
+
+  const lines = executiveMemoryLines(memory);
+  const highlights = uniqueNonEmpty([
+    memory.recurringPatterns[0] ? `Top pattern: ${memory.recurringPatterns[0].subject} (${memory.recurringPatterns[0].occurrences}×)` : undefined,
+    memory.lessons[0] ? `Lesson: ${memory.lessons[0].lesson}` : undefined,
+  ]);
+  const nextSteps = uniqueNonEmpty(memory.recurringPatterns.slice(0, 2).map((p) => `Address the recurring ${p.kind}: ${p.subject}.`));
+  return base("executive_memory", "Executive memory", lines.join("\n"), highlights, [], nextSteps, false);
+}
+
+/** Render an Executive Memory report into the concise text contract. */
+function executiveMemoryLines(m: ExecutiveMemoryReport): string[] {
+  const lines: string[] = [];
+  if (m.recurringPatterns.length) {
+    lines.push("Recurring patterns:");
+    for (const p of m.recurringPatterns) lines.push(`- ${p.subject} (${p.kind}) — ${p.evidence} [score ${p.qualityScore}]`);
+  }
+  if (m.trends.length) {
+    lines.push("", "Trends:");
+    for (const t of m.trends) lines.push(`- ${t.evidence} → ${t.direction.toUpperCase()}`);
+  }
+  if (m.lessons.length) {
+    lines.push("", "Lessons learned:");
+    for (const l of m.lessons) lines.push(`- ${l.lesson} (${l.confidence}) — ${l.basis}`);
+  }
+  if (m.decisions.length) {
+    lines.push("", "Tracked decisions:");
+    for (const d of m.decisions) lines.push(`- ${d.at} [${d.domain}] ${d.decision}${d.outcome ? ` → outcome: ${d.outcome}` : " (outcome pending)"}`);
+  }
+  lines.push("", m.note);
   return lines;
 }
 
@@ -1150,6 +1246,7 @@ export function routeCockpitIntent(ctx: IntentRouterContext): CockpitIntentResul
     case "system_status": result = answerSystemStatus(ctx); break;
     case "daily_brief": result = answerDailyBrief(ctx); break;
     case "strategic_brief": result = answerStrategicBrief(ctx); break;
+    case "executive_memory": result = answerExecutiveMemory(ctx); break;
     case "fitness_status": result = answerFitness(ctx); break;
     case "ops_status": result = answerOps(ctx); break;
     case "freshness_status": result = answerFreshness(ctx); break;
