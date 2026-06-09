@@ -51,6 +51,23 @@ export interface DryRunResult {
   executed: false;
 }
 
+/**
+ * Mutation Tiering Model (3-levels-up master plan §10). Every typed action declares
+ * its tier; the gate requires that tier's payload subset and refuses if a required
+ * field is missing. Doctrine (typed + audit + approval-floor) is never optional — the
+ * tier only scales the PAYLOAD with risk, never the doctrine.
+ *
+ *   T0 — internal low-risk cleanup     (e.g. archive a rejected proposal)
+ *   T1 — internal lifecycle            (e.g. approve_for_execution; needs live status verification)
+ *   T2 — ops mirror                    (e.g. mark an ops item reviewed; read-before-write)
+ *   T3 — external                      (e.g. ClickUp comment / move; full before/after payload)
+ *   T4 — irreversible / cost-bearing   (e.g. deploy infra; explicit human gate EVERY time)
+ *
+ * Tier rides the EXISTING jsonb proposal payload — it is an additive, optional field.
+ * The required-field map + the pure assertion live in `proposal-tiering.ts`.
+ */
+export type ProposalTier = "T0" | "T1" | "T2" | "T3" | "T4";
+
 export interface ActionProposal {
   id: string;
   domain: ProposalDomain;
@@ -75,6 +92,30 @@ export interface ActionProposal {
   dryRunResult: DryRunResult | null;
   /** Always false — there is no execution path. */
   executable: false;
+
+  // ─── Mutation-tiering fields (master plan §10/§11) — ADDITIVE & OPTIONAL ────────
+  // These ride the existing jsonb payload. They are optional so every proposal that
+  // predates tiering remains valid; the pure `assertTierPayloadComplete` (see
+  // proposal-tiering.ts) decides whether a given tier's required subset is present.
+  // NONE of these introduce an execution path — they are descriptive only.
+
+  /** Risk/payload tier (master plan §10). Drives which payload subset the gate requires. */
+  tier?: ProposalTier;
+  /** The confirmed target's stable id (e.g. proposal id, card id). No "apply to all". */
+  targetId?: string;
+  /** Human-readable target name, surfaced in the Mutation Center. */
+  targetName?: string;
+  /** Read-before-write snapshot of the target BEFORE the (future) mutation. Descriptive only. */
+  beforeState?: Record<string, unknown>;
+  /** Intended target state AFTER the (future) mutation. Descriptive only; nothing is executed. */
+  afterState?: Record<string, unknown>;
+  /**
+   * Deterministic idempotency key (see src/lib/idempotency-key.ts — build it with
+   * `makeIdempotencyKey`; never hand-roll one here). Present for tiers that mutate.
+   */
+  idempotencyKey?: string;
+  /** Rollback or correction note: how a (future) mutation would be undone or corrected. */
+  rollbackOrCorrectionNote?: string;
 }
 
 // ─── Phase 14B — local proposal queue ────────────────────────────────────────
@@ -147,3 +188,15 @@ export interface ProposalQueueItem extends Omit<ActionProposal, "status"> {
    */
   executionAuthorizedAt?: string | null;
 }
+
+// ─── Master plan §11 — TypedActionProposal ───────────────────────────────────
+/**
+ * A `TypedActionProposal` is the canonical `ActionProposal` with the tier made
+ * REQUIRED. It is NOT a fork: it references the same id/domain/title/riskLevel/
+ * dryRunResult fields, never re-declaring them, so there is a single source of truth.
+ * The pure gate (`assertTierPayloadComplete` in proposal-tiering.ts) then requires
+ * the rest of the tier's payload subset. This carries NO execution path — it is the
+ * shape a mutation proposal MUST satisfy before the (separate) execution gate is even
+ * consulted.
+ */
+export type TypedActionProposal = ActionProposal & { tier: ProposalTier };

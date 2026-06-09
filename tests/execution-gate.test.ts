@@ -21,15 +21,16 @@ const satisfied = {
   hasCapabilityToken: true,
   auditEntryWritten: true,
   actionAllowlisted: true,
+  liveStatusVerified: true,
 } as const;
 
 describe("execution precondition gate (2.5)", () => {
   it("fail-closed: a false/empty input denies and names every failing condition", () => {
     const r = checkExecutionPrecondition({
-      status: "draft", expiresAt: past, now, hasCapabilityToken: false, auditEntryWritten: false, actionAllowlisted: false,
+      status: "draft", expiresAt: past, now, hasCapabilityToken: false, auditEntryWritten: false, actionAllowlisted: false, liveStatusVerified: false,
     });
     assert.equal(r.allowed, false);
-    assert.ok(r.denials.length >= 5, `every failing condition named, got: ${r.denials.length}`);
+    assert.ok(r.denials.length >= 6, `every failing condition named, got: ${r.denials.length}`);
   });
 
   it("Phase 2 reality: proposal+token+audit but NO allowlist → still denied", () => {
@@ -53,5 +54,22 @@ describe("execution precondition gate (2.5)", () => {
   });
   it("denies a missing audit entry", () => {
     assert.equal(checkExecutionPrecondition({ ...satisfied, auditEntryWritten: false }).allowed, false);
+  });
+
+  it("denies when live status is NOT verified (read-before-write), naming the reason", () => {
+    const r = checkExecutionPrecondition({ ...satisfied, liveStatusVerified: false });
+    assert.equal(r.allowed, false);
+    assert.ok(r.denials.some((d) => d.includes("live target status not verified")));
+  });
+
+  it("allows when liveStatusVerified is true and every other condition holds", () => {
+    assert.deepEqual(checkExecutionPrecondition({ ...satisfied, liveStatusVerified: true }), { allowed: true, denials: [] });
+  });
+
+  it("omitting liveStatusVerified adds NO new denial (legacy caller; additive-only)", () => {
+    const { liveStatusVerified: _omit, ...withoutLive } = satisfied;
+    const r = checkExecutionPrecondition(withoutLive);
+    assert.equal(r.allowed, true);
+    assert.ok(!r.denials.some((d) => d.includes("live target status")));
   });
 });

@@ -6,7 +6,7 @@
  * repo/report paths only. No external calls, no mutation, no execution.
  */
 
-export type AgentType = "ops" | "fitness" | "other";
+export type AgentType = "ops" | "fitness" | "research" | "other";
 
 /** Read-model status for an integrated agent. */
 export type AgentStatus = "ok" | "degraded" | "missing" | "unconfigured" | "error";

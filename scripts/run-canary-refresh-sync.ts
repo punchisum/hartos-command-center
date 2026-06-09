@@ -24,16 +24,19 @@
  *   ALLOW_EXEC_REFRESH_SYNC       "true" arms the one action (default-absent = OFF)
  *   HARTOS_EXECUTION_KILL_SWITCH  "on" overrides everything (global stop)
  *
- * HONEST LIMIT: the current executor TRUSTS the proposal status passed below — it does not
- * re-read the row from the DB. So the two keys for THIS canary are (1) possession of the
- * capability token and (2) ALLOW_EXEC_REFRESH_SYNC=true, both of which only the operator
- * sets. (Follow-up: have the gate verify the live row status server-side.)
+ * LIVE STATUS VERIFICATION (Level-0 hardening): the executor no longer TRUSTS a caller-
+ * supplied status. Before any write, it re-reads the target proposal row server-side and
+ * refuses unless the LIVE status is `approved_for_execution`. This canary therefore reads the
+ * live row first and passes the real status through; if the row is absent or not approved
+ * (the usual case for the synthetic canary id), the run is refused by construction — proving
+ * the read-before-write floor — independent of the allowlist flag.
  */
 
-import { runRefreshSync, type RefreshSyncProposal } from "../src/execution/run-refresh-sync.js";
-import { createRefreshSyncDb, EXECUTOR_DB_URL_ENV } from "../src/execution/run-refresh-sync-db.js";
+import { runRefreshSync, liveRefreshSyncStore, type RefreshSyncProposal } from "../src/execution/run-refresh-sync.js";
+import { createRefreshSyncDb, EXECUTOR_DB_URL_ENV, type VerifyingRefreshSyncStore } from "../src/execution/run-refresh-sync-db.js";
 import { REFRESH_SYNC_FLAG, type RefreshSyncStore } from "../src/execution/adapters/refresh-sync.js";
 import { KILL_SWITCH_ENV } from "../src/execution/execution-adapter.js";
+import { EXECUTABLE_FROM } from "../src/doctrine/execution-gate.js";
 
 const env = process.env;
 const execute = process.argv.includes("--execute");
@@ -80,8 +83,38 @@ if (transport === "db") {
 const store: RefreshSyncStore | undefined = dbHandle?.store;
 console.log("");
 
-// The authorization envelope (see HONEST LIMIT above — status is asserted, not DB-verified).
-const proposal: RefreshSyncProposal = { id: "canary-refresh-sync", status: "approved_for_execution", expiresAt: null };
+// The proposal id this canary targets. There is normally NO such row, which is exactly why
+// live verification refuses it — proving read-before-write.
+const PROPOSAL_ID = "canary-refresh-sync";
+
+// LIVE STATUS VERIFICATION (real run only): re-read the row server-side instead of asserting a
+// status. Use the DB store when present (preferred), else the capability-token Edge store. The
+// read never crashes the canary — a failure is reported and the proposal falls back to a
+// "not approved" status so the run is refused by construction. Dry-run skips this (it never
+// writes and ignores status), keeping the default path a pure connectivity check.
+const verifyStore: VerifyingRefreshSyncStore | undefined = dbHandle?.store ?? (transport === "edge" ? liveRefreshSyncStore(env) : undefined);
+let liveStatus: string | null = null;
+let liveExpiresAt: string | null = null;
+if (execute && verifyStore) {
+  try {
+    const live = await verifyStore.getLiveProposalStatus(PROPOSAL_ID);
+    if (live) {
+      liveStatus = live.status;
+      liveExpiresAt = live.expiresAt;
+    }
+  } catch (e) {
+    console.log(`  live-status read failed (will refuse): ${e instanceof Error ? e.message : String(e)}`);
+  }
+  console.log(`  live status (${PROPOSAL_ID}):  ${liveStatus ?? "(no such row — will refuse)"} (must equal "${EXECUTABLE_FROM}" to execute)`);
+}
+
+// Pass the REAL live status through (never a hardcoded assertion). If the row is absent, send a
+// non-executable status so the executor's live-status check refuses by construction.
+const proposal: RefreshSyncProposal = {
+  id: PROPOSAL_ID,
+  status: (liveStatus ?? "draft") as RefreshSyncProposal["status"],
+  expiresAt: liveExpiresAt,
+};
 
 let result;
 try {
@@ -97,9 +130,9 @@ if (!execute) {
 }
 
 if (!result.precondition.allowed) {
-  console.log("REFUSED by the fail-closed gate (correct if you have not armed the flag):");
+  console.log("REFUSED by the fail-closed gate (correct if the flag is unarmed OR the live row is not approved_for_execution):");
   for (const d of result.precondition.denials) console.log(`  - ${d}`);
-  console.log(`\nTo fire:  set ${REFRESH_SYNC_FLAG}=true (kill-switch off), then re-run with --execute.`);
+  console.log(`\nTo fire:  the live row must be ${EXECUTABLE_FROM}, ${REFRESH_SYNC_FLAG}=true (kill-switch off), then re-run with --execute.`);
   process.exit(2);
 }
 

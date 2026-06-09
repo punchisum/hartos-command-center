@@ -6,6 +6,12 @@
  * a written audit entry + the per-action allowlist flag. Any missing condition denies,
  * with reasons.
  *
+ * Level-0 hardening (plan §1/§10/§11): the caller may also assert that the LIVE DB row was
+ * re-read and confirmed `approved_for_execution` BEFORE writing (`liveStatusVerified`). When
+ * that assertion is explicitly `false`, the gate adds a denial. This is purely ADDITIVE — it
+ * can only refuse, never loosen the fail-closed floor — and keeps the gate PURE (the caller
+ * does the read; the gate never fetches).
+ *
  * In Phase 2 there is no per-action allowlist yet, so `actionAllowlisted` is always false
  * → this ALWAYS denies. Execution stays disabled. Phase 3 introduces exactly one flagged,
  * allowlisted, reversible action; passing THIS gate is the only way it may run. The gate
@@ -33,6 +39,18 @@ export interface ExecutionPreconditionInput {
    * switch Phase 3 flips for exactly one reversible action.
    */
   actionAllowlisted: boolean;
+  /**
+   * The LIVE target row was re-read from the DB and its status matched `EXECUTABLE_FROM`
+   * (read-before-write, plan §1/§10). The gate is PURE — it does NOT fetch; the caller
+   * performs the live read, compares it against `EXECUTABLE_FROM` (and the asserted status),
+   * and passes the boolean. `false` ⇒ the row could not be confirmed or did not match, so the
+   * gate DENIES (additive — it can only refuse, never loosen the floor). Optional so the
+   * existing `runExecutionAdapter` path (which verifies upstream, in `runRefreshSync`) need not
+   * change; when omitted no new denial is added, when present `false` always denies. The
+   * live-verifying caller (`runRefreshSync`) refuses BEFORE the adapter on a mismatch/missing
+   * row, so a write can never proceed on an unconfirmed status.
+   */
+  liveStatusVerified?: boolean;
 }
 
 export interface PreconditionResult {
@@ -59,6 +77,9 @@ export function checkExecutionPrecondition(p: ExecutionPreconditionInput): Preco
   }
   if (!p.auditEntryWritten) {
     denials.push("no immutable audit entry was written for this execution attempt");
+  }
+  if (p.liveStatusVerified === false) {
+    denials.push("live target status not verified or mismatched (the DB row was not re-read and confirmed approved_for_execution before write)");
   }
   if (!p.actionAllowlisted) {
     // The doctrine default. ACTION_EXECUTION is the global switch; the per-action

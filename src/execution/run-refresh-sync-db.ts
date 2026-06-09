@@ -17,6 +17,23 @@ const { Pool } = pg;
 /** The env var holding the elevated (RLS-bypassing) Postgres connection string. */
 export const EXECUTOR_DB_URL_ENV = "HARTOS_SUPABASE_DB_URL";
 
+/** The live lifecycle status + expiry of a proposal, as read straight from the DB. */
+export interface LiveProposalStatus {
+  status: string;
+  expiresAt: string | null;
+}
+
+/**
+ * A refresh-sync store that ALSO exposes a server-side live-status read — re-reading the
+ * target proposal's current status + expiry from the SAME pg pool, so the executor can verify
+ * the row before writing (read-before-write, plan §1/§10) instead of trusting a caller-supplied
+ * status. Additive over `RefreshSyncStore`; the live store keeps all existing behavior.
+ */
+export interface VerifyingRefreshSyncStore extends RefreshSyncStore {
+  /** Re-read the live status + expiry for `proposalId`, or null when the row does not exist. */
+  getLiveProposalStatus(proposalId: string): Promise<LiveProposalStatus | null>;
+}
+
 /** Past-due, still-pending proposals — the only rows this action may touch. `$1` is `now`. */
 const STALE_FILTER = "status in ('draft','pending_approval') and expires_at is not null and expires_at < $1";
 
@@ -28,7 +45,7 @@ export interface Queryable {
 export type TlsMode = "strict" | "relaxed";
 
 export interface RefreshSyncDbHandle {
-  store: RefreshSyncStore;
+  store: VerifyingRefreshSyncStore;
   /** "strict" = chain-verified; "relaxed" = fell back because the pooler cert wouldn't chain. */
   tlsMode: TlsMode;
   /** Close the underlying pool. Always call when done. */
@@ -56,8 +73,28 @@ async function openPool(connectionString: string, strict: boolean): Promise<Inst
 }
 
 /** Build the refresh-sync store over any Queryable (the seam tests exercise). */
-export function makeRefreshSyncStore(db: Queryable): RefreshSyncStore {
+export function makeRefreshSyncStore(db: Queryable): VerifyingRefreshSyncStore {
   return {
+    async getLiveProposalStatus(proposalId: string): Promise<LiveProposalStatus | null> {
+      // Read-before-write: re-read the live row over the SAME pool (no new connection). The
+      // executor compares this against EXECUTABLE_FROM before any conditional write.
+      const r = await db.query(
+        "select status, expires_at from public.cockpit_proposals where id = $1",
+        [proposalId],
+      );
+      const row = r.rows[0];
+      if (!row) return null;
+      const expiresAtRaw = row.expires_at;
+      return {
+        status: String(row.status ?? ""),
+        expiresAt:
+          expiresAtRaw == null
+            ? null
+            : expiresAtRaw instanceof Date
+              ? expiresAtRaw.toISOString()
+              : String(expiresAtRaw),
+      };
+    },
     async countStaleProposals(now: string): Promise<number> {
       const r = await db.query(`select count(*)::int as n from public.cockpit_proposals where ${STALE_FILTER}`, [now]);
       return Number(r.rows[0]?.n ?? 0);

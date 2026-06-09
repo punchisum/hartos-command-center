@@ -2,7 +2,7 @@
 //
 // The ONLY write path for the cockpit proposal spine. Server-side: the service role
 // is auto-injected, so the hosted read-only Worker never holds a DB/service key — it
-// calls this with a shared CAPABILITY token. Two operations, both status-safe:
+// calls this with a shared CAPABILITY token. Operations (all status-safe; only the writes mutate):
 //
 //   { proposals: [...] }            — Phase E: persist propose-only DRAFT/pending rows.
 //                                     Uses ignore-duplicates (Phase 2.2 #4 fix): a re-ask
@@ -11,6 +11,10 @@
 //   { transition: { id, action } }  — Phase 2.4: approve/reject. CONDITIONAL PATCH that
 //                                     only matches an eligible status (never downgrades),
 //                                     then appends an immutable audit row (Phase 2.3).
+//   { refresh_sync: { mode, id } }   — Phase 3 action server side: mode "count"/"expire"
+//                                     (past-due queue hygiene + audit) and the Level-0
+//                                     read-only mode "status" (re-read one row's status +
+//                                     expires_at for live verification — NEVER writes).
 //
 // Forces executable:false on persist; every row is secret-scanned before write.
 // DEPLOYED to project xbuinrnpfjltimofwrdx (cockpit_proposals + cockpit_proposal_audit).
@@ -98,16 +102,42 @@ async function handleTransition(
 /** Phase 3 — the refresh-sync action's server side: count / conditionally-expire past-due
  *  draft|pending proposals (HartOS's OWN queue) + an append-only audit row. The Node
  *  executor enforces the fail-closed gate BEFORE calling this; this only ever expires
- *  already-stale rows, so it's reversible-low-stakes + idempotent. mode "count" never writes. */
+ *  already-stale rows, so it's reversible-low-stakes + idempotent. mode "count" never writes.
+ *
+ *  Level-0 hardening (plan §1/§10): mode "status" is a READ-ONLY live-status verification — it
+ *  re-reads a single proposal's status + expires_at so the Edge transport can confirm the row
+ *  is still `approved_for_execution` BEFORE any write, symmetric with the pg executor's
+ *  getLiveProposalStatus. It NEVER writes. */
 async function handleRefreshSync(
-  refresh: { mode?: unknown },
+  refresh: { mode?: unknown; id?: unknown },
   supabaseUrl: string,
   serviceKey: string,
 ): Promise<Response> {
-  const mode = refresh.mode === "expire" ? "expire" : "count";
+  const mode = refresh.mode === "expire" ? "expire" : refresh.mode === "status" ? "status" : "count";
   const nowIso = new Date().toISOString();
   const headers = { "content-type": "application/json", apikey: serviceKey, authorization: `Bearer ${serviceKey}` };
   const filter = `status=in.(draft,pending_approval)&expires_at=lt.${encodeURIComponent(nowIso)}`;
+
+  if (mode === "status") {
+    // Read-only live-status verification — single row by id, no write.
+    const id = typeof refresh.id === "string" ? refresh.id : "";
+    if (!id) return json(400, { ok: false, error: "status read requires id" });
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/cockpit_proposals?id=eq.${encodeURIComponent(id)}&select=status,expires_at`,
+      { headers },
+    );
+    if (!res.ok) return json(502, { ok: false, error: `status read failed (${res.status})` });
+    const rows = (await res.json().catch(() => [])) as Array<{ status?: unknown; expires_at?: unknown }>;
+    const row = Array.isArray(rows) ? rows[0] : undefined;
+    if (!row) return json(200, { ok: true, mode, found: false, status: null, expires_at: null });
+    return json(200, {
+      ok: true,
+      mode,
+      found: true,
+      status: typeof row.status === "string" ? row.status : null,
+      expires_at: typeof row.expires_at === "string" ? row.expires_at : null,
+    });
+  }
 
   if (mode === "count") {
     const res = await fetch(`${supabaseUrl}/rest/v1/cockpit_proposals?${filter}&select=id`, { headers: { ...headers, prefer: "count=exact" } });
@@ -164,8 +194,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return await handleTransition(transition, supabaseUrl, serviceKey);
   }
 
-  // Phase 3 — the refresh-sync action (count / expire past-due proposals + audit).
-  const refresh = (parsed as { refresh_sync?: { mode?: unknown } })?.refresh_sync;
+  // Phase 3 — the refresh-sync action (count / expire past-due proposals + audit), plus the
+  // Level-0 read-only live-status verification (mode "status").
+  const refresh = (parsed as { refresh_sync?: { mode?: unknown; id?: unknown } })?.refresh_sync;
   if (refresh && typeof refresh === "object") {
     return await handleRefreshSync(refresh, supabaseUrl, serviceKey);
   }
