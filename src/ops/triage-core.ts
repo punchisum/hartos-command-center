@@ -56,6 +56,12 @@ export interface OpsTriage {
   caveats: string[];
   confidence: OpsTriageConfidence;
   reason: string;
+  /** Operator framing: what this situation actually means for the business / flow of work. */
+  impact: string;
+  /** Named operational risks (stalled work, missing follow-ups, import failure) — not generic. */
+  risks: string[];
+  /** The cheapest high-leverage win available right now — null when there's nothing cheap to clear. */
+  opportunity: string | null;
 }
 
 const SEV_RANK: Record<TriageSeverity, number> = { high: 3, medium: 2, low: 1 };
@@ -136,7 +142,74 @@ export function triageOps(signals: OpsSignals): OpsTriage {
       ? "No actionable fronts in the available counts."
       : `${queue.length} front(s) need attention; leading with ${queue[0]!.category} (${queue[0]!.severity}).`;
 
-  return { verdict, queue, primaryAction, totalActionable, caveats, confidence, reason };
+  const impact = impactOf(signals, queue, verdict);
+  const risks = risksOf(signals);
+  const opportunity = opportunityOf(signals);
+
+  return { verdict, queue, primaryAction, totalActionable, caveats, confidence, reason, impact, risks, opportunity };
+}
+
+/** Operator framing: what the situation means for the flow of work, not just the counts. */
+function impactOf(s: OpsSignals, queue: TriageItem[], verdict: OpsTriageVerdict): string {
+  if (verdict === "insufficient_data") return "Can't assess impact — the board isn't surfaced.";
+  if (verdict === "clear") return "No work is currently halted or threatened — capacity is free for proactive moves.";
+  const blocked = s.blocked ?? 0;
+  const urgent = s.urgent ?? 0;
+  const parts: string[] = [];
+  if (blocked > 0) parts.push(`${blocked} ${plural(blocked, "thread")} of work ${plural(blocked, "is", "are")} fully halted (blocked)`);
+  if (urgent > 0) parts.push(`${urgent} ${plural(urgent, "item")} ${plural(urgent, "is", "are")} time-critical`);
+  if (parts.length === 0) {
+    const waiting = s.waiting ?? 0;
+    const adrift = s.noNextAction ?? 0;
+    if (waiting > 0) parts.push(`${waiting} ${plural(waiting, "decision")} ${plural(waiting, "is", "are")} parked on you`);
+    if (adrift > 0) parts.push(`${adrift} ${plural(adrift, "card")} ${plural(adrift, "has", "have")} no next step and will drift`);
+  }
+  return parts.length
+    ? `${cap(parts.join("; "))} — every day these sit, downstream work and trust erode.`
+    : "Work is moving, but a few fronts need a light touch to stay on track.";
+}
+
+/** Named operational risks — stalled work, missing follow-ups, import failure. Not generic. */
+function risksOf(s: OpsSignals): string[] {
+  const out: string[] = [];
+  const blocked = s.blocked ?? 0;
+  const stale = s.stale ?? 0;
+  const adrift = s.noNextAction ?? 0;
+  if (blocked > 0 && stale > 0) {
+    out.push(`Stall risk: ${blocked} blocked AND ${stale} stale — work that's both stuck and untouched tends to become a dead project no one owns.`);
+  } else if (blocked > 0) {
+    out.push(`${blocked} blocked ${plural(blocked, "card")} — confirm each is genuinely waiting on an external dependency, not quietly abandoned.`);
+  }
+  if (adrift > 0) {
+    out.push(`${adrift} ${plural(adrift, "card")} with no next action — these are where follow-ups silently go missing.`);
+  }
+  if (s.syncStale) {
+    out.push("ClickUp import is stale — the board you're triaging may already be wrong; treat counts as a lower bound.");
+  }
+  return out;
+}
+
+/** The cheapest high-leverage win available now — clearing decisions/approvals unblocks others' work. */
+function opportunityOf(s: OpsSignals): string | null {
+  const waiting = s.waiting ?? 0;
+  const approvals = s.pendingApprovals ?? 0;
+  const adrift = s.noNextAction ?? 0;
+  if (waiting > 0 || approvals > 0) {
+    const n = waiting + approvals;
+    return `${n} ${plural(n, "item")} ${plural(n, "is", "are")} parked on a single decision/approval from you — clearing them is minutes of work that unblocks flow elsewhere. Quick win.`;
+  }
+  if (adrift > 0) {
+    return `${adrift} adrift ${plural(adrift, "card")} just ${plural(adrift, "needs", "need")} a next action assigned — cheap to fix, and it stops them rotting into stale.`;
+  }
+  return null;
+}
+
+function plural(n: number, one: string, many = `${one}s`): string {
+  return n === 1 ? one : many;
+}
+
+function cap(str: string): string {
+  return str ? `${str[0]!.toUpperCase()}${str.slice(1)}` : str;
 }
 
 /** One-line, deterministic summary of an ops triage (for embedding / the panel). */

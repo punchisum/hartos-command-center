@@ -139,6 +139,16 @@ export function buildOpsPanel(inputs: PanelInputs): DomainPanel {
   if (detected && triage.caveats.length) {
     fields.push(okField("triage_caveat", "Triage caveat", triage.caveats.join(" "), { source: "derived (triage)", confidence: triage.confidence }));
   }
+  // Depth: operator framing (Operator contract) — what it means, what's at risk, the cheap win.
+  if (detected) {
+    fields.push(okField("triage_impact", "Operational impact", triage.impact, { source: "derived (triage)", confidence: triage.confidence }));
+    if (triage.risks.length) {
+      fields.push(okField("triage_risks", "Operational risks", triage.risks.join(" "), { source: "derived (triage)", confidence: triage.confidence }));
+    }
+    if (triage.opportunity) {
+      fields.push(okField("triage_opportunity", "Quick win", triage.opportunity, { source: "derived (triage)", confidence: triage.confidence }));
+    }
+  }
 
   for (const card of agent?.cards ?? []) {
     for (const miss of card.missingSources) {

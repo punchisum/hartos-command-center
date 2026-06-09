@@ -131,6 +131,13 @@ export function buildFitnessPanel(inputs: PanelInputs): DomainPanel {
     if (advice.modifiers.length) {
       fields.push(okField("coach_notes", "Coach notes", advice.modifiers.join(" "), { source: "derived (coach)", confidence: advice.confidence }));
     }
+    // Depth: the single downside to manage + the single upside to capture today (Coach contract).
+    if (advice.risk) {
+      fields.push(okField("coach_risk", "Risk to manage", advice.risk, { source: "derived (coach)", confidence: advice.confidence }));
+    }
+    if (advice.opportunity) {
+      fields.push(okField("coach_opportunity", "Opportunity", advice.opportunity, { source: "derived (coach)", confidence: advice.confidence }));
+    }
   }
 
   for (const card of agent?.cards ?? []) {

@@ -102,19 +102,26 @@ describe("grounded answers", () => {
     }
   });
 
-  it("fitness_status uses the panel summary (recovery surfaced)", () => {
+  it("fitness_status uses the Coach contract (recovery surfaced in key metrics)", () => {
     const r = routeCockpitIntent(ctx("How is my fitness agent today?"));
     assert.equal(r.intent, "fitness_status");
-    assert.ok(r.summary.includes("Recovery: 66"), "must surface real recovery value");
+    assert.equal(r.title, "Fitness — Coach", "distinct Coach voice");
+    assert.match(r.summary, /Verdict:/, "Coach contract leads with a verdict");
+    assert.match(r.summary, /Key metrics:.*recovery 66/, "must surface real recovery value");
+    assert.match(r.summary, /Risk:/, "Coach contract names a risk dimension");
+    assert.match(r.summary, /Opportunity:/, "Coach contract names an opportunity dimension");
     assert.ok(r.nextSteps.length > 0);
   });
 
-  it("ops_status leads with a verdict and grounds urgent/blocked counts", () => {
+  it("ops_status uses the Operator contract and grounds urgent/blocked counts", () => {
     const r = routeCockpitIntent(ctx("Anything urgent in ops?"));
     assert.equal(r.intent, "ops_status");
     // urgentCards:3 / blockedCards:1 → red verdict.
-    assert.ok(/^Ops is red\./.test(r.summary), "must open with a red verdict");
-    assert.ok(r.summary.includes("Main action:"), "must give a single main action");
+    assert.match(r.summary, /Situation: Ops is red\./, "Operator contract opens with the situation + red verdict");
+    assert.match(r.summary, /Impact:/, "Operator contract states impact");
+    assert.match(r.summary, /Risk:/, "Operator contract states risk");
+    assert.match(r.summary, /Opportunity:/, "Operator contract states opportunity");
+    assert.match(r.summary, /Recommended action:/, "Operator contract gives a recommended action");
     assert.ok(r.summary.includes("3 urgent"), "grounds urgent count");
     assert.ok(r.summary.includes("1 blocked/risk"), "grounds blocked count");
   });
@@ -142,6 +149,19 @@ describe("grounded answers", () => {
     assert.match(r.summary, /Next step:/, "states exact next step");
     assert.match(r.summary, /Check:/, "states what to check");
     assert.match(r.summary, /Expected when healthy:/, "states expected healthy result");
+  });
+
+  it("build_agent challenges the plan in a CTO voice (does not auto-agree)", () => {
+    // "Create a tax agent" is buildable but rests on missing foundations + incomplete reqs —
+    // the CTO challenge must surface feasibility, named failure modes, and a verdict.
+    const r = routeCockpitIntent(ctx("Create a tax agent"));
+    assert.equal(r.intent, "build_agent");
+    assert.match(r.summary, /CTO challenge:/, "must include a CTO challenge block");
+    assert.match(r.summary, /Feasibility:/, "challenge states feasibility");
+    assert.match(r.summary, /Failure modes:/, "challenge names failure modes");
+    assert.match(r.summary, /Verdict:/, "challenge ends with a verdict");
+    // Tax/finance domain risk must be a NAMED failure mode, not generic.
+    assert.match(r.summary, /audit-trail|human approval|foundations|incomplete/i, "failure modes are specific");
   });
 
   it("build_agent produces a plan using orchestrator context", () => {
@@ -440,34 +460,34 @@ describe("Phase 15B — ops operator answer", () => {
 
   it("ops AMBER when waiting_on_hart > 0 (no urgent/blocked, fresh sync)", () => {
     const r = routeCockpitIntent(opsCtx({ activeCards: 9, waitingCards: 2 }));
-    assert.ok(/^Ops is amber\./.test(r.summary), `expected amber, got: ${r.summary}`);
+    assert.match(r.summary, /Situation: Ops is amber\./, `expected amber, got: ${r.summary}`);
     assert.ok(/waiting on Hart/i.test(r.summary), "must name the waiting-on-Hart signal");
-    assert.ok(/Main action: Unblock the 2 cards waiting on Hart\./.test(r.summary), "main action unblocks waiting cards");
+    assert.match(r.summary, /Recommended action: Unblock the 2 cards waiting on Hart\./, "recommended action unblocks waiting cards");
     assert.ok(r.highlights.some((h) => h === "Verdict: AMBER."), "verdict highlight present");
   });
 
   it("ops RED when urgent > 0", () => {
     const r = routeCockpitIntent(opsCtx({ activeCards: 9, urgentCards: 3 }));
-    assert.ok(/^Ops is red\./.test(r.summary), `expected red, got: ${r.summary}`);
+    assert.match(r.summary, /Situation: Ops is red\./, `expected red, got: ${r.summary}`);
     assert.ok(r.summary.includes("3 urgent"));
-    assert.ok(/Main action: Action the 3 urgent cards\./.test(r.summary));
+    assert.match(r.summary, /Recommended action: Action the 3 urgent cards\./);
   });
 
   it("ops RED when blocked/risk > 0 (triage first)", () => {
     const r = routeCockpitIntent(opsCtx({ activeCards: 9, blockedCards: 1 }));
-    assert.ok(/^Ops is red\./.test(r.summary), `expected red, got: ${r.summary}`);
-    assert.ok(/Main action: Triage the 1 blocked\/at-risk card first\./.test(r.summary));
+    assert.match(r.summary, /Situation: Ops is red\./, `expected red, got: ${r.summary}`);
+    assert.match(r.summary, /Recommended action: Triage the 1 blocked\/at-risk card first\./);
   });
 
   it("ops GREEN when no attention flags and sync is fresh", () => {
     const r = routeCockpitIntent(opsCtx({ activeCards: 5 }));
-    assert.ok(/^Ops is green\./.test(r.summary), `expected green, got: ${r.summary}`);
+    assert.match(r.summary, /Situation: Ops is green\./, `expected green, got: ${r.summary}`);
     assert.ok(/Nothing needs your attention/i.test(r.summary));
   });
 
   it("stale freshness is surfaced as a ClickUp sync warning (amber)", () => {
     const r = routeCockpitIntent(opsCtx({ activeCards: 9 }, { dataFreshness: STALE }));
-    assert.ok(/^Ops is amber\./.test(r.summary), `expected amber from staleness, got: ${r.summary}`);
+    assert.match(r.summary, /Situation: Ops is amber\./, `expected amber from staleness, got: ${r.summary}`);
     assert.ok(/ClickUp sync appears stale/i.test(r.summary), "amber reason names stale sync");
     assert.ok(/STALE/.test(r.summary), "explicit STALE warning line");
     assert.ok(r.gaps.some((g) => /ClickUp sync stale/i.test(g)), "stale is an honest gap");

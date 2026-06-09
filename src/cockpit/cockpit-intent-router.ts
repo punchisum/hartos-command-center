@@ -347,21 +347,37 @@ function answerFitness(ctx: IntentRouterContext): CockpitIntentResult {
   const calories = field(p, "calories");
   const protein = field(p, "protein");
   const adjustment = field(p, "adjustment");
+  const risk = field(p, "coach_risk");
+  const opportunity = field(p, "coach_opportunity");
+  const notes = field(p, "coach_notes");
 
-  // Lead with the readiness verdict when available — it's the highest-value derived output.
-  const readinessLine = readiness?.status === "ok" && readiness.value
-    ? `Training readiness: ${readiness.value}${readiness.confidence ? ` (${readiness.confidence} confidence)` : ""}.`
-    : null;
+  // Coach contract: Verdict · Reasoning · Key metrics · Risk · Opportunity · Recommended action.
+  // The verdict is the derived training_readiness (full/controlled/easy/rest equivalent), the
+  // reasoning is the coach's grounded basis, metrics are the live readings, and risk/opportunity
+  // come straight from the coaching core — never generic filler.
+  const verdict = adjustment?.status === "ok" && adjustment.value
+    ? adjustment.value
+    : "Not enough signal to coach today.";
+  const confidenceTag = readiness?.confidence ? ` (${readiness.confidence} confidence)` : "";
+  const keyMetrics = [
+    `recovery ${recovery?.value ?? "unknown"}`,
+    `plan ${plan?.value ?? "unknown"}`,
+    `today done: ${field(p, "training_completed")?.value ?? "unknown"}`,
+    `calories ${calories?.value ?? "unknown"}`,
+    `protein ${protein?.value ?? "unknown"}`,
+  ].join(" · ");
+
   const lines = [
-    p.summary,
-    readinessLine,
-    `Recovery: ${recovery?.value ?? "unknown"}.`,
-    `Today's plan: ${plan?.value ?? "unknown"}; completed: ${field(p, "training_completed")?.value ?? "unknown"}.`,
-    `Nutrition — calories: ${calories?.value ?? "unknown"}, protein: ${protein?.value ?? "unknown"}.`,
-    `Next adjustment: ${adjustment?.value ?? "unknown"}.`,
+    `Verdict: ${verdict}${confidenceTag}`,
+    `Reasoning: ${readiness?.status === "ok" && readiness.value ? readiness.value : "Recovery/plan not fully surfaced — coaching is conservative until they are."}`,
+    `Key metrics: ${keyMetrics}.`,
+    `Risk: ${risk?.status === "ok" && risk.value ? risk.value : "None flagged from today's signals."}`,
+    `Opportunity: ${opportunity?.status === "ok" && opportunity.value ? opportunity.value : "No standout upside to capture today — execute the plan."}`,
+    notes?.status === "ok" && notes.value ? `Notes: ${notes.value}` : null,
+    `Recommended action: ${p.nextAction || verdict}`,
   ].filter((x): x is string => !!x);
   const nextSteps = uniqueNonEmpty([p.nextAction, ...topN(p.missingSetupSteps, 3)]);
-  return base("fitness_status", "Fitness status", lines.join("\n"), p.highlights, topN(p.gaps, 5), nextSteps, false);
+  return base("fitness_status", "Fitness — Coach", lines.join("\n"), p.highlights, topN(p.gaps, 5), nextSteps, false);
 }
 
 /** Ops verdict — operator traffic-light. */
@@ -483,16 +499,28 @@ function answerOps(ctx: IntentRouterContext): CockpitIntentResult {
 
   // Source values may already end with a period; avoid a doubled ".." .
   const endDot = (s: string) => (/[.!?]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
+
+  // Operator contract: Situation · Impact · Risk · Opportunity · Recommended action.
+  // Impact / Risk / Opportunity come from the triage core (surfaced via the ops panel);
+  // they read like a Chief-of-Staff brief, not a count dump. Counts stay as the Situation.
+  const impactField = field(p, "triage_impact");
+  const risksField = field(p, "triage_risks");
+  const oppField = field(p, "triage_opportunity");
+  const riskLine = risksField?.status === "ok" && risksField.value
+    ? risksField.value
+    : riskFlags?.status === "ok" ? `Risk flags: ${endDot(riskFlags.value)}` : "No distinct operational risk surfaced.";
+
   const lines = [
-    verdictLine,
-    `Main action: ${mainAction}`,
+    `Situation: ${verdictLine} (${factsParts.join(", ")}.)`,
+    `Impact: ${impactField?.status === "ok" && impactField.value ? impactField.value : (verdict === "green" ? "No work halted or threatened." : "Some fronts need attention to keep work moving.")}`,
+    `Risk: ${riskLine}`,
+    `Opportunity: ${oppField?.status === "ok" && oppField.value ? oppField.value : "No standout quick win right now — clear the leading front."}`,
+    `Recommended action: ${mainAction}`,
     `Confidence: ${confidence.toUpperCase()} (${confidenceReason}). Source: ops read-model (ClickUp), ${clickupStale ? "STALE" : "current"}.`,
-    `Cards: ${factsParts.join(", ")}.`,
     `Latest update: ${endDot(updates?.status === "ok" ? updates.value : "none available")}`,
     `ClickUp sync: ${endDot(sync?.status === "ok" ? sync.value : "unknown")}${
       clickupStale ? " STALE: latest card activity is older than the freshness window; re-run the ClickUp import." : ""
     }`,
-    riskFlags?.status === "ok" ? `Risk flags: ${endDot(riskFlags.value)}` : null,
   ].filter((x): x is string => !!x);
 
   // ── Stale-specific guidance (Phase 15C) — preserve the structure above ──
@@ -571,7 +599,13 @@ function answerBuild(ctx: IntentRouterContext): CockpitIntentResult {
           : inbox.label === "too_vague"
             ? "Inbox: too vague to build — interrogate the spec first."
             : "Inbox: buildable — proceeds to spec interrogation before any build.";
-    result.summary = `${inboxLine}\n${plan.summary}\n\n${result.summary}`;
+    // CTO challenge — the Factory does NOT auto-agree. For buildable/too-vague requests it
+    // surfaces feasibility, the concrete failure modes, and (when the plan is weak) pushes
+    // back with a sharper alternative instead of nodding the build through.
+    const ctoChallenge = inbox.label === "buildable" || inbox.label === "too_vague"
+      ? buildCtoChallenge(plan)
+      : "";
+    result.summary = `${inboxLine}\n${plan.summary}${ctoChallenge}\n\n${result.summary}`;
     if (inbox.label === "unsafe") {
       // An unsafe request is refused, not interrogated.
       result.clarifyingQuestion = null;
@@ -580,6 +614,51 @@ function answerBuild(ctx: IntentRouterContext): CockpitIntentResult {
     }
   }
   return result;
+}
+
+/**
+ * The Factory's CTO voice: a principal-engineer challenge of the proposed build. It does NOT
+ * rubber-stamp — it states feasibility, names the concrete failure modes, and pushes back when
+ * the plan is weak (DO_NOT_BUILD / MERGE / a simpler alternative exists / high strategy risk).
+ * Pure: reads only the deterministic plan the agent-planner already produced.
+ */
+function buildCtoChallenge(plan: ReturnType<typeof planAgentCreation>): string {
+  const lines: string[] = ["", "CTO challenge:"];
+  const verdict = plan.strategy.verdict;
+
+  // Feasibility — is this even the right thing to build?
+  const weak = verdict === "DO_NOT_BUILD" || verdict === "MERGE_WITH_EXISTING_AGENT" || !!plan.strategy.simplerAlternative;
+  if (verdict === "DO_NOT_BUILD") {
+    lines.push(`- Feasibility: PUSH BACK — strategy says DO NOT BUILD. ${plan.strategy.reason}`);
+  } else if (verdict === "MERGE_WITH_EXISTING_AGENT") {
+    lines.push(`- Feasibility: PUSH BACK — this should extend an existing agent, not spawn a new one. ${plan.strategy.reason}`);
+  } else if (!plan.readyToPlanScaffold) {
+    lines.push(`- Feasibility: NOT YET — requirements are incomplete; the plan is provisional until the open questions are answered.`);
+  } else {
+    lines.push(`- Feasibility: workable (${verdict}); ${plan.strategy.reason}`);
+  }
+
+  // Failure modes — name them concretely (don't hand-wave "there are risks").
+  if (plan.risks.length) {
+    lines.push("- Failure modes:");
+    for (const r of plan.risks.slice(0, 4)) lines.push(`  · ${r}`);
+  } else {
+    lines.push("- Failure modes: none flagged by the planner — but verify scope before committing engineering time.");
+  }
+
+  // Better alternative — the CTO's job is to propose the cheaper path when one exists.
+  const alt = plan.doNotBuild.find((d) => /simpler alternative/i.test(d)) ?? (plan.strategy.simplerAlternative ? `Simpler alternative: ${plan.strategy.simplerAlternative}` : null);
+  if (alt) lines.push(`- Cheaper path: ${alt}`);
+
+  // The challenge verdict.
+  lines.push(
+    weak
+      ? "- Verdict: DON'T build this as specified — resolve the pushback above first."
+      : plan.readyToPlanScaffold
+        ? "- Verdict: proceed to spec interrogation; the build is justified and scoped."
+        : "- Verdict: answer the open questions, then re-run — don't scaffold on an incomplete spec.",
+  );
+  return `\n${lines.join("\n")}`;
 }
 
 function answerImprove(ctx: IntentRouterContext): CockpitIntentResult {

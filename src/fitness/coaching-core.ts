@@ -58,6 +58,16 @@ export interface CoachingAdvice {
   confidence: CoachingConfidence;
   /** Deterministic, fact-based explanation of the verdict. */
   reason: string;
+  /**
+   * The single most important DOWNSIDE to manage today (injury/overtraining/under-fuel),
+   * derived from the signal mismatch — null when nothing concrete is at risk.
+   */
+  risk: string | null;
+  /**
+   * The single best UPSIDE to capture today (capacity to push, an easy recovery win) —
+   * null when there's no grounded opportunity. Never fabricated.
+   */
+  opportunity: string | null;
 }
 
 // Conventional readiness bands (e.g. WHOOP-style recovery %). Labeled + tunable —
@@ -222,6 +232,52 @@ function reasonFor(verdict: CoachingVerdict, band: RecoveryBand, plan: PlanInten
   }
 }
 
+/**
+ * The single most important downside to manage today. Grounded in the signal mismatch —
+ * never a generic "be careful". Null when nothing concrete is at risk.
+ */
+function riskOf(s: CoachingSignals, band: RecoveryBand, plan: PlanIntensity): string | null {
+  // The classic injury/overtraining trap: a hard session stacked on poor recovery.
+  if (band === "low" && plan === "hard") {
+    return "Hard session planned on low recovery — pushing it risks injury and digs the fatigue hole deeper. This is the day to back off.";
+  }
+  if (band === "moderate" && plan === "hard") {
+    return "Hard session on moderate recovery — going full-send risks turning a quality day into accumulated fatigue. Cap intensity, don't chase PRs.";
+  }
+  if (band === "low" && plan !== "rest" && plan !== "unknown") {
+    return "Recovery is low — even a normal session adds strain you can't currently absorb. Keep it genuinely easy.";
+  }
+  // Under-fuelling signal: losing weight while recovery is suppressed.
+  if (s.bodyweightTrend === "falling" && band === "low") {
+    return "Bodyweight falling while recovery is low — likely under-fuelled. Protect recovery before adding training stress.";
+  }
+  // Blind flying: no recovery reading against a planned session.
+  if (band === "unknown" && (plan === "hard" || plan === "easy")) {
+    return "No recovery reading before a planned session — you're training blind. Sync the wearable before deciding intensity.";
+  }
+  return null;
+}
+
+/**
+ * The single best upside to capture today. Grounded — only surfaced when the data
+ * actually supports it. Null when there's no real opportunity.
+ */
+function opportunityOf(s: CoachingSignals, band: RecoveryBand, plan: PlanIntensity): string | null {
+  // High recovery against a light/rest day → unused capacity worth spending.
+  if (band === "high" && (plan === "easy" || plan === "rest")) {
+    return "Recovery is high but the plan is light — you have capacity to add quality (extra interval, longer effort) if the schedule allows.";
+  }
+  if (band === "high" && plan === "hard") {
+    return "Recovery is high and a hard session is on — this is a green-light day to make it count and bank a real quality stimulus.";
+  }
+  // Cheap recovery win: protein behind target is a controllable lever.
+  if (typeof s.proteinHave === "number" && typeof s.proteinTarget === "number" && s.proteinHave < s.proteinTarget * 0.7) {
+    const gap = Math.round(s.proteinTarget - s.proteinHave);
+    return `Protein is ~${gap}g behind target — closing it today is the cheapest available win for recovery and adaptation.`;
+  }
+  return null;
+}
+
 function confidenceOf(s: CoachingSignals, band: RecoveryBand, plan: PlanIntensity): CoachingConfidence {
   if (band === "unknown") return "low";
   const corroborating = [
@@ -247,6 +303,8 @@ function finalize(signals: CoachingSignals, p: {
     unknowns: p.unknowns,
     confidence: confidenceOf(signals, p.band, p.plan),
     reason: p.reason,
+    risk: riskOf(signals, p.band, p.plan),
+    opportunity: opportunityOf(signals, p.band, p.plan),
   };
 }
 
