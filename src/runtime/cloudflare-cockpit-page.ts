@@ -53,6 +53,8 @@ import { forecast, type ForecastReport } from "../prophet/forecast.js";
 import { coach, type CoachingSignals } from "../fitness/coaching-core.js";
 import { triageOps, type OpsSignals } from "../ops/triage-core.js";
 import type { SuggestionSet } from "../cockpit/suggestions/suggest-actions.js";
+import { strategicAwareness, type StrategicBrief } from "../awareness/strategic-awareness.js";
+import { executiveMemory, type ExecutiveMemoryReport, type MemorySnapshot } from "../awareness/executive-memory.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -61,6 +63,12 @@ export interface HostedPageOptions {
   now?: string;
   /** Phase D — recent thread summaries from the spine, for the activity panel. */
   threads?: CockpitThreadSummary[];
+  /**
+   * Executive Memory seam (Cockpit V2) — a supplied history of compact snapshots. Absent on the
+   * stateless hosted path (the memory section then renders the honest INSUFFICIENT_HISTORY line);
+   * a future persister populates it and the same render surfaces real patterns/trends/lessons.
+   */
+  memorySnapshots?: MemorySnapshot[];
 }
 
 function esc(s: string): string {
@@ -79,14 +87,16 @@ function escMultiline(s: string): string {
 const STYLE = `
 *{box-sizing:border-box}
 :root{
-  --bg:#f3f6fa;--panel:#fff;--line:#e6eaf1;--line2:#eef2f7;
-  --txt:#1b2532;--dim:#5f6e80;--faint:#9aa6b6;
-  --green:#15a06a;--amber:#df8a0b;--red:#e0455a;--idle:#b3bdca;
-  --sg:#e7f6ef;--sa:#fcf3e2;--sb:#eef0fe;--sr:#fdecef;
-  --primary:#6b4ef0;--primaryH:#5b3fe0;--accent:#2f6df6;
+  /* Cockpit V2 — navy-tinted dark (validated by the Light Blue reference; skin only, IA unchanged) */
+  --bg:#0B0E16;--panel:#141927;--line:#232A3B;--line2:#1b2231;
+  --txt:#E8EBF2;--dim:#9AA3B8;--faint:#5B6479;
+  --green:#3FB950;--amber:#D29922;--red:#F85149;--idle:#6E7681;
+  --sg:rgba(63,185,80,.14);--sa:rgba(210,153,34,.16);--sb:rgba(91,141,239,.16);--sr:rgba(248,81,73,.16);
+  --primary:#5B8DEF;--primaryH:#6f9bf2;--accent:#5B8DEF;--glow:rgba(91,141,239,.18);
+  --mono:ui-monospace,SFMono-Regular,"Geist Mono",Menlo,Consolas,monospace;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
 }
-body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13.5px;line-height:1.5}
+body{margin:0;background:linear-gradient(180deg,#0E1220 0,#0B0E16 520px) fixed,#0B0E16;color:var(--txt);font-family:var(--sans);font-size:13.5px;line-height:1.5}
 a{color:var(--accent);text-decoration:none}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;background:var(--line2);border-radius:5px;padding:1px 5px}
 .app{display:grid;grid-template-columns:208px 1fr;min-height:100vh}
@@ -207,6 +217,83 @@ button[disabled]{opacity:.5;cursor:not-allowed}
 .kbox input{width:100%;border:none;outline:none;background:transparent;font:16px var(--sans);color:var(--txt)}
 kbd{border:1px solid var(--line);border-radius:5px;padding:1px 6px;font:11px var(--sans);color:var(--faint);background:var(--bg)}
 @media(max-width:980px){.app{grid-template-columns:1fr}.side{flex-direction:row;flex-wrap:wrap;border-right:none;border-bottom:1px solid var(--line)}.who{display:none}.grid4{grid-template-columns:repeat(2,1fr)}.grid3{grid-template-columns:1fr}}
+
+/* ───────────────────────── Cockpit V2 ───────────────────────── */
+.card,.box,.attn,.ask,pre.answer{box-shadow:0 1px 0 rgba(255,255,255,.02),0 8px 24px rgba(0,0,0,.28)}
+.card:hover{border-color:#324063;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+code,.mono{font-family:var(--mono)}
+.app2{display:grid;grid-template-columns:64px 1fr;min-height:100vh}
+/* icon rail */
+.rail{position:sticky;top:0;height:100vh;background:rgba(15,18,30,.7);backdrop-filter:blur(8px);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
+.rail .mk{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#5B8DEF,#7C5CFF);display:grid;place-items:center;color:#fff;font-size:15px;margin-bottom:10px;box-shadow:0 0 18px var(--glow)}
+.rb{position:relative;width:42px;height:42px;border-radius:11px;display:grid;place-items:center;color:var(--dim);font-size:17px;cursor:pointer;border:1px solid transparent;transition:background .12s,color .12s,border-color .12s}
+.rb:hover{background:var(--bg-elev-2,#1A2030);color:var(--txt)}
+.rb.active{background:var(--sb);color:var(--primary);border-color:#2c3f66}
+.rb .lbl{position:absolute;left:52px;white-space:nowrap;background:#1A2030;border:1px solid var(--line);color:var(--txt);font-size:12px;font-weight:600;padding:4px 9px;border-radius:7px;opacity:0;pointer-events:none;transform:translateX(-4px);transition:opacity .12s,transform .12s;z-index:30}
+.rb:hover .lbl{opacity:1;transform:translateX(0)}
+.rb .cnt{position:absolute;top:5px;right:5px;min-width:15px;height:15px;border-radius:8px;background:var(--red);color:#fff;font-size:9px;font-weight:800;display:grid;place-items:center;padding:0 3px}
+.rail .sp{flex:1}
+.rail .av{width:30px;height:30px;border-radius:50%;background:#222b40;display:grid;place-items:center;font-weight:700;color:#9fb0cc;font-size:12px}
+/* topbar */
+.tb{display:flex;align-items:center;gap:12px;padding:14px 26px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(11,14,22,.72);backdrop-filter:blur(10px);z-index:20}
+.cmd{flex:1;max-width:560px;display:flex;align-items:center;gap:9px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;color:var(--faint);cursor:text}
+.cmd:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px var(--glow)}
+.cmd input{flex:1;border:none;outline:none;background:transparent;font:inherit;color:var(--txt)}
+.tstamp{color:var(--faint);font-size:12px;font-family:var(--mono)}
+.wrap{padding:22px 26px;max-width:1200px;margin:0 auto}
+/* section + view system */
+.view[hidden]{display:none}
+.seclbl{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:1.3px;color:var(--faint);text-transform:uppercase;font-weight:800;margin:22px 2px 11px}
+.seclbl .ln{flex:1;height:1px;background:var(--line)}
+/* executive brief hero */
+.hero{display:grid;grid-template-columns:2fr 1fr;gap:14px}
+.htile{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;position:relative;overflow:hidden}
+.htile.lead{background:linear-gradient(135deg,rgba(91,141,239,.10),rgba(124,92,255,.04)),var(--panel);border-color:#2c3f66;box-shadow:0 0 0 1px var(--glow),0 10px 30px rgba(0,0,0,.3)}
+.htile .k{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--faint);font-weight:800;margin-bottom:7px}
+.htile .v{font-size:15px;font-weight:700;line-height:1.4}
+.htile .vbig{font-size:20px;font-weight:800;letter-spacing:-.3px;line-height:1.3}
+.htile .sub2{color:var(--dim);font-size:12px;margin-top:5px}
+.htile .hist{font-family:var(--mono);font-size:11px;color:var(--amber);margin-top:6px}
+.htile .bar{position:absolute;left:0;top:0;bottom:0;width:3px}
+.htile.r .bar{background:var(--red)}.htile.a .bar{background:var(--amber)}.htile.g .bar{background:var(--green)}.htile.i .bar{background:var(--idle)}
+.hero4{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:14px}
+.sysv{display:grid;place-items:center;text-align:center}
+.sysv .big{font-size:26px;font-weight:800;letter-spacing:-.5px}
+.hbtns{display:flex;gap:8px;margin-top:10px}
+/* awareness / memory / focus columns */
+.cols{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.awli{display:flex;gap:8px;align-items:flex-start;padding:7px 0;font-size:12.5px;color:var(--dim);border-top:1px solid var(--line2)}
+.awli:first-child{border-top:none}
+.awli b{color:var(--txt);font-weight:600}
+.frq{font-family:var(--mono);font-size:11px;color:var(--faint);margin-left:auto;white-space:nowrap}
+.spark{display:flex;align-items:flex-end;gap:2px;height:18px}
+.spark i{width:5px;background:var(--primary);border-radius:1px;opacity:.8}
+.lesson{font-style:italic;color:var(--txt);font-size:12.5px;padding:7px 0;border-top:1px solid var(--line2)}
+.fcol .h{font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+/* mobile bottom nav */
+.botnav{display:none}
+@media(max-width:760px){
+  .app2{grid-template-columns:1fr}
+  .rail{display:none}
+  .tb{padding:12px 16px}
+  .wrap{padding:16px 16px 80px}
+  .hero{grid-template-columns:1fr}.hero .focus{grid-column:auto}
+  .hero4{grid-template-columns:1fr 1fr}
+  .cols{grid-template-columns:1fr}.cols2{grid-template-columns:1fr}
+  .grid4{grid-template-columns:1fr 1fr}
+  .botnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:40;background:rgba(15,18,30,.94);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:8px 6px;justify-content:space-around}
+  .bn{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--faint);font-size:10px;font-weight:700;padding:4px 12px;border-radius:10px;cursor:pointer}
+  .bn.active{color:var(--primary);background:var(--sb)}
+  .bn .cnt{position:absolute;top:0;right:8px;min-width:14px;height:14px;border-radius:7px;background:var(--red);color:#fff;font-size:8px;display:grid;place-items:center}
+}
+@media(prefers-reduced-motion:no-preference){
+  .view:not([hidden])>*{animation:rise .14s ease both}
+  @keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .dot.r{animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(248,81,73,.5)}50%{box-shadow:0 0 0 4px rgba(248,81,73,0)}}
+}
+.login-card input,.x{background:#0f1320}
 `;
 
 // ─── Shared shell + small helpers ─────────────────────────────────────────────
@@ -596,6 +683,193 @@ function activityBox(threads: CockpitThreadSummary[]): string {
   return box("Recent activity", rows, "activity");
 }
 
+// ─── Cockpit V2 — shell + executive sections ─────────────────────────────────
+
+/** Humanize an ISO timestamp relative to now ("12 min ago"); falls back to the raw value. */
+function relTime(iso: string, now: string): string {
+  const t = Date.parse(iso);
+  const n = Date.parse(now);
+  if (Number.isNaN(t) || Number.isNaN(n) || t > n) return iso || "no snapshot time";
+  const m = Math.round((n - t) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
+const V2_NAV: Array<[string, string, string]> = [
+  ["overview", "▣", "Overview"],
+  ["awareness", "◬", "Awareness"],
+  ["fleet", "⬡", "Fleet"],
+  ["approvals", "✓", "Approvals"],
+  ["health", "♥", "Health"],
+];
+
+/** The 64px icon rail (V2 nav). Destinations toggle server-rendered sections client-side. */
+function railV2(pending: number): string {
+  const items = V2_NAV.map(
+    ([key, ic, label], i) =>
+      `<div class="rb${i === 0 ? " active" : ""}" data-nav="${key}" role="button" tabindex="0">${ic}` +
+      `${key === "approvals" && pending > 0 ? `<span class="cnt">${pending}</span>` : ""}` +
+      `<span class="lbl">${esc(label)}</span></div>`,
+  ).join("");
+  return (
+    `<nav class="rail">` +
+    `<div class="mk">◆</div>` +
+    items +
+    `<div class="sp"></div>` +
+    `<div class="rb" title="read-only" style="cursor:default">●<span class="lbl">read-only · ${esc(ACTION_EXECUTION)}</span></div>` +
+    `<div class="av">H</div>` +
+    `</nav>`
+  );
+}
+
+/** Mobile bottom nav (thumb zone). Mirrors the rail; Health folds under Approvals on mobile. */
+function botnav(pending: number): string {
+  const items: Array<[string, string, string]> = [
+    ["overview", "▣", "Brief"],
+    ["awareness", "◬", "Aware"],
+    ["fleet", "⬡", "Fleet"],
+    ["approvals", "✓", "Approve"],
+  ];
+  return (
+    `<nav class="botnav">` +
+    items
+      .map(
+        ([key, ic, label], i) =>
+          `<div class="bn${i === 0 ? " active" : ""}" data-nav="${key}">${ic}` +
+          `${key === "approvals" && pending > 0 ? `<span class="cnt">${pending}</span>` : ""}` +
+          `<span>${esc(label)}</span></div>`,
+      )
+      .join("") +
+    `</nav>`
+  );
+}
+
+function awTone(kind: "risk" | "opp" | "drift" | "blind", confidence?: string): Tone {
+  if (kind === "opp") return "g";
+  if (kind === "blind") return "i";
+  if (kind === "drift") return "a";
+  return confidence === "high" ? "r" : "a";
+}
+
+/** SECTION 1 — Executive Brief hero (the "if Hart reads nothing else" strip). */
+function heroSection(brief: StrategicBrief, overall: string, sysTone: Tone, approval: ProposalsView["proposals"][number] | null): string {
+  if (brief.status === "insufficient_evidence") {
+    return (
+      `<div class="hero"><div class="htile lead i"><span class="bar"></span>` +
+      `<div class="k">Executive brief</div><div class="vbig">Awareness pending</div>` +
+      `<div class="sub2">${esc(brief.note)}</div></div>` +
+      `<div class="htile sysv ${sysTone}"><span class="bar"></span><div class="k">System</div><div class="big">${esc(overall.toUpperCase())}</div></div></div>`
+    );
+  }
+  const focus = brief.recommendedFocus ?? "No single focus — the read is clear.";
+  const risk = brief.risks[0];
+  const opp = brief.opportunities[0];
+  const driver = risk ? risk.risk : "no red signals";
+
+  const focusTile =
+    `<div class="htile lead"><span class="bar"></span>` +
+    `<div class="k">▸ Recommended focus</div><div class="vbig">${escMultiline(focus)}</div>` +
+    `<div class="sub2">highest leverage right now</div></div>`;
+  const sysTile =
+    `<div class="htile sysv ${sysTone}"><span class="bar"></span><div class="k">System</div>` +
+    `<div class="big">${esc(overall.toUpperCase())}</div><div class="sub2">${esc(driver)}</div></div>`;
+  const riskTile = risk
+    ? `<div class="htile ${risk.confidence === "high" ? "r" : "a"}"><span class="bar"></span><div class="k">Top risk</div>` +
+      `<div class="v">${esc(risk.risk)}</div>` +
+      `${risk.historicalContext ? `<div class="hist">⟲ ${esc(risk.historicalContext)}</div>` : ""}` +
+      `<div class="sub2">${esc(risk.suggestedAction)}</div></div>`
+    : `<div class="htile g"><span class="bar"></span><div class="k">Top risk</div><div class="v">None above threshold</div></div>`;
+  const oppTile = opp
+    ? `<div class="htile g"><span class="bar"></span><div class="k">Top opportunity</div>` +
+      `<div class="v">${esc(opp.opportunity)}</div><div class="sub2">${esc(opp.suggestedAction)}</div></div>`
+    : `<div class="htile i"><span class="bar"></span><div class="k">Top opportunity</div><div class="v">None standing out</div></div>`;
+  const apprTile = approval
+    ? `<div class="htile a"><span class="bar"></span><div class="k">Top approval</div>` +
+      `<div class="v">${esc(approval.title)}</div><div class="sub2">${esc(approval.riskLevel)} risk · ${esc(approval.effect)}</div>` +
+      `<div class="hbtns"><span class="pact" data-pid="${esc(approval.id)}"><button class="pbtn ok" data-act="approve">Approve</button><button class="pbtn no" data-act="reject">Reject</button></span></div></div>`
+    : `<div class="htile i"><span class="bar"></span><div class="k">Top approval</div><div class="v">Queue clear</div></div>`;
+
+  return `<div class="hero">${focusTile}${sysTile}</div><div class="hero4">${riskTile}${oppTile}${apprTile}</div>`;
+}
+
+function awColumn(title: string, kind: "risk" | "opp" | "drift" | "blind", rows: string[]): string {
+  const inner = rows.length ? rows.join("") : `<div class="awli"><span class="muted">None above threshold.</span></div>`;
+  return `<div class="box"><div class="blbl">${esc(title)}</div>${inner}</div>`;
+}
+
+/** SECTION 2 — Strategic Awareness (Risks / Opportunities / Drift / Blind Spots, capped). */
+function awarenessSection(brief: StrategicBrief): string {
+  if (brief.status === "insufficient_evidence") {
+    return `<div class="box"><div class="muted">${esc(brief.note)}</div></div>`;
+  }
+  const risk = (r: StrategicBrief["risks"][number]): string =>
+    `<div class="awli"><span class="dot ${awTone("risk", r.confidence)}"></span><span><b>${esc(r.risk)}</b>` +
+    `${r.historicalContext ? ` <span class="frq">⟲ ${esc(r.historicalContext)}</span>` : ""}<br><span class="muted">${esc(r.suggestedAction)}</span></span></div>`;
+  const opp = (o: StrategicBrief["opportunities"][number]): string =>
+    `<div class="awli"><span class="dot g"></span><span><b>${esc(o.opportunity)}</b><br><span class="muted">${esc(o.suggestedAction)}</span></span></div>`;
+  const dr = (d: StrategicBrief["drift"][number]): string =>
+    `<div class="awli"><span class="dot a"></span><span><b>${esc(d.drift)}</b><br><span class="muted">${esc(d.suggestedCorrection)}</span></span></div>`;
+  const bs = (b: StrategicBrief["blindSpots"][number]): string =>
+    `<div class="awli"><span class="dot i"></span><span>${esc(b.blindSpot)}</span></div>`;
+  return (
+    `<div class="cols">` +
+    awColumn(`Risks (${brief.risks.length})`, "risk", brief.risks.map(risk)) +
+    awColumn(`Opportunities (${brief.opportunities.length})`, "opp", brief.opportunities.map(opp)) +
+    awColumn(`Drift (${brief.drift.length})`, "drift", brief.drift.map(dr)) +
+    awColumn(`Blind spots (${brief.blindSpots.length})`, "blind", brief.blindSpots.map(bs)) +
+    `</div>`
+  );
+}
+
+/** SECTION 3 — Executive Memory (patterns / trends / lessons). Honest INSUFFICIENT_HISTORY. */
+function memorySection(mem: ExecutiveMemoryReport): string {
+  if (mem.status === "insufficient_history") {
+    return `<div class="box"><div class="blbl">Executive memory</div><div class="muted">${esc(mem.note)}</div></div>`;
+  }
+  const patterns = mem.recurringPatterns.length
+    ? mem.recurringPatterns.map((p) => `<div class="awli"><span class="dot ${p.kind === "opportunity" ? "g" : "a"}"></span><b>${esc(p.subject)}</b><span class="frq">${p.occurrences}× / ${Math.round(p.windowDays)}d</span></div>`).join("")
+    : `<div class="awli"><span class="muted">No recurring pattern yet.</span></div>`;
+  const trends = mem.trends.length
+    ? mem.trends.map((t) => `<div class="awli"><span>${esc(t.metric)}</span><span class="frq">${t.from}→${t.to} ${t.direction === "rising" ? "↗" : t.direction === "falling" ? "↘" : "→"}</span></div>`).join("")
+    : `<div class="awli"><span class="muted">No trend with enough points.</span></div>`;
+  const lessons = mem.lessons.length
+    ? mem.lessons.map((l) => `<div class="lesson">“${esc(l.lesson)}”</div>`).join("")
+    : `<div class="muted">No evidence-based lesson yet.</div>`;
+  return (
+    `<div class="cols2">` +
+    `<div class="box"><div class="blbl">Recurring patterns</div>${patterns}</div>` +
+    `<div class="box"><div class="blbl">Trend summary</div>${trends}</div>` +
+    `</div><div class="box" style="margin-top:14px"><div class="blbl">Lessons learned</div>${lessons}</div>`
+  );
+}
+
+/** SECTION 4 — Today's Focus (Do Now / Can Wait), from the cross-system synthesis. */
+function focusSection(s: SuggestionSet): string {
+  if (!s.actions.length) return `<div class="box"><div class="muted">${esc(s.note)}</div></div>`;
+  const doNow = s.actions.filter((a) => a.priority === "high" || a.priority === "medium");
+  const canWait = s.actions.filter((a) => a.priority === "low");
+  const row = (a: SuggestionSet["actions"][number], i: number): string =>
+    `<div class="awli"><span class="rk now" style="width:20px;height:20px;font-size:11px">${i + 1}</span><span><b>${esc(a.title)}</b><br><span class="muted">${esc(a.rationale)}</span></span></div>`;
+  const wait = (a: SuggestionSet["actions"][number]): string =>
+    `<div class="awli"><span class="dot i"></span><span>${esc(a.title)} <span class="muted">· ${esc(a.priority)}</span></span></div>`;
+  return (
+    `<div class="cols2">` +
+    `<div class="box"><div class="fcol"><div class="h">Do now</div></div>${doNow.length ? doNow.map(row).join("") : `<div class="muted">Nothing urgent.</div>`}</div>` +
+    `<div class="box"><div class="fcol"><div class="h">Can wait</div></div>${canWait.length ? canWait.map(wait).join("") : `<div class="muted">Nothing deferred.</div>`}</div>` +
+    `</div>`
+  );
+}
+
+function sec(label: string): string {
+  return `<div class="seclbl">${esc(label)}<span class="ln"></span></div>`;
+}
+function viewBlock(name: string, visible: boolean, inner: string): string {
+  return `<section class="view" data-view="${name}"${visible ? "" : " hidden"}>${inner}</section>`;
+}
+
 /** The authed landing cockpit. Grounded, read-only, server-rendered. */
 export function renderHostedCockpitPage(state: CockpitState | undefined, opts: HostedPageOptions = {}): string {
   const now = opts.now ?? opts.generatedAt ?? state?.generatedAt ?? "";
@@ -621,76 +895,88 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   // Pass the already-computed artifacts so the pipeline isn't run a second time per render.
   const suggestions = cockpitSuggestions(state, now, { perception, plan: fleetPlan, forecast: fleetForecast });
 
+  // Cockpit V2 — the Executive Brief is the strategic-awareness brief (risks/opps/drift/blind),
+  // enriched with executive memory when a host has supplied snapshots (honest otherwise).
+  const sbrief: StrategicBrief = strategicAwareness({
+    now,
+    panels: state?.panels ?? [],
+    freshness: fr,
+    proposals: state?.proposalQueue ?? [],
+    perception,
+    forecast: fleetForecast,
+    synthesis: synthesis.available ? synthesis : null,
+    ...(opts.memorySnapshots ? { history: opts.memorySnapshots } : {}),
+  });
+  const mem: ExecutiveMemoryReport = executiveMemory(opts.memorySnapshots ?? [], { now });
+
   const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
-  const mainAction = (brief.highlights.find((h) => h.startsWith("Main action:")) ?? "Main action: review the cockpit.").replace(/^Main action:\s*/i, "");
-  const attention = brief.highlights.filter((h) => !h.startsWith("Overall:") && !h.startsWith("Main action:"));
   const sysTone = tone(overall, "high", "live");
+  const pending = props.available ? props.pending : 0;
+  const topApproval = props.available ? props.proposals.find((p) => p.status === "pending_approval") ?? null : null;
 
-  const header =
-    `<div class="head">` +
-    `<div><div class="h1">Command Center</div><div class="sub">Mission Control · fleet overview</div></div>` +
-    `<div class="grow"></div>` +
-    `<div class="statwrap"><div class="statlbl">SYSTEM STATUS</div>` +
-    `<span class="pill ${sysTone}"><span class="dot ${sysTone}"></span>${esc(overall.toUpperCase())}</span>` +
-    `<div class="sub">${now ? `as of ${esc(now)}` : "no snapshot time"}</div>` +
-    `<div class="badge2">action execution: ${esc(ACTION_EXECUTION)}</div></div>` +
-    `</div>`;
-
-  const askBar =
-    `<form class="ask" id="ask-form" action="/api/ask" method="post">` +
-    `<input id="q" type="text" placeholder="Ask HartOS anything…" autocomplete="off" aria-label="Ask HartOS">` +
-    `<kbd>⌘K</kbd>` +
+  const topbar =
+    `<div class="tb">` +
+    `<form class="cmd" id="ask-form" action="/api/ask" method="post"><span>⌘</span>` +
+    `<input id="q" type="text" placeholder="Ask HartOS… (⌘K)" autocomplete="off" aria-label="Ask HartOS">` +
     voiceInputButtonHtml() +
-    `<button class="send" id="ask" type="submit" title="Ask HartOS">&#10148;</button></form>` +
-    `<div class="chips">` +
-    ["What needs my attention today?", "Is my data fresh?", "Anything urgent in ops?", "Show pending proposals", "Research if CoachOS is worth building"]
-      .map((c) => `<span class="chip" data-q="${esc(c)}">${esc(c)}</span>`)
-      .join("") +
+    `<button class="send" id="ask" type="submit" title="Ask HartOS" style="width:26px;height:26px;border:none;border-radius:7px;background:var(--primary);color:#fff;cursor:pointer">&#10148;</button></form>` +
+    `<div class="grow"></div>` +
+    `<span class="pill ${sysTone}"><span class="dot ${sysTone}"></span>${esc(overall.toUpperCase())}</span>` +
+    `<span class="tstamp">⟳ ${esc(relTime(now, now))}</span>` +
     `</div>` +
-    `<pre class="answer" id="out" style="display:none"></pre>`;
-
-  const attentionRows =
-    `<div class="row"><span class="rk now">▸</span><span class="atext"><b>${escMultiline(mainAction)}</b></span></div>` +
-    attention.map((t, i) => `<div class="row"><span class="rk">${i + 1}</span><span class="atext">${escMultiline(t)}</span></div>`).join("") +
-    (sysTone !== "r"
-      ? `<div class="row"><span class="rk ok">✓</span><span class="atext" style="color:var(--green);font-weight:700">No red system-health issues</span></div>`
-      : "");
+    `<div class="wrap"><pre class="answer" id="out" style="display:none;margin:0 0 14px"></pre>`;
 
   const fleetSection = fleet.agents.length
     ? `<div class="grid4">${fleet.agents.map((a) => fleetCard(a, panelAdvice(state, a.type))).join("")}</div>`
     : `<div class="box"><div class="muted">${esc(fleet.note)}</div></div>`;
 
+  // ── Views (server-rendered; the rail/bottom-nav toggle visibility client-side) ──
+  const overview = viewBlock(
+    "overview",
+    true,
+    sec("Executive Brief") + heroSection(sbrief, overall, sysTone, topApproval) +
+      sec("Strategic Awareness") + awarenessSection(sbrief) +
+      sec("Today's Focus") + focusSection(suggestions) +
+      sec("Fleet") + fleetSection,
+  );
+  const awarenessView = viewBlock(
+    "awareness",
+    false,
+    sec("Strategic Awareness") + awarenessSection(sbrief) +
+      sec("Executive Memory") + memorySection(mem),
+  );
+  const fleetViewBlk = viewBlock(
+    "fleet",
+    false,
+    sec("Fleet Status") + fleetSection + sec("Fleet Brain") + fleetBrainBox(briefing) + fleetSynthesisBox(synthesis),
+  );
+  const approvalsView = viewBlock(
+    "approvals",
+    false,
+    sec("Approvals") + proposalBox(props) + mutationCenterBox(mutation) +
+      (autonomy.total > 0 ? autonomyBox(autonomy) : ""),
+  );
+  const healthView = viewBlock(
+    "health",
+    false,
+    sec("System Health") +
+      `<div class="grid3">` +
+      trustBox(rms, fr) + freshBox(fr) + suggestionsBox(suggestions) +
+      perceptionBox(perception, fleetWork) + orchestrationBox(fleetPlan) + forecastBox(fleetForecast) +
+      mutationDispatchBox(dispatch) + auditBox(audit) + activityBox(threads) +
+      (factoryJobs.total > 0 ? factoryJobBox(factoryJobs) : "") +
+      `</div>`,
+  );
+
   const body =
-    `<div class="app">${sidebar("home")}<main class="main">` +
-    header +
-    askBar +
-    `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
-    `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
-    `<div class="grid3">` +
-    // Tier 1 — action + decisions (always shown)
-    suggestionsBox(suggestions) +
-    proposalBox(props) +
-    mutationCenterBox(mutation) +
-    fleetBrainBox(briefing) +
-    // Tier 2 — signal health (always shown)
-    freshBox(fr) +
-    trustBox(rms, fr) +
-    fleetSynthesisBox(synthesis) +
-    // Tier 3 — execution + autonomy (shown when relevant)
-    (autonomy.total > 0 ? autonomyBox(autonomy) : "") +
-    mutationDispatchBox(dispatch) +
-    // Tier 4 — audit + activity (always shown)
-    auditBox(audit) +
-    activityBox(threads) +
-    // Tier 5 — intelligence panels (always shown; factory jobs only when jobs exist)
-    perceptionBox(perception, fleetWork) +
-    orchestrationBox(fleetPlan) +
-    forecastBox(fleetForecast) +
-    (factoryJobs.total > 0 ? factoryJobBox(factoryJobs) : "") +
-    `</div>` +
+    `<div class="app2">${railV2(pending)}<main>` +
+    topbar +
+    overview + awarenessView + fleetViewBlk + approvalsView + healthView +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
+    `</div>` +
     `</main></div>` +
+    botnav(pending) +
     // Quick-peek drawer (card click) + ⌘K command palette — progressive enhancement.
     `<div class="overlay" id="ov"></div>` +
     `<aside class="drawer" id="drawer" aria-hidden="true"><div class="dwrap" id="dbody"></div></aside>` +
@@ -771,6 +1057,20 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   document.addEventListener('keydown',function(e){
     if((e.metaKey||e.ctrlKey)&&(e.key==='k'||e.key==='K')){e.preventDefault();openK();}
     else if(e.key==='Escape'){closeK();closeDrawer();}
+  });
+  // Cockpit V2 — destination nav: rail + bottom-nav toggle server-rendered sections (no fetch).
+  function showView(name){
+    Array.prototype.forEach.call(document.querySelectorAll('.view'),function(s){
+      if(s.getAttribute('data-view')===name){s.removeAttribute('hidden');}else{s.setAttribute('hidden','');}
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-nav]'),function(n){
+      if(n.getAttribute('data-nav')===name){n.classList.add('active');}else{n.classList.remove('active');}
+    });
+    window.scrollTo(0,0);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-nav]'),function(n){
+    n.addEventListener('click',function(){showView(n.getAttribute('data-nav'));});
+    n.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();showView(n.getAttribute('data-nav'));}});
   });
 })();
 </script>`;

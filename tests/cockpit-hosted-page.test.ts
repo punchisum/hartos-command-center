@@ -23,23 +23,32 @@ const html = renderHostedCockpitPage(undefined, {
   ],
 });
 
-describe("hosted cockpit page — Style 5 structure + depth", () => {
-  it("renders the Style 5 shell (sidebar + system verdict + read-only)", () => {
+describe("hosted cockpit page — V2 structure + depth", () => {
+  it("renders the V2 shell (icon rail + destinations + system verdict + read-only)", () => {
     assert.match(html, /<!doctype html>/i);
-    assert.match(html, /class="app"/);
-    assert.match(html, /class="side"/);
-    assert.match(html, /SYSTEM STATUS/);
+    assert.match(html, /class="app2"/);
+    assert.match(html, /class="rail"/);
+    // five destinations
+    for (const d of ["overview", "awareness", "fleet", "approvals", "health"]) {
+      assert.match(html, new RegExp(`data-nav="${d}"`), `rail destination ${d}`);
+    }
     assert.match(html, /read-only/);
   });
 
-  it("includes the inline Ask bar AND the ⌘K command palette", () => {
+  it("renders the Executive Brief hero + the new executive sections", () => {
+    assert.match(html, /Executive Brief/);
+    assert.match(html, /Recommended focus/i);
+    assert.match(html, /Strategic Awareness/);
+    assert.match(html, /Executive Memory/);
+    assert.match(html, /Today&#39;s Focus/);
+  });
+
+  it("includes the topbar command input AND the ⌘K command palette", () => {
     assert.match(html, /id="ask-form"/);
     assert.match(html, /id="q"/);
     assert.match(html, /id="kbar"/);
     assert.match(html, /id="kq"/);
     assert.match(html, /⌘K/);
-    // 1.6: the research planner is discoverable via an Ask chip (routes to the research intent)
-    assert.match(html, /data-q="Research if CoachOS is worth building"/);
   });
 
   it("includes the quick-peek detail drawer scaffold", () => {

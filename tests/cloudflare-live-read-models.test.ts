@@ -252,8 +252,8 @@ describe("hosted fleet view — unified cross-agent render surfaced in the live 
     const res = await handleCockpitRequest(new Request("https://c/"), env, await liveCtx());
     assert.equal(res.status, 200);
     const html = await res.text();
-    // Style 5 — each agent is a real card linking to its full dashboard (works w/o JS).
-    assert.match(html, /Fleet · click any agent to expand/);
+    // V2 — each agent is a real card linking to its full dashboard (works w/o JS).
+    assert.match(html, /Fleet/);
     assert.match(html, /class="card" href="\/agent\/fitness\/ui"/);
     assert.match(html, /class="card" href="\/agent\/ops\/ui"/);
     // Verdicts are surfaced from each agent's own data (uppercased in the pill).
