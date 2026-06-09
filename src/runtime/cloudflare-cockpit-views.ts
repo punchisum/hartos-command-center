@@ -153,6 +153,9 @@ export interface ProposalsView {
   note: string;
   total: number;
   pending: number;
+  /** Derived hygiene counts (view-only; no durable write — run the hygiene command to apply). */
+  duplicates: number;
+  staleExpired: number;
   proposals: {
     n: number;
     id: string;
@@ -160,12 +163,66 @@ export interface ProposalsView {
     riskLevel: string;
     title: string;
     status: string;
+    /** One-line plain-English effect, lifted from the proposal's expectedEffect/description. */
+    effect: string;
+    /** Why a reasonable operator might approve — derived from effect + risk. */
+    whyApprove: string;
+    /** Why a reasonable operator might reject / hold — derived from risk + hygiene flags. */
+    whyReject: string;
+    /** This proposal duplicates an active newer one (same domain+actionType+title). */
+    duplicate: boolean;
+    /** Past its expiresAt while still draft/pending — should be expired by the hygiene command. */
+    staleExpired: boolean;
     executable: false;
   }[];
 }
 
+/** Pure, view-only hygiene + reasoning derivation (no writes; mirrors the explicit-command rules). */
+function deriveProposalHygiene(
+  queue: ProposalQueueItem[],
+  now: string,
+): Map<string, { duplicate: boolean; staleExpired: boolean }> {
+  const ACTIVE = new Set(["draft", "pending_approval"]);
+  const out = new Map<string, { duplicate: boolean; staleExpired: boolean }>();
+  // Duplicate = same domain|actionType|title among ACTIVE; keep newest (queue is newest-first),
+  // flag the rest. Mirrors expireDuplicateProposals without writing.
+  const seenKey = new Set<string>();
+  const nowMs = Date.parse(now);
+  for (const p of queue) {
+    const active = ACTIVE.has(p.status);
+    const key = `${p.domain}|${p.actionType}|${p.title}`;
+    let duplicate = false;
+    if (active) {
+      if (seenKey.has(key)) duplicate = true;
+      else seenKey.add(key);
+    }
+    const staleExpired =
+      active && !!p.expiresAt && !Number.isNaN(nowMs) && Date.parse(p.expiresAt) < nowMs;
+    out.set(p.id, { duplicate, staleExpired });
+  }
+  return out;
+}
+
+/** Plain-English "why approve / why reject" for a proposal (deterministic, no LLM). */
+function proposalReasoning(
+  p: ProposalQueueItem,
+  flags: { duplicate: boolean; staleExpired: boolean },
+): { effect: string; whyApprove: string; whyReject: string } {
+  const effect = (p.expectedEffect || p.description || "Effect not described.").trim();
+  const whyApprove =
+    `Advances "${p.title}" (${p.domain}). ${effect} Dry-run only — approval just clears it for a future gated, audited step; nothing executes now.`;
+  const rejectBits: string[] = [];
+  if (flags.staleExpired) rejectBits.push("past its expiry window (likely no longer relevant)");
+  if (flags.duplicate) rejectBits.push("duplicates a newer proposal already in the queue");
+  if (p.riskLevel === "high") rejectBits.push("high risk — confirm the target and rollback note first");
+  const whyReject = rejectBits.length
+    ? `Hold/reject: ${rejectBits.join("; ")}.`
+    : "Reject if the effect above isn't what you want, or you'd rather act manually.";
+  return { effect, whyApprove, whyReject };
+}
+
 /** Compact, read-only view of the local proposal queue (non-executable). */
-export function proposalsView(state: CockpitState | undefined): ProposalsView {
+export function proposalsView(state: CockpitState | undefined, now = ""): ProposalsView {
   const queue: ProposalQueueItem[] | undefined = state?.proposalQueue;
   if (!queue) {
     return {
@@ -176,10 +233,20 @@ export function proposalsView(state: CockpitState | undefined): ProposalsView {
       note: "Proposal queue is local-only in the hosted MVP. Create/manage proposals from the local cockpit (npm run cockpit:web).",
       total: 0,
       pending: 0,
+      duplicates: 0,
+      staleExpired: 0,
       proposals: [],
     };
   }
+  const resolvedNow = now || state?.generatedAt || "";
+  const hygiene = deriveProposalHygiene(queue, resolvedNow);
   const pending = queue.filter((p) => p.status === "draft" || p.status === "pending_approval").length;
+  let duplicates = 0;
+  let staleExpired = 0;
+  for (const f of hygiene.values()) {
+    if (f.duplicate) duplicates += 1;
+    if (f.staleExpired) staleExpired += 1;
+  }
   return {
     available: true,
     mode: "read_only_snapshot",
@@ -188,15 +255,26 @@ export function proposalsView(state: CockpitState | undefined): ProposalsView {
     note: "Read-only snapshot of the local proposal queue. All proposals are dry-run only and cannot be executed from the hosted cockpit.",
     total: queue.length,
     pending,
-    proposals: queue.slice(0, 20).map((p, i) => ({
-      n: i + 1,
-      id: p.id,
-      domain: p.domain,
-      riskLevel: p.riskLevel,
-      title: p.title,
-      status: p.status,
-      executable: false as const,
-    })),
+    duplicates,
+    staleExpired,
+    proposals: queue.slice(0, 20).map((p, i) => {
+      const flags = hygiene.get(p.id) ?? { duplicate: false, staleExpired: false };
+      const reasoning = proposalReasoning(p, flags);
+      return {
+        n: i + 1,
+        id: p.id,
+        domain: p.domain,
+        riskLevel: p.riskLevel,
+        title: p.title,
+        status: p.status,
+        effect: reasoning.effect,
+        whyApprove: reasoning.whyApprove,
+        whyReject: reasoning.whyReject,
+        duplicate: flags.duplicate,
+        staleExpired: flags.staleExpired,
+        executable: false as const,
+      };
+    }),
   };
 }
 

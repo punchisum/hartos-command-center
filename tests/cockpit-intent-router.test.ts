@@ -119,6 +119,31 @@ describe("grounded answers", () => {
     assert.ok(r.summary.includes("1 blocked/risk"), "grounds blocked count");
   });
 
+  it("ops_status states an honest confidence + source line", () => {
+    const r = routeCockpitIntent(ctx("Anything urgent in ops?"));
+    // All core fields resolved + not stale → HIGH confidence, with the source named.
+    assert.match(r.summary, /Confidence: (HIGH|MEDIUM|LOW) \(/, "must state a confidence with reason");
+    assert.ok(r.summary.includes("Source: ops read-model (ClickUp)"), "must name the source");
+  });
+
+  it("panelMissing answers use the failure-recovery format (cause + next step + check + healthy)", () => {
+    // A context with no ops panel triggers panelMissing for ops_status.
+    const empty: IntentRouterContext = {
+      request: "Anything urgent in ops?",
+      panels: [],
+      systemSummary: SYSTEM,
+      integration: { configPresent: false, agentsConfigured: 0, agentsDetected: 0, readModelsEnabled: 0 },
+      llm: { provider: "deterministic", mode: "fallback" },
+    };
+    const r = routeCockpitIntent(empty);
+    assert.equal(r.intent, "ops_status");
+    assert.match(r.summary, /UNAVAILABLE/, "states what failed");
+    assert.match(r.summary, /Likely cause:/, "states likely cause");
+    assert.match(r.summary, /Next step:/, "states exact next step");
+    assert.match(r.summary, /Check:/, "states what to check");
+    assert.match(r.summary, /Expected when healthy:/, "states expected healthy result");
+  });
+
   it("build_agent produces a plan using orchestrator context", () => {
     const r = routeCockpitIntent(ctx("Create a tax agent"));
     assert.equal(r.intent, "build_agent");

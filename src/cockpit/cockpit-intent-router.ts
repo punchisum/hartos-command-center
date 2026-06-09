@@ -471,11 +471,22 @@ function answerOps(ctx: IntentRouterContext): CockpitIntentResult {
     `${noNextAction} without a next action`,
   ].filter((x): x is string => !!x);
 
+  // ── Honest confidence: how many of the core probe fields actually resolved ──
+  // No invented score — confidence is purely a function of data completeness + freshness.
+  const PROBE = ["active_cards", "urgent", "blocked", "waiting", "stale"];
+  const resolved = PROBE.filter((k) => field(p, k)?.status === "ok").length;
+  const confidence: "high" | "medium" | "low" =
+    clickupStale || resolved <= 1 ? "low" : resolved >= 4 ? "high" : "medium";
+  const confidenceReason = clickupStale
+    ? "ClickUp data is stale"
+    : `${resolved}/${PROBE.length} core ops fields resolved`;
+
   // Source values may already end with a period; avoid a doubled ".." .
   const endDot = (s: string) => (/[.!?]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
   const lines = [
     verdictLine,
     `Main action: ${mainAction}`,
+    `Confidence: ${confidence.toUpperCase()} (${confidenceReason}). Source: ops read-model (ClickUp), ${clickupStale ? "STALE" : "current"}.`,
     `Cards: ${factsParts.join(", ")}.`,
     `Latest update: ${endDot(updates?.status === "ok" ? updates.value : "none available")}`,
     `ClickUp sync: ${endDot(sync?.status === "ok" ? sync.value : "unknown")}${
@@ -938,13 +949,24 @@ function base(
 }
 
 function panelMissing(intent: CockpitIntent, title: string, name: string): CockpitIntentResult {
+  // Failure-recovery format: what failed · likely cause · exact next step · route to check · expected healthy result.
+  const summary = [
+    `${capitalize(name)} status is UNAVAILABLE — no ${name} panel resolved.`,
+    `Likely cause: the ${name} agent isn't in agent-integrations.local.json, or its read-model env isn't set on the Worker.`,
+    `Next step: add the ${name} agent to agent-integrations.local.json, then run \`npm run agents:status\` to confirm it's detected.`,
+    `Check: \`npm run read-models:status\` (source wiring) and GET /api/read-models/status (live snapshot).`,
+    `Expected when healthy: ${name} appears as a configured source with a live/fresh read-model and this answer shows a verdict.`,
+  ].join("\n");
   return base(
     intent,
     title,
-    `No ${name} panel was available. Configure agent-integrations.local.json (and optionally a ${name} read-model) to surface ${name} status.`,
-    [],
-    [`${name} panel unavailable`],
-    [`Configure the ${name} agent in agent-integrations.local.json, then run npm run agents:status.`],
+    summary,
+    [`${capitalize(name)}: UNAVAILABLE (not configured).`],
+    [`${name} panel unavailable — source not wired.`],
+    [
+      `Add the ${name} agent to agent-integrations.local.json, then run npm run agents:status.`,
+      `npm run read-models:status`,
+    ],
     false
   );
 }

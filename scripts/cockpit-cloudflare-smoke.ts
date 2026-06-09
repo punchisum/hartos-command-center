@@ -108,6 +108,45 @@ console.log("\nAuth gate (HARTOS_COCKPIT_ACCESS_TOKEN configured):");
   check("POST /api/login (wrong token) → 401", badLogin.status === 401);
 }
 
+// ── Proposal-transition route: auth + execution-gate fail-closed ──
+// The transition route is the only POST that can advance a proposal. It MUST refuse
+// without auth (when a token is configured) and MUST fail closed when no transition
+// provider is wired (advisory-only — the Worker holds no DB key and never writes).
+console.log("\nProposal-transition gate (auth + fail-closed, no mutation):");
+{
+  const token = "smoke-secret-token-value";
+  const env = { HARTOS_COCKPIT_ACCESS_TOKEN: token };
+  const tx = (headers: Record<string, string>, body: unknown) =>
+    handleCockpitRequest(
+      new Request(`${base}/api/proposals/transition`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      }),
+      env,
+      ctx,
+    );
+
+  // 1. No auth → 401 (route is behind the same gate as /api/state).
+  const noAuth = await tx({}, { id: "prop-x", action: "approve" });
+  check("POST /api/proposals/transition without token → 401", noAuth.status === 401);
+
+  // 2. Authed, valid body, but NO transition provider configured → fail closed (no write).
+  const authed = await tx({ authorization: `Bearer ${token}` }, { id: "prop-x", action: "approve" });
+  const authedData = (await authed.json()) as { ok: boolean; attempted: boolean; reason: string };
+  check("authed transition with no provider → 200 but ok:false", authed.status === 200 && authedData.ok === false);
+  check("authed transition fails closed (attempted:false, advisory-only)", authedData.attempted === false && /advisory-only/i.test(authedData.reason));
+
+  // 3. Authed but invalid body → 400 (input validation before any relay).
+  const badBody = await tx({ authorization: `Bearer ${token}` }, { id: "", action: "nuke" });
+  check("authed transition with invalid action → 400", badBody.status === 400);
+
+  // 4. Execution stays globally disabled regardless.
+  const health = await handleCockpitRequest(new Request(`${base}/health`), env, ctx);
+  const healthData = (await health.json()) as { actionExecution: string };
+  check("execution gate disabled while transition route is live", healthData.actionExecution === "disabled");
+}
+
 // ── Production with NO token → fail closed ──
 console.log("\nProduction misconfiguration (APP_ENV=production, no token):");
 {

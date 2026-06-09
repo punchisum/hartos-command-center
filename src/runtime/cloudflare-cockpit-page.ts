@@ -347,22 +347,43 @@ function proposalBox(props: ProposalsView): string {
     const note = props.available ? "No proposals in the queue." : props.note;
     return box("Proposal queue", `<div class="muted">${esc(note)}</div>`, "proposals");
   }
+  // Hygiene banner — honest, view-only. The durable expiry/dedup stays an explicit command
+  // (the Worker holds no DB key); we surface the counts + the exact command to apply them.
+  const hygieneBits: string[] = [];
+  if (props.duplicates > 0) hygieneBits.push(`${props.duplicates} duplicate`);
+  if (props.staleExpired > 0) hygieneBits.push(`${props.staleExpired} past-expiry`);
+  const hygiene = hygieneBits.length
+    ? `<div class="muted" style="margin-top:6px">Hygiene: ${esc(hygieneBits.join(" · "))} — ask "expire duplicate proposals" to clean the queue.</div>`
+    : "";
   const head = `<div class="li"><b>${props.total}</b>&nbsp;total${props.pending ? ` · ${props.pending} pending` : ""}</div>`;
   const rows = props.proposals
     .slice(0, 6)
     .map((p) => {
       const pending = p.status === "pending_approval" || p.status === "draft";
-      const tg = pending ? "pend" : "ok";
-      const label = p.status === "pending_approval" ? "needs approval" : p.status;
+      const tg = p.staleExpired || p.duplicate ? "pend" : pending ? "pend" : "ok";
+      const label = p.staleExpired
+        ? "past expiry"
+        : p.duplicate
+          ? "duplicate"
+          : p.status === "pending_approval"
+            ? "needs approval"
+            : p.status;
+      const riskTag = `<span class="tag">${esc(p.riskLevel)} risk</span>`;
       // Approve/reject only what is pending. The write goes through the gated, capability-
       // token Edge Function (the Worker holds no DB key); the row id is the transition target.
       const actions = p.status === "pending_approval"
         ? `<span class="pact" data-pid="${esc(p.id)}"><button class="pbtn ok" data-act="approve">Approve</button><button class="pbtn no" data-act="reject">Reject</button></span>`
         : "";
-      return `<div class="li">${esc(p.title)} <span class="tag ${tg}">${esc(label)}</span>${actions}</div>`;
+      // Decision reasoning — what it does + why approve / why reject. Dimmed for resolved/dup/stale.
+      const reasoning = pending
+        ? `<div class="muted" style="margin-top:2px">${esc(p.effect)}</div>` +
+          `<div class="muted" style="margin-top:2px">✓ Approve: ${esc(p.whyApprove)}</div>` +
+          `<div class="muted" style="margin-top:2px">✗ Reject: ${esc(p.whyReject)}</div>`
+        : "";
+      return `<div class="li" style="${p.staleExpired || p.duplicate ? "opacity:.6" : ""}"><span><b>${esc(p.title)}</b> <span class="tag ${tg}">${esc(label)}</span>${riskTag}${actions}${reasoning}</span></div>`;
     })
     .join("");
-  return box("Proposal queue", head + rows, "proposals");
+  return box("Proposal queue", head + hygiene + rows, "proposals");
 }
 
 function mutationCenterBox(view: MutationCenterView): string {
@@ -580,7 +601,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const now = opts.now ?? opts.generatedAt ?? state?.generatedAt ?? "";
   const brief = routeHosted(state, "Daily command brief");
   const fr = freshnessView(state, now);
-  const props = proposalsView(state);
+  const props = proposalsView(state, now);
   const fleet = fleetView(state, now);
   const mutation = mutationCenterView(state);
   const dispatch = mutationDispatchView(state);

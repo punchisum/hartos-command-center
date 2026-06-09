@@ -297,7 +297,7 @@ export async function handleCockpitRequest(
       );
     }
     if (pathname === "/api/proposals") {
-      return jsonResponse(200, proposalsView(dctx.state), cors);
+      return jsonResponse(200, proposalsView(dctx.state, nowFor(dctx)), cors);
     }
     if (pathname === "/api/mutation-center") {
       // Read-only Mutation Center — pending-executable proposals with tier/risk/target
