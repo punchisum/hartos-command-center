@@ -56,6 +56,8 @@ import {
   renderAgentDetailPage,
 } from "./cloudflare-cockpit-page.js";
 import { routeHosted, freshnessView, readModelStatusView, proposalsView, fleetView, cockpitSuggestions } from "./cloudflare-cockpit-views.js";
+import { mutationCenterView } from "./views/mutation-center-view.js";
+import { fleetBriefingView } from "./views/fleet-brain-view.js";
 import { suggestionToProposal } from "../cockpit/suggestions/suggest-actions.js";
 import { stableProposalId } from "../cockpit/proposals/cockpit-proposal-spine.js";
 import {
@@ -86,6 +88,8 @@ export const SUPPORTED_ROUTES = [
   "GET /api/freshness",
   "GET /api/read-models/status",
   "GET /api/fleet",
+  "GET /api/fleet-brain",
+  "GET /api/mutation-center",
   "GET /agent/fitness",
   "GET /agent/ops",
   "GET /agent/fitness/ui",
@@ -241,6 +245,11 @@ export async function handleCockpitRequest(
       // mapped onto the shared AgentSignal from the live read-model summaries.
       return jsonResponse(200, fleetView(dctx.state, nowFor(dctx)), cors);
     }
+    if (pathname === "/api/fleet-brain") {
+      // Rule-first Fleet Brain — delta-aware prioritized briefing over the same
+      // live signals + proposal queue. Read-only projection; no LLM, no execute.
+      return jsonResponse(200, fleetBriefingView(dctx.state, nowFor(dctx)), cors);
+    }
     // Phase C / Gap C — per-agent detail for ANY domain: fitness/ops bespoke, or a
     // registered generic agent — with no bespoke route code per agent. /agent/<domain>
     // = read-only JSON; /agent/<domain>/ui = the full dashboard page. A null detail
@@ -261,6 +270,11 @@ export async function handleCockpitRequest(
     }
     if (pathname === "/api/proposals") {
       return jsonResponse(200, proposalsView(dctx.state), cors);
+    }
+    if (pathname === "/api/mutation-center") {
+      // Read-only Mutation Center — pending-executable proposals with tier/risk/target
+      // + tier-payload refusals. executable:'disabled' by construction (no execute wiring).
+      return jsonResponse(200, mutationCenterView(dctx.state), cors);
     }
     if (pathname === "/api/debug/status") {
       // Safe, redacted metadata ONLY — presence, never values.
@@ -440,6 +454,8 @@ const LIVE_DATA_ROUTES = new Set<string>([
   "/api/freshness",
   "/api/read-models/status",
   "/api/fleet",
+  "/api/fleet-brain",
+  "/api/mutation-center",
   "/api/proposals",
   "/api/ask",
   "/api/suggestions/persist",

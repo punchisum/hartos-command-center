@@ -32,6 +32,8 @@ import {
   type ProposalsView,
   type FleetView,
 } from "./cloudflare-cockpit-views.js";
+import { mutationCenterView, type MutationCenterView } from "./views/mutation-center-view.js";
+import { fleetBriefingView, type FleetBrainView } from "./views/fleet-brain-view.js";
 import type { FreshnessReport } from "../cockpit/freshness-surface.js";
 import { ACTION_EXECUTION } from "./cloudflare-security.js";
 import type { AgentDetail, FitnessDetail, OpsDetail } from "../read-models/agent-detail.js";
@@ -356,6 +358,37 @@ function proposalBox(props: ProposalsView): string {
   return box("Proposal queue", head + rows, "proposals");
 }
 
+function mutationCenterBox(view: MutationCenterView): string {
+  if (!view.available || view.total === 0) {
+    return box("Mutation Center", `<div class="muted">${esc(view.note)}</div>`, "mutation-center");
+  }
+  const head = `<div class="li"><b>${view.total}</b>&nbsp;pending-executable <span class="tag">read-only</span></div>`;
+  const rows = view.rows
+    .slice(0, 6)
+    .map((r) => {
+      const tier = r.tier ? `<span class="tag">${esc(r.tier)}</span>` : `<span class="tag pend">untiered</span>`;
+      const refused = r.refusedActions.length ? ` <span class="tag no">${r.refusedActions.length} blocked</span>` : "";
+      return `<div class="li">${esc(r.title)} <span class="tag">${esc(r.riskLevel)}</span>${tier}${refused}</div>`;
+    })
+    .join("");
+  return box("Mutation Center", head + rows, "mutation-center");
+}
+
+function fleetBrainBox(view: FleetBrainView): string {
+  if (!view.available || view.items.length === 0) {
+    const note = view.available ? "No fleet briefing items." : view.note;
+    return box("Fleet Brain · priority briefing", `<div class="muted">${esc(note)}</div>`, "fleet-brain");
+  }
+  const rows = view.items
+    .slice(0, 6)
+    .map(
+      (it) =>
+        `<div class="li"><b>${esc(it.subject)}</b> <span class="tag">${esc(it.ownerAgent)}</span> <span class="tag">${esc(it.confidence)}/${esc(it.freshness)}</span><div class="muted">${escMultiline(it.why)}</div></div>`
+    )
+    .join("");
+  return box("Fleet Brain · priority briefing", rows, "fleet-brain");
+}
+
 function freshBox(fr: FreshnessReport | null): string {
   if (!fr) return box("Data freshness", `<div class="muted">Freshness unavailable (no live read-model data resolved).</div>`);
   const v = tone(fr.verdict, "high", "live");
@@ -464,6 +497,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const fr = freshnessView(state, now);
   const props = proposalsView(state);
   const fleet = fleetView(state, now);
+  const mutation = mutationCenterView(state);
+  const briefing = fleetBriefingView(state, now);
   const rms = readModelStatusView(state);
   const threads = opts.threads ?? [];
   const perception = perceive({ now, freshness: fr, proposals: state?.proposalQueue ?? [], missingSources: rms.missingSources, fleetSignals: fleet.agents });
@@ -519,7 +554,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     askBar +
     `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
     `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
-    `<div class="grid3">${suggestionsBox(suggestions)}${trustBox(rms, fr)}${proposalBox(props)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${forecastBox(fleetForecast)}${activityBox(threads)}</div>` +
+    `<div class="grid3">${suggestionsBox(suggestions)}${trustBox(rms, fr)}${proposalBox(props)}${mutationCenterBox(mutation)}${fleetBrainBox(briefing)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${forecastBox(fleetForecast)}${activityBox(threads)}</div>` +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</main></div>` +
