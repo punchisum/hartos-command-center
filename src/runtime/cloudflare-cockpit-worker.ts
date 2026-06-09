@@ -68,6 +68,7 @@ import { auditTailView } from "./views/audit-tail-view.js";
 import { recentActivityView } from "./views/recent-activity-view.js";
 import { fleetSynthesisView } from "./views/fleet-synthesis-view.js";
 import { auditRowsFromProposals } from "./views/audit-from-proposals.js";
+import { autonomyPreviewView } from "./views/autonomy-preview-view.js";
 import { suggestionToProposal } from "../cockpit/suggestions/suggest-actions.js";
 import { stableProposalId } from "../cockpit/proposals/cockpit-proposal-spine.js";
 import {
@@ -100,6 +101,7 @@ export const SUPPORTED_ROUTES = [
   "GET /api/fleet",
   "GET /api/fleet-brain",
   "GET /api/fleet-synthesis",
+  "GET /api/autonomy-preview",
   "GET /api/mutation-center",
   "GET /api/mutation-dispatch",
   "GET /api/audit-tail",
@@ -268,6 +270,11 @@ export async function handleCockpitRequest(
       // Cross-agent synthesis rollup — top correlated risks across briefing + perception +
       // forecast, with §19-clamped confidence (never laundered). Read-only; no LLM, no execute.
       return jsonResponse(200, fleetSynthesisView(dctx.state, nowFor(dctx)), cors);
+    }
+    if (pathname === "/api/autonomy-preview") {
+      // Read-only preview of what the GATED autonomy loop WOULD queue from the live suggestions —
+      // every item is queued + requiredApproval Hart; the loop cannot approve/execute. executable:'disabled'.
+      return jsonResponse(200, autonomyPreviewView(dctx.state, nowFor(dctx)), cors);
     }
     // Phase C / Gap C — per-agent detail for ANY domain: fitness/ops bespoke, or a
     // registered generic agent — with no bespoke route code per agent. /agent/<domain>
@@ -512,6 +519,7 @@ const LIVE_DATA_ROUTES = new Set<string>([
   "/api/fleet",
   "/api/fleet-brain",
   "/api/fleet-synthesis",
+  "/api/autonomy-preview",
   "/api/mutation-center",
   "/api/mutation-dispatch",
   "/api/audit-tail",

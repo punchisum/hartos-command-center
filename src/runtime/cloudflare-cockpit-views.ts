@@ -20,7 +20,15 @@ import { perceive, type PerceptionReport } from "../rinnegan/perception.js";
 import { collectFleetTasks } from "../fleet/fleet-work.js";
 import { orchestrateFleet, type FleetPlan } from "../fleet/orchestrator.js";
 import { forecast, type ForecastReport } from "../prophet/forecast.js";
-import { suggestActions, type SuggestionSet } from "../cockpit/suggestions/suggest-actions.js";
+import {
+  suggestActions,
+  type SuggestionSet,
+  type SuggestedAction,
+  type SuggestionPriority,
+  type SuggestionSource,
+} from "../cockpit/suggestions/suggest-actions.js";
+import { synthesizeFleet } from "../fleet/fleet-synthesis.js";
+import { suggestionsFromSynthesis } from "../cockpit/suggestions/synthesis-suggestions.js";
 
 /** Build a read-only intent-router context from a cockpit snapshot. */
 export function hostedIntentContext(
@@ -247,6 +255,19 @@ export function fleetView(state: CockpitState | undefined, now: string): FleetVi
  * `pre` lets a caller that already computed perception/plan/forecast (the landing page)
  * pass them in, so the page doesn't run the whole pipeline twice per render. The persist
  * route omits `pre` and computes fresh.
+ *
+ * It ALSO folds in the CROSS-AGENT synthesis suggestions (`suggestionsFromSynthesis` over the
+ * `synthesizeFleet` rollup of the SAME perception+forecast it already has) — the multi-source
+ * risks a single-source `suggestActions` pass cannot see. Those synthesis actions are merged
+ * BEFORE the dedup+rank pass, so they are deduped-by-normalized-title against the single-source
+ * suggestions (a synthesis restatement of an existing item collapses — desired) and dropped if
+ * already in the persisted queue, while their distinct `sx-syn-` ids prevent any proposal-layer
+ * collision. The merge reuses the EXACT dedup/rank/cap logic `suggestActions` applies, so the
+ * panel and the persist route see one consistent ranking. The floor never moves: every surfaced
+ * action stays a non-executable proposal candidate (it maps through `suggestionToProposal` →
+ * `executable:false`, `requiredApproval:"Hart"`, `status:"draft"`). §19: the synthesis confidence
+ * is already weakest-clamped by `synthesizeFleet`; we SURFACE it (in the rationale) and never
+ * re-derive or inflate it. PURE — `synthesizeFleet` + `suggestionsFromSynthesis` are Worker-safe.
  */
 export function cockpitSuggestions(
   state: CockpitState | undefined,
@@ -271,12 +292,99 @@ export function cockpitSuggestions(
   const coach = fitnessAdv?.act ? { headline: fitnessAdv.headline, priority: fitnessAdv.priority, act: true } : null;
   const triage = opsAdv?.act ? { action: opsAdv.headline, priority: opsAdv.priority, act: true } : null;
 
-  return suggestActions({
+  const existingTitles = (state?.proposalQueue ?? []).map((p) => p.title);
+
+  // The single-source "do next" list — already deduped, ranked, and queue-aware. We request a
+  // HIGH base limit (not the default 6) so the base is NOT pre-truncated before the synthesis
+  // fold: the cross-agent actions must compete against the FULL single-source set, then the real
+  // cap of 6 is applied once in `mergeSuggestions` (i.e. the cap rides AFTER the merge, so a
+  // high-priority synthesis item can never be crowded out by a base item only kept by the cap).
+  const base = suggestActions({
     perception,
     forecast: fcast,
     plan,
     coach,
     triage,
-    existingTitles: (state?.proposalQueue ?? []).map((p) => p.title),
+    existingTitles,
+    limit: Number.MAX_SAFE_INTEGER,
   });
+
+  // CROSS-AGENT fold: synthesize the SAME perception+forecast (briefing omitted) into the
+  // correlated-risk rollup and map its MULTI-SOURCE risks to SuggestedActions. These are net-new
+  // (a single-source pass can't see them); their distinct `sx-syn-` ids never collide with the
+  // `sg-` scheme. We merge them into the base list through the SAME dedup-by-title + rank + cap
+  // pass `suggestActions` uses, so a synthesis restatement of an existing suggestion collapses,
+  // an already-queued title is dropped, and the established ranking is preserved.
+  const synthesis = synthesizeFleet({ perception, forecast: fcast });
+  const synthActions = suggestionsFromSynthesis(synthesis);
+
+  // Fold the (possibly empty) synthesis set in through the SAME dedup/rank/cap — this also applies
+  // the real cap of 6 to the high-limit base set above. Identical to suggestActions when empty.
+  return mergeSuggestions(base, synthActions, existingTitles);
+}
+
+// ─── Merge fold: re-applies suggest-actions.ts's EXACT dedup/rank/cap to a union of actions ──
+//
+// These mirror the (module-private) constants in suggest-actions.ts so the fold preserves the
+// identical ranking + dedup the single-source pass uses — synthesis actions are NOT privileged.
+const SUGGESTION_PRIORITY_RANK: Record<SuggestionPriority, number> = { high: 3, medium: 2, low: 1 };
+const SUGGESTION_SOURCE_WEIGHT: Record<SuggestionSource, number> = {
+  orchestrator: 5,
+  forecast: 4,
+  perception: 3,
+  triage: 2,
+  coach: 1,
+};
+/** Normalized title key — byte-for-byte the suggest-actions.ts `norm`, so dedup agrees. */
+function normSuggestionTitle(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * Fold `extra` (the synthesis suggestions) into the already-ranked `base` set, applying the SAME
+ * title-dedup + priority/source rank + cap suggest-actions.ts uses. Deterministic, propose-only:
+ * it neither writes nor mutates any action — it only selects/orders existing candidates. A title
+ * already in the persisted queue is dropped (queue-safe); a synthesis restatement of an existing
+ * suggestion collapses to the higher-priority (then higher-source-weight) version.
+ */
+function mergeSuggestions(
+  base: SuggestionSet,
+  extra: SuggestedAction[],
+  existingTitles: string[],
+  limit = 6,
+): SuggestionSet {
+  const seen = new Set(existingTitles.map(normSuggestionTitle));
+  const byKey = new Map<string, SuggestedAction>();
+  const add = (a: SuggestedAction): void => {
+    const key = normSuggestionTitle(a.title);
+    if (seen.has(key)) return; // already decided in the persisted queue — never re-suggest
+    const prev = byKey.get(key);
+    if (
+      !prev ||
+      SUGGESTION_PRIORITY_RANK[a.priority] > SUGGESTION_PRIORITY_RANK[prev.priority] ||
+      (SUGGESTION_PRIORITY_RANK[a.priority] === SUGGESTION_PRIORITY_RANK[prev.priority] &&
+        SUGGESTION_SOURCE_WEIGHT[a.source] > SUGGESTION_SOURCE_WEIGHT[prev.source])
+    ) {
+      byKey.set(key, a);
+    }
+  };
+  // `base.actions` is already deduped against the queue + itself; folding the synthesis actions
+  // through the same `add` collapses any title restatement and respects the queue.
+  for (const a of base.actions) add(a);
+  for (const a of extra) add(a);
+
+  const actions = [...byKey.values()]
+    .sort(
+      (a, b) =>
+        SUGGESTION_PRIORITY_RANK[b.priority] - SUGGESTION_PRIORITY_RANK[a.priority] ||
+        SUGGESTION_SOURCE_WEIGHT[b.source] - SUGGESTION_SOURCE_WEIGHT[a.source] ||
+        (a.title < b.title ? -1 : 1),
+    )
+    .slice(0, limit);
+
+  const note = actions.length
+    ? `${actions.length} suggested action(s) synthesized from the live intelligence — propose-only, nothing is auto-executed.`
+    : "No actions to suggest — the live intelligence is clear, or everything actionable is already in the queue.";
+
+  return { actions, note };
 }
