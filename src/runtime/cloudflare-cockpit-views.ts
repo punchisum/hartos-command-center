@@ -65,6 +65,7 @@ export function hostedIntentContext(
     ...(now ? { now } : {}),
     ...(state?.sourceDiagnostics ? { diagnostics: state.sourceDiagnostics } : {}),
     proposalQueue: state?.proposalQueue ?? [],
+    ...(state?.memorySnapshots ? { memorySnapshots: state.memorySnapshots } : {}),
     // Phase E — the deterministic CTO input brain. Attached ONLY for
     // build/strategy requests; undefined for status queries (which are left
     // exactly as before, including the zero-proposals guarantee).

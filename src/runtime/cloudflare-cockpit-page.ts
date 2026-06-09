@@ -897,6 +897,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
 
   // Cockpit V2 — the Executive Brief is the strategic-awareness brief (risks/opps/drift/blind),
   // enriched with executive memory when a host has supplied snapshots (honest otherwise).
+  // Snapshots arrive via the live state (state-resolver reads the store) or, in tests, via opts.
+  const memSnapshots: MemorySnapshot[] = state?.memorySnapshots ?? opts.memorySnapshots ?? [];
   const sbrief: StrategicBrief = strategicAwareness({
     now,
     panels: state?.panels ?? [],
@@ -905,9 +907,9 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     perception,
     forecast: fleetForecast,
     synthesis: synthesis.available ? synthesis : null,
-    ...(opts.memorySnapshots ? { history: opts.memorySnapshots } : {}),
+    ...(memSnapshots.length ? { history: memSnapshots } : {}),
   });
-  const mem: ExecutiveMemoryReport = executiveMemory(opts.memorySnapshots ?? [], { now });
+  const mem: ExecutiveMemoryReport = executiveMemory(memSnapshots, { now });
 
   const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
   const sysTone = tone(overall, "high", "live");

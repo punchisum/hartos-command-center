@@ -29,6 +29,7 @@ import type { ReadModelRegistrySummary } from "../read-models/read-model-types.j
 import type { DomainPanel } from "./panels/index.js";
 import type { CockpitIntent } from "./cockpit-intent-router.js";
 import type { ActionProposal, ProposalQueueItem } from "./proposals/index.js";
+import type { MemorySnapshot } from "../awareness/executive-memory.js";
 import type { SourceDiagnosticsReport } from "./sources/index.js";
 
 export type CockpitMode = "local" | "hosted";
@@ -193,6 +194,13 @@ export interface CockpitState {
   sourceDiagnostics?: SourceDiagnosticsReport;
   /** Phase 14B — persisted local proposal queue (non-executable). */
   proposalQueue?: ProposalQueueItem[];
+  /**
+   * Executive Memory (Cockpit V2 close-the-loop) — a supplied history of compact snapshots,
+   * populated by the Node state-resolver from the memory store when capture is enabled. Absent
+   * by default ⇒ the cockpit's memory section renders the honest INSUFFICIENT_HISTORY line.
+   * PLAIN DATA ONLY (Worker-safe); the Worker never reads the store directly.
+   */
+  memorySnapshots?: MemorySnapshot[];
 }
 
 // ─── Request validation ─────────────────────────────────────────────────────
