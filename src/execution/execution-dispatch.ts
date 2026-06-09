@@ -26,6 +26,8 @@ import { runRejectDrafts, type RejectDraftsProposal } from "./run-reject-drafts.
 import type { RejectDraftsStore } from "./adapters/reject-drafts.js";
 import { runArchiveRejected, type ArchiveRejectedProposal } from "./run-archive-rejected.js";
 import type { ArchiveRejectedStore } from "./adapters/archive-rejected.js";
+import { runMarkReviewed, type MarkReviewedProposal } from "./run-mark-reviewed.js";
+import type { MarkReviewedStore } from "./adapters/mark-reviewed.js";
 import { runClickUpComment, type ClickUpCommentProposal, type ClickUpCommentTarget } from "./run-clickup-comment.js";
 import type { ClickUpCommentStore } from "./adapters/clickup-comment.js";
 import { runClickUpMove, type ClickUpMoveProposal, type ClickUpMoveTarget } from "./run-clickup-move.js";
@@ -36,6 +38,7 @@ export type MutationAdapterId =
   | "refresh-sync"
   | "reject-drafts"
   | "archive-rejected"
+  | "mark-reviewed"
   | "clickup-comment"
   | "clickup-move-status";
 
@@ -55,6 +58,7 @@ export type MutationCommand =
   | { adapterId: "refresh-sync"; proposal: RefreshSyncProposal; store?: RefreshSyncStore; delta?: Partial<DeltaContext> }
   | { adapterId: "reject-drafts"; proposal: RejectDraftsProposal; store: RejectDraftsStore; delta?: Partial<DeltaContext> }
   | { adapterId: "archive-rejected"; proposal: ArchiveRejectedProposal; store: ArchiveRejectedStore; delta?: Partial<DeltaContext> }
+  | { adapterId: "mark-reviewed"; proposal: MarkReviewedProposal; store: MarkReviewedStore; delta?: Partial<DeltaContext> }
   | { adapterId: "clickup-comment"; proposal: ClickUpCommentProposal; target: ClickUpCommentTarget; store: ClickUpCommentStore; delta?: Partial<DeltaContext> }
   | { adapterId: "clickup-move-status"; proposal: ClickUpMoveProposal; target: ClickUpMoveTarget; store: ClickUpMoveStore; delta?: Partial<DeltaContext> };
 
@@ -83,6 +87,7 @@ const DEFAULT_DELTA: Record<MutationAdapterId, { domain: ProposalDomain; actionT
   "refresh-sync": { domain: "system", actionType: "sync_repair_plan" },
   "reject-drafts": { domain: "system", actionType: "sync_repair_plan" },
   "archive-rejected": { domain: "system", actionType: "sync_repair_plan" },
+  "mark-reviewed": { domain: "ops", actionType: "review_plan" },
   "clickup-comment": { domain: "ops", actionType: "ops_followup_plan" },
   "clickup-move-status": { domain: "ops", actionType: "ops_followup_plan" },
 };
@@ -113,6 +118,8 @@ async function runCommand(
       return runRejectDrafts(command.proposal, env, { ...shared, store: command.store });
     case "archive-rejected":
       return runArchiveRejected(command.proposal, env, { ...shared, store: command.store });
+    case "mark-reviewed":
+      return runMarkReviewed(command.proposal, env, { ...shared, store: command.store });
     case "clickup-comment":
       return runClickUpComment(command.proposal, command.target, env, { ...shared, store: command.store });
     case "clickup-move-status":

@@ -42,18 +42,21 @@ import {
 import { createClickUpClient, CLICKUP_TOKEN_ENV } from "../src/execution/clickup-client.js";
 import { createRejectDraftsDb, EXECUTOR_DB_URL_ENV } from "../src/execution/run-reject-drafts-db.js";
 import { createArchiveRejectedDb } from "../src/execution/run-archive-rejected-db.js";
+import { createMarkReviewedDb } from "../src/execution/run-mark-reviewed-db.js";
 import { createRefreshSyncDb } from "../src/execution/run-refresh-sync-db.js";
 import { KILL_SWITCH_ENV } from "../src/execution/execution-adapter.js";
 import { CLICKUP_COMMENT_FLAG } from "../src/execution/adapters/clickup-comment.js";
 import { CLICKUP_MOVE_FLAG } from "../src/execution/adapters/clickup-move-status.js";
 import { REJECT_DRAFTS_FLAG } from "../src/execution/adapters/reject-drafts.js";
 import { ARCHIVE_REJECTED_FLAG } from "../src/execution/adapters/archive-rejected.js";
+import { MARK_REVIEWED_FLAG } from "../src/execution/adapters/mark-reviewed.js";
 import { REFRESH_SYNC_FLAG } from "../src/execution/adapters/refresh-sync.js";
 import { EXECUTABLE_FROM } from "../src/doctrine/execution-gate.js";
 import type { ClickUpCommentStore } from "../src/execution/adapters/clickup-comment.js";
 import type { ClickUpMoveStore } from "../src/execution/adapters/clickup-move-status.js";
 import type { RejectDraftsStore } from "../src/execution/adapters/reject-drafts.js";
 import type { ArchiveRejectedStore } from "../src/execution/adapters/archive-rejected.js";
+import type { MarkReviewedStore } from "../src/execution/adapters/mark-reviewed.js";
 import type { RefreshSyncStore } from "../src/execution/adapters/refresh-sync.js";
 
 /** The adapter ids this CLI accepts (the dispatcher's union, surfaced for help text). */
@@ -62,6 +65,7 @@ const ADAPTER_IDS: readonly MutationAdapterId[] = [
   "clickup-move-status",
   "reject-drafts",
   "archive-rejected",
+  "mark-reviewed",
   "refresh-sync",
 ];
 
@@ -71,6 +75,7 @@ const ADAPTER_FLAG: Record<MutationAdapterId, string> = {
   "clickup-move-status": CLICKUP_MOVE_FLAG,
   "reject-drafts": REJECT_DRAFTS_FLAG,
   "archive-rejected": ARCHIVE_REJECTED_FLAG,
+  "mark-reviewed": MARK_REVIEWED_FLAG,
   "refresh-sync": REFRESH_SYNC_FLAG,
 };
 
@@ -80,6 +85,7 @@ const ADAPTER_CRED_ENV: Record<MutationAdapterId, string> = {
   "clickup-move-status": CLICKUP_TOKEN_ENV,
   "reject-drafts": EXECUTOR_DB_URL_ENV,
   "archive-rejected": EXECUTOR_DB_URL_ENV,
+  "mark-reviewed": EXECUTOR_DB_URL_ENV,
   "refresh-sync": EXECUTOR_DB_URL_ENV,
 };
 
@@ -89,7 +95,7 @@ const ADAPTER_CRED_ENV: Record<MutationAdapterId, string> = {
  * opened; it is a no-op for the ClickUp client (fetch-based, nothing to close).
  */
 interface ResolvedStore {
-  store: ClickUpCommentStore | ClickUpMoveStore | RejectDraftsStore | ArchiveRejectedStore | RefreshSyncStore | null;
+  store: ClickUpCommentStore | ClickUpMoveStore | RejectDraftsStore | ArchiveRejectedStore | MarkReviewedStore | RefreshSyncStore | null;
   close: () => Promise<void>;
 }
 
@@ -172,6 +178,10 @@ async function resolveStore(
       const handle = await createArchiveRejectedDb(env);
       return { store: handle?.store ?? null, close: async () => { if (handle) await handle.close(); } };
     }
+    case "mark-reviewed": {
+      const handle = await createMarkReviewedDb(env);
+      return { store: handle?.store ?? null, close: async () => { if (handle) await handle.close(); } };
+    }
     case "refresh-sync": {
       // Prefer the verifying pg executor store (read-before-write live-status check + close()).
       const handle = await createRefreshSyncDb(env);
@@ -232,6 +242,10 @@ function buildCommand(
     case "archive-rejected": {
       if (missing.length) return null;
       return { adapterId: "archive-rejected", proposal, store: store as ArchiveRejectedStore };
+    }
+    case "mark-reviewed": {
+      if (missing.length) return null;
+      return { adapterId: "mark-reviewed", proposal, store: store as MarkReviewedStore };
     }
     case "refresh-sync": {
       if (missing.length) return null;
