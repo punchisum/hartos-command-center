@@ -38,6 +38,7 @@ import { mutationDispatchView, type MutationDispatchView } from "./views/mutatio
 import { voiceInputButtonHtml, voiceInputClientScript } from "./views/voice-input.js";
 import { fleetSynthesisView, type FleetSynthesisView } from "./views/fleet-synthesis-view.js";
 import { autonomyPreviewView, type AutonomyPreviewView } from "./views/autonomy-preview-view.js";
+import { factoryJobView, type FactoryJobView } from "./views/factory-job-view.js";
 import { auditTailView, type AuditTailView } from "./views/audit-tail-view.js";
 import { auditRowsFromProposals } from "./views/audit-from-proposals.js";
 import type { FreshnessReport } from "../cockpit/freshness-surface.js";
@@ -457,6 +458,22 @@ function autonomyBox(view: AutonomyPreviewView): string {
   return box("Autonomy preview", head + rows, "autonomy-preview");
 }
 
+function factoryJobBox(view: FactoryJobView): string {
+  if (!view.available) {
+    return box("Factory Agent", `<div class="muted">${esc(view.note)}</div>`, "factory-job");
+  }
+  if (view.total === 0) {
+    return box("Factory Agent", `<div class="muted">${esc(view.note)}</div>`, "factory-job");
+  }
+  const rows = view.jobs
+    .slice(0, 5)
+    .map((j) =>
+      `<div class="li">${esc(j.requestSummary.slice(0, 60))} <span class="tag">${esc(j.status)}</span>${j.readiness ? `<span class="tag pend">${esc(j.readiness)}</span>` : ""}</div>`,
+    )
+    .join("");
+  return box("Factory Agent", `<div class="li"><b>${view.total}</b> job(s) <span class="tag">read-only</span></div>` + rows, "factory-job");
+}
+
 function freshBox(fr: FreshnessReport | null): string {
   if (!fr) return box("Data freshness", `<div class="muted">Freshness unavailable (no live read-model data resolved).</div>`);
   const v = tone(fr.verdict, "high", "live");
@@ -570,6 +587,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const briefing = fleetBriefingView(state, now);
   const synthesis = fleetSynthesisView(state, now);
   const autonomy = autonomyPreviewView(state, now);
+  const factoryJobs = factoryJobView(state, now);
   const audit = auditTailView(auditRowsFromProposals(state));
   const rms = readModelStatusView(state);
   const threads = opts.threads ?? [];
@@ -627,7 +645,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     askBar +
     `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
     `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
-    `<div class="grid3">${suggestionsBox(suggestions)}${trustBox(rms, fr)}${proposalBox(props)}${mutationCenterBox(mutation)}${mutationDispatchBox(dispatch)}${fleetBrainBox(briefing)}${fleetSynthesisBox(synthesis)}${autonomyBox(autonomy)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${forecastBox(fleetForecast)}${auditBox(audit)}${activityBox(threads)}</div>` +
+    `<div class="grid3">${suggestionsBox(suggestions)}${trustBox(rms, fr)}${proposalBox(props)}${mutationCenterBox(mutation)}${mutationDispatchBox(dispatch)}${fleetBrainBox(briefing)}${fleetSynthesisBox(synthesis)}${autonomyBox(autonomy)}${factoryJobBox(factoryJobs)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${forecastBox(fleetForecast)}${auditBox(audit)}${activityBox(threads)}</div>` +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</main></div>` +

@@ -30,6 +30,7 @@ import type { AgentContract } from "../agents/agent-contract.js";
 import type { SourceDiagnosticsReport } from "./sources/index.js";
 import { buildFreshnessReport, type FreshnessReport, type FreshnessVerdict } from "./freshness-surface.js";
 import { planResearch } from "../research/research-planner.js";
+import { proposeResearchJob } from "../research/research-job.js";
 
 export type CockpitIntent =
   | "system_status"
@@ -823,7 +824,23 @@ function answerResearch(ctx: IntentRouterContext): CockpitIntentResult {
     "Note: this PLANS the research and names what to gather — it does not fabricate answers; the sub-questions stay unanswered until sources are gathered.",
   ].join("\n");
   const highlights = [`${plan.verdict} — ${plan.shape}-shaped, risk ${plan.risk}.`, ...plan.subQuestions.slice(0, 3)];
-  return base("research", "Research plan", summary, highlights, plan.unknowns.slice(0, 5), [plan.recommendedNextAction], false);
+  const result = base("research", "Research plan", summary, highlights, plan.unknowns.slice(0, 5), [plan.recommendedNextAction], false);
+
+  // Research intent wiring — propose a non-executable Research Job so Hart can
+  // inspect the interrogation questions + scope before approving. Falls through
+  // to the base result if proposeResearchJob throws (e.g. upstream plan error).
+  const wantsResearch =
+    /research|investigate|analyze|analyse|study|report on|find out/i.test(ctx.request);
+  if (wantsResearch) {
+    try {
+      const { proposal } = proposeResearchJob(ctx.request, { now: ctx.now });
+      result.proposals = [proposal];
+    } catch {
+      // fall through — base result is returned without a proposal
+    }
+  }
+
+  return result;
 }
 
 function answerProposalList(ctx: IntentRouterContext): CockpitIntentResult {

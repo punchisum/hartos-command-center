@@ -69,6 +69,7 @@ import { recentActivityView } from "./views/recent-activity-view.js";
 import { fleetSynthesisView } from "./views/fleet-synthesis-view.js";
 import { auditRowsFromProposals } from "./views/audit-from-proposals.js";
 import { autonomyPreviewView } from "./views/autonomy-preview-view.js";
+import { factoryJobView } from "./views/factory-job-view.js";
 import { suggestionToProposal } from "../cockpit/suggestions/suggest-actions.js";
 import { stableProposalId } from "../cockpit/proposals/cockpit-proposal-spine.js";
 import {
@@ -104,6 +105,7 @@ export const SUPPORTED_ROUTES = [
   "GET /api/autonomy-preview",
   "GET /api/mutation-center",
   "GET /api/mutation-dispatch",
+  "GET /api/factory-job",
   "GET /api/audit-tail",
   "GET /api/recent-activity",
   "GET /agent/fitness",
@@ -301,6 +303,11 @@ export async function handleCockpitRequest(
       // Read-only Mutation Center — pending-executable proposals with tier/risk/target
       // + tier-payload refusals. executable:'disabled' by construction (no execute wiring).
       return jsonResponse(200, mutationCenterView(dctx.state), cors);
+    }
+    if (pathname === "/api/factory-job") {
+      // Read-only Factory Job view — active Factory jobs + interrogation status.
+      // executable:'disabled'; CockpitState does not yet carry factory jobs (go-live wiring).
+      return jsonResponse(200, factoryJobView(dctx.state, nowFor(dctx)), cors);
     }
     if (pathname === "/api/mutation-dispatch") {
       // Read-only dispatch-readiness — which gated adapter would run each pending-executable
@@ -522,6 +529,7 @@ const LIVE_DATA_ROUTES = new Set<string>([
   "/api/autonomy-preview",
   "/api/mutation-center",
   "/api/mutation-dispatch",
+  "/api/factory-job",
   "/api/audit-tail",
   "/api/proposals",
   "/api/ask",
