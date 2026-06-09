@@ -47,6 +47,7 @@ import { deterministicOutput } from "../llm/providers/deterministic-provider.js"
 // the key-bearing `run-ask-llm.ts`/`llm-gateway.ts` (node:path/fs). With no injected askInfer
 // (the Worker default) it returns the deterministic grounding unchanged.
 import { composeAskAnswer } from "../llm/ask-llm.js";
+import { augmentGroundingWithSynthesis } from "../llm/ask-fleet-grounding.js";
 import { buildCockpitState } from "../cockpit/cockpit-read-model.js";
 import {
   authenticateCockpitRequest,
@@ -407,8 +408,17 @@ export async function handleCockpitRequest(
       // lights up redaction-first, validated, propose-only LLM reasoning. The orchestrator owns
       // only title/summary/highlights/gaps + mode/provider/risk; intent/nextSteps/proposals are
       // the rule-based truth and stay sourced from `result`.
+      // L3 — enrich the grounding with the cross-agent fleet-synthesis for fleet/risk intents, so
+      // BOTH the deterministic answer (copies highlights/gaps through) AND the LLM path (reasons
+      // over the grounding) reflect synthesized fleet intelligence. Non-fleet intents / unavailable
+      // synthesis ⇒ grounding unchanged (behavior-preserving); confidence is surfaced verbatim, never laundered.
+      const grounding = { summary: result.summary, title: result.title, highlights: result.highlights, gaps: result.gaps };
+      const groundedWithSynthesis = augmentGroundingWithSynthesis(grounding, dctx.state, nowFor(dctx), {
+        intent: result.intent,
+        request: validation.value,
+      });
       const answer = await composeAskAnswer(
-        { summary: result.summary, title: result.title, highlights: result.highlights, gaps: result.gaps },
+        groundedWithSynthesis,
         validation.value,
         { source: "cloudflare-cockpit" },
         { infer: ctx.askInfer },
