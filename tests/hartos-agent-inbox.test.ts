@@ -14,6 +14,36 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { classifyBuildRequest, type InboxVerdict } from "../src/hartos/agent-inbox.js";
 import { AGENT_CONTRACTS, type AgentContract } from "../src/agents/agent-contract.js";
+import { resolveKnownAgents } from "../src/agents/known-agent-registry.js";
+
+// A valid CREATED agent for a NOVEL domain (type "other" — not fitness/ops, the only
+// statically-keyed types). Built from the same shape as known-agent-registry.test.ts so
+// it passes validateAgentContract (non-empty proposalTypes + generic detail with rpcs +
+// columns). Its self-declared identity word "receipt" is how a build request for that
+// domain reaches it — the gap this wave closes. The token is the singular "receipt" so
+// it overlaps the classifier's receipt build-target requests verbatim.
+const CREATED_RECEIPT: AgentContract = {
+  type: "other",
+  label: "Receipt Vault",
+  icon: "🧾",
+  readModelId: "receipt",
+  proposalTypes: ["receipt_followup_plan"],
+  approvalRequired: true,
+  detail: {
+    domain: "other",
+    label: "Receipt Vault",
+    urlEnv: "RECEIPT_URL",
+    keyEnv: "RECEIPT_KEY",
+    rpcs: [
+      {
+        rpc: "receipt_overview",
+        section: "Outstanding",
+        render: "table",
+        columns: [{ header: "Receipt", field: "id" }],
+      },
+    ],
+  },
+};
 
 describe("factory agent inbox — four-label triage (§1 cap 1, §16)", () => {
   it("'build a fitness tracker agent' → already_solved (fitness matches FITNESS_CONTRACT)", () => {
@@ -115,6 +145,83 @@ describe("factory agent inbox — four-label triage (§1 cap 1, §16)", () => {
       assert.equal(typeof v.classification.classification, "string");
       assert.ok(Array.isArray(v.classification.rationale));
     }
+  });
+
+  it("NEW REACH: a created contract for a NOVEL domain makes that domain classify already_solved", () => {
+    // "build a receipt tracking agent" → domain finance / buildTarget receipt_agent — NOT
+    // a static fitness/ops key, so domainToReadModelType can't reach it. With the created
+    // Receipt Vault contract composed in, the created-contract reach matches it by its own
+    // declared identity token ("receipt").
+    const v = classifyBuildRequest("build a receipt tracking agent", {
+      contracts: resolveKnownAgents([CREATED_RECEIPT]),
+    });
+    assert.equal(v.label, "already_solved");
+    assert.equal(v.matchedAgent, "other"); // the created contract's read-model type
+    assert.ok(v.reasons.some((r) => /existing officiated agent/i.test(r)));
+    assert.ok(v.reasons.some((r) => /Receipt Vault/.test(r))); // points Hart at the created agent by label
+  });
+
+  it("NEW REACH: the SAME novel request without the created contract still classifies buildable", () => {
+    // Identical request, but only the static AGENT_CONTRACTS (no Receipt Vault) — the reach
+    // finds nothing, so it is honestly not-yet-covered, NOT already_solved or novel.
+    const v = classifyBuildRequest("build a receipt tracking agent");
+    assert.notEqual(v.label, "already_solved");
+    assert.equal(v.matchedAgent, undefined);
+    assert.equal(v.label, "buildable"); // receipt_agent is a concrete target — not too_vague
+    assert.ok(!/\bnovel\b/.test(v.reasons.join(" ").toLowerCase()));
+  });
+
+  it("NEW REACH: passing the created contract directly via opts.contracts also matches (no resolve needed)", () => {
+    const v = classifyBuildRequest("build a receipt tracking agent", {
+      contracts: [...AGENT_CONTRACTS, CREATED_RECEIPT],
+    });
+    assert.equal(v.label, "already_solved");
+    assert.equal(v.matchedAgent, "other");
+  });
+
+  it("REGRESSION: fitness still classifies already_solved against the static contracts (unchanged)", () => {
+    const v = classifyBuildRequest("build a fitness tracker agent");
+    assert.equal(v.label, "already_solved");
+    assert.equal(v.matchedAgent, "fitness");
+    // Adding a created contract must NOT change the static fitness match.
+    const v2 = classifyBuildRequest("build a fitness tracker agent", {
+      contracts: resolveKnownAgents([CREATED_RECEIPT]),
+    });
+    assert.equal(v2.label, "already_solved");
+    assert.equal(v2.matchedAgent, "fitness");
+  });
+
+  it("REGRESSION: ops still classifies already_solved against the static contracts (unchanged)", () => {
+    const v = classifyBuildRequest("monitor operations uptime and deployment status");
+    assert.equal(v.label, "already_solved");
+    assert.equal(v.matchedAgent, "ops");
+    const v2 = classifyBuildRequest("monitor operations uptime and deployment status", {
+      contracts: resolveKnownAgents([CREATED_RECEIPT]),
+    });
+    assert.equal(v2.label, "already_solved");
+    assert.equal(v2.matchedAgent, "ops");
+  });
+
+  it("REGRESSION: unsafe precedence still wins even when a created contract would otherwise match", () => {
+    // The request's identity token ("receipt") WOULD match the created contract, but it
+    // also trips a §16 exclusion (money movement). Unsafe must win — never laundered to
+    // already_solved by the new reach.
+    const v = classifyBuildRequest("build a receipt agent that can also transfer money to vendors", {
+      contracts: resolveKnownAgents([CREATED_RECEIPT]),
+    });
+    assert.equal(v.label, "unsafe");
+    assert.equal(v.unsafeExclusion, "money movement");
+    assert.equal(v.matchedAgent, undefined);
+  });
+
+  it("REGRESSION: a genuinely novel request with NO matching created contract stays buildable", () => {
+    // The Receipt Vault contract is present, but the request is about something else
+    // entirely — no identity token overlaps, so the reach correctly finds nothing.
+    const v = classifyBuildRequest("build a tax specialist agent", {
+      contracts: resolveKnownAgents([CREATED_RECEIPT]),
+    });
+    assert.equal(v.label, "buildable");
+    assert.equal(v.matchedAgent, undefined);
   });
 
   it("is deterministic — same request ⇒ deep-equal verdict", () => {
