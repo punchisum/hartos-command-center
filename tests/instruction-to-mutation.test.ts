@@ -67,18 +67,56 @@ describe("planMutationFromInstruction — internal cohort (ready, tier-valid, dr
   });
 });
 
-describe("planMutationFromInstruction — ClickUp (honest needs_target)", () => {
-  it("comment on card → needs_target (no card data in the read-only snapshot)", () => {
+describe("planMutationFromInstruction — ClickUp with NO candidate cards (honest needs_target)", () => {
+  it("comment on card with no card list → needs_target (never guesses)", () => {
     const r = planMutationFromInstruction("comment 'paid' on card abc123", { now: NOW });
     assert.equal(r.status, "needs_target");
     assert.equal(r.proposal, null, "no proposal until a real target is supplied — never guessed");
-    assert.ok(r.required.includes("cardId"));
+    assert.ok(r.required.some((x) => /card list/i.test(x)), "asks for the live ops card list");
     assert.match(r.note, /will NOT guess/i);
   });
-  it("move card → needs_target and lists the missing status", () => {
+  it("move card with no card list → needs_target", () => {
     const r = planMutationFromInstruction("move card abc123", { now: NOW });
     assert.equal(r.status, "needs_target");
-    assert.ok(r.required.some((x) => /toStatus/.test(x)));
+    assert.equal(r.proposal, null);
+  });
+});
+
+describe("planMutationFromInstruction — ClickUp move WITH resolved target (the on-hold flow)", () => {
+  const CARDS = [{ cardId: "86a", cardName: "Supplier onboarding — Acme", status: "in progress" }];
+
+  it("Hart's scenario: 'this operation has been stalled, put it to on hold' → ready T3 move", () => {
+    const r = planMutationFromInstruction("this operation has been stalled, put it to on hold", { now: NOW, candidates: CARDS, focusedCardId: "86a" });
+    assert.equal(r.status, "ready");
+    const p = r.proposal!;
+    assert.equal(p.tier, "T3");
+    assert.equal(p.executable, false);
+    assert.deepEqual(p.beforeState, { status: "in progress" });
+    assert.deepEqual(p.afterState, { status: "on hold" });
+    assert.equal(assertTierPayloadComplete(p).allowed, true, "complete T3 — would pass the executor gate");
+    assert.deepEqual(readMutationRoute(p), { adapterId: "clickup-move-status", tier: "T3" });
+    assert.match(p.rollbackOrCorrectionNote!, /back on hold → in progress/i);
+  });
+
+  it("BLOCKED when the transition isn't in the approved allowlist (e.g. complete → on hold)", () => {
+    const r = planMutationFromInstruction("put it on hold", { now: NOW, candidates: [{ cardId: "z", cardName: "X", status: "complete" }], focusedCardId: "z" });
+    assert.equal(r.status, "blocked");
+    assert.equal(r.proposal, null, "no proposal for an unapproved transition — mirrors the executor");
+    assert.match(r.note, /not in the approved-transition allowlist/i);
+  });
+
+  it("AMBIGUOUS when 'this' matches several cards and none is focused", () => {
+    const two = [{ cardId: "a", cardName: "Alpha", status: "in progress" }, { cardId: "b", cardName: "Beta", status: "in progress" }];
+    const r = planMutationFromInstruction("put this on hold", { now: NOW, candidates: two });
+    assert.equal(r.status, "ambiguous");
+    assert.equal(r.candidates!.length, 2);
+  });
+
+  it("comment WITH a resolved card + quoted text → ready T3 comment", () => {
+    const r = planMutationFromInstruction("comment 'paid in full' on card 86a", { now: NOW, candidates: CARDS });
+    assert.equal(r.status, "ready");
+    assert.equal(r.proposal!.tier, "T3");
+    assert.equal(assertTierPayloadComplete(r.proposal!).allowed, true);
   });
 });
 

@@ -58,6 +58,13 @@ export const APPROVED_CLICKUP_TRANSITIONS: ReadonlyArray<{ from: string; to: str
   { from: "waiting on hart", to: "in progress" },
   { from: "in progress", to: "in review" },
   { from: "in review", to: "complete" },
+  // On-hold parking (added at Hart's explicit request — safe + reversible: a stalled item is
+  // parked, never deleted, and the resume transition restores it). Every active state can be
+  // put on hold; on-hold resumes to "in progress".
+  { from: "waiting on hart", to: "on hold" },
+  { from: "in progress", to: "on hold" },
+  { from: "in review", to: "on hold" },
+  { from: "on hold", to: "in progress" },
 ];
 
 /** Normalize a status for comparison (lowercased, single-spaced, trimmed). */

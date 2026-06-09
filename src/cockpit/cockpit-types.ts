@@ -30,6 +30,7 @@ import type { DomainPanel } from "./panels/index.js";
 import type { CockpitIntent } from "./cockpit-intent-router.js";
 import type { ActionProposal, ProposalQueueItem } from "./proposals/index.js";
 import type { MemorySnapshot } from "../awareness/executive-memory.js";
+import type { OpsCardRef } from "./mutation/card-target-resolver.js";
 import type { SourceDiagnosticsReport } from "./sources/index.js";
 
 export type CockpitMode = "local" | "hosted";
@@ -201,6 +202,12 @@ export interface CockpitState {
    * PLAIN DATA ONLY (Worker-safe); the Worker never reads the store directly.
    */
   memorySnapshots?: MemorySnapshot[];
+  /**
+   * Mutation target resolution (close-the-loop) — individual ops cards (id · name · status) so a
+   * mutation instruction can resolve "this operation" to a real card. Populated by the live ops
+   * read-model; absent ⇒ the mutate rehearsal honestly has no cards to resolve against.
+   */
+  opsCards?: OpsCardRef[];
 }
 
 // ─── Request validation ─────────────────────────────────────────────────────

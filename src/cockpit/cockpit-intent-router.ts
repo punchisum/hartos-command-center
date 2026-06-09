@@ -34,6 +34,7 @@ import { proposeResearchJob } from "../research/research-job.js";
 import { strategicAwareness, type StrategicBrief } from "../awareness/strategic-awareness.js";
 import { executiveMemory, type MemorySnapshot, type ExecutiveMemoryReport } from "../awareness/executive-memory.js";
 import { planMutationFromInstruction } from "./mutation/instruction-to-mutation.js";
+import type { OpsCardRef } from "./mutation/card-target-resolver.js";
 
 export type CockpitIntent =
   | "system_status"
@@ -122,6 +123,15 @@ export interface IntentRouterContext {
    * historical context when present.
    */
   memorySnapshots?: MemorySnapshot[];
+  /**
+   * Mutation target resolution seam — candidate ops cards (id · name · status) a mutation
+   * instruction ("put this operation on hold") can resolve against. PLAIN DATA (Worker-safe),
+   * populated by the live ops read-model. Absent ⇒ the mutate rehearsal honestly reports it has
+   * no cards to resolve against (never guesses).
+   */
+  opsCards?: OpsCardRef[];
+  /** The card the operator is focused on (from the cockpit drawer/click) — resolves "this/it". */
+  focusedCardId?: string;
 }
 
 export interface CockpitIntentResult {
@@ -1126,8 +1136,37 @@ function executiveMemoryLines(m: ExecutiveMemoryReport): string[] {
  * Creates ZERO live effects and ZERO queued proposals (rehearsal only).
  */
 function answerMutate(ctx: IntentRouterContext): CockpitIntentResult {
-  const r = planMutationFromInstruction(ctx.request, { now: ctx.now ?? "" });
+  const r = planMutationFromInstruction(ctx.request, {
+    now: ctx.now ?? "",
+    ...(ctx.opsCards ? { candidates: ctx.opsCards } : {}),
+    ...(ctx.focusedCardId ? { focusedCardId: ctx.focusedCardId } : {}),
+  });
   const banner = "REHEARSAL — nothing is written. This shows the gated proposal HartOS would create; approving + arming an ALLOW_EXEC_* flag is a separate, explicit step.";
+
+  if (r.status === "ambiguous") {
+    const list = (r.candidates ?? []).map((c) => `- ${c.cardName} (${c.cardId}) · ${c.status}`).join("\n");
+    return base(
+      "mutate_request",
+      "Mutation — rehearsal (ambiguous)",
+      `Status: AMBIGUOUS — ${r.note}\nCandidates:\n${list}\n\n${banner}`,
+      [],
+      ["More than one card matched — HartOS won't guess."],
+      ["Re-ask naming the card or pasting its id."],
+      false,
+    );
+  }
+
+  if (r.status === "blocked") {
+    return base(
+      "mutate_request",
+      "Mutation — rehearsal (transition not approved)",
+      `Status: BLOCKED — ${r.note}\n\n${banner}`,
+      [],
+      [`The transition is not in the approved allowlist — the executor would refuse it.`],
+      [`Add the transition to APPROVED_CLICKUP_TRANSITIONS (your say-so), then re-ask.`],
+      false,
+    );
+  }
 
   if (r.status === "unrecognized") {
     return base(
