@@ -18,6 +18,7 @@ import type { GenericAgentDetail } from "../read-models/agent-detail-registry.js
 import type { ActionProposal } from "../cockpit/proposals/proposal-types.js";
 import type { ProposalPersistResult, ProposalTransitionResult, CockpitTransitionAction } from "./cloudflare-live-read-models.js";
 import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spine.js";
+import type { AskInfer } from "../llm/ask-llm.js";
 
 /** Server-side env available to the hosted cockpit. Values are NEVER exposed. */
 export type CloudflareCockpitEnv = Record<string, string | undefined>;
@@ -72,6 +73,15 @@ export interface CockpitWorkerContext {
    * Must never throw.
    */
   proposalTransitionProvider?: (input: { id: string; action: CockpitTransitionAction }) => Promise<ProposalTransitionResult>;
+  /**
+   * LLM Ask 2A — OPTIONAL injected inference for POST /api/ask. The Worker-safe orchestrator
+   * (`composeAskAnswer`) redacts the request FIRST, then consults this; on any null/invalid/
+   * throwing result it falls back to the deterministic grounding (never laundered). The Worker
+   * leaves this UNSET — the deterministic answer is unchanged — because the gated `LlmGateway`
+   * is key-bearing and Node/Edge-only; a Node/Edge host injects `buildAskInfer(...)` here to
+   * light up reasoning. The LLM may reason/propose, NEVER execute or approve.
+   */
+  askInfer?: AskInfer;
   /**
    * Phase D — lazy LIVE thread-spine reader. Called only for GET /api/threads,
    * AFTER auth. Returns the thread summaries from Supabase (so the hosted Worker

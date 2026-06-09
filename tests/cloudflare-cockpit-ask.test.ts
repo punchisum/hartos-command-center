@@ -16,6 +16,8 @@ import { handleCockpitRequest, createCockpitWorkerContext } from "../src/runtime
 import type { CockpitWorkerContext } from "../src/runtime/cloudflare-cockpit-types.js";
 import type { ActionProposal } from "../src/cockpit/proposals/proposal-types.js";
 import type { ProposalPersistResult } from "../src/runtime/cloudflare-live-read-models.js";
+import type { AskInfer } from "../src/llm/ask-llm.js";
+import type { LlmResult } from "../src/llm/llm-types.js";
 
 const base = "https://cockpit.local";
 
@@ -132,6 +134,44 @@ describe("hosted /api/ask + read-only data routes", () => {
     assert.equal(captured.length, data.proposalCount);
     assert.equal(data.persistence.attempted, true);
     assert.equal(data.persistence.persisted, data.proposalCount);
+  });
+
+  // ── LLM Ask 2A — the Worker-safe orchestrator seam on /api/ask ─────────────
+  it("no askInfer (Worker default) → deterministic answer, honestly reports usedLlm:false", async () => {
+    const res = await handleCockpitRequest(post("What needs my attention today?"), {}, ctx);
+    const data = (await res.json()) as { mode: string; provider: string; usedLlm: boolean; summary: string };
+    assert.equal(data.mode, "deterministic");
+    assert.equal(data.provider, "deterministic");
+    assert.equal(data.usedLlm, false);
+    assert.match(data.summary, /^Command Brief:/m, "summary is unchanged (behavior-preserving)");
+  });
+
+  it("an injected askInfer lights up an LLM-grounded, propose-only answer", async () => {
+    // Redaction-FIRST is proven at the unit level in ask-llm.test.ts; here we only verify the
+    // Worker seam routes through composeAskAnswer and honestly reports the LLM path.
+    let inferCalls = 0;
+    const askInfer: AskInfer = async (): Promise<LlmResult> => {
+      inferCalls += 1;
+      return {
+        output: {
+          intent: "daily_brief", domain: "ops", confidence: "high", neededContext: [],
+          recommendedSpecialist: "ops_agent", riskLevel: "medium", nextAction: "review ops staleness",
+          summary: "LLM reasoning: ops needs a refresh.",
+        },
+        provider: "openai", model: "gpt-test", mode: "openai", validation: "valid", success: true,
+        requestType: "summarize_cockpit_state",
+      };
+    };
+    const res = await handleCockpitRequest(post("What needs my attention today?"), {}, { ...ctx, askInfer });
+    assert.equal(inferCalls, 1, "the seam consults the injected infer");
+    const data = (await res.json()) as { mode: string; provider: string; usedLlm: boolean; summary: string; riskLevel: string; actionExecution: string };
+    assert.equal(data.mode, "llm");
+    assert.equal(data.provider, "openai");
+    assert.equal(data.usedLlm, true);
+    assert.equal(data.summary, "LLM reasoning: ops needs a refresh.");
+    assert.equal(data.riskLevel, "medium");
+    // Doctrine floor unchanged even on the LLM path: nothing becomes executable.
+    assert.equal(data.actionExecution, "disabled");
   });
 
   it("does NOT invoke the writer for status questions (zero proposals → advisory)", async () => {

@@ -43,6 +43,10 @@ import {
 import { summarizeEnvPresence, resolveLlmNetworkGate } from "./cloudflare-env.js";
 import { validateRequest } from "../cockpit/cockpit-state.js";
 import { deterministicOutput } from "../llm/providers/deterministic-provider.js";
+// Worker-safe Ask orchestrator (LLM Ask 2A). MUST stay Worker-safe — import ONLY this, never
+// the key-bearing `run-ask-llm.ts`/`llm-gateway.ts` (node:path/fs). With no injected askInfer
+// (the Worker default) it returns the deterministic grounding unchanged.
+import { composeAskAnswer } from "../llm/ask-llm.js";
 import { buildCockpitState } from "../cockpit/cockpit-read-model.js";
 import {
   authenticateCockpitRequest,
@@ -369,6 +373,18 @@ export async function handleCockpitRequest(
     // proposal/plan language yields non-persisted dry-run drafts.
     if (pathname === "/api/ask") {
       const result = routeHosted(dctx.state, validation.value, nowFor(dctx));
+      // LLM Ask 2A — route the grounded answer through the Worker-safe orchestrator. With no
+      // injected askInfer (the Worker default) `composeAskAnswer` returns the deterministic
+      // grounding UNCHANGED (behavior-preserving); a Node/Edge host that injects ctx.askInfer
+      // lights up redaction-first, validated, propose-only LLM reasoning. The orchestrator owns
+      // only title/summary/highlights/gaps + mode/provider/risk; intent/nextSteps/proposals are
+      // the rule-based truth and stay sourced from `result`.
+      const answer = await composeAskAnswer(
+        { summary: result.summary, title: result.title, highlights: result.highlights, gaps: result.gaps },
+        validation.value,
+        { source: "cloudflare-cockpit" },
+        { infer: ctx.askInfer },
+      );
       // Phase E (Gap E) — when the deterministic answer produced proposal drafts,
       // persist them into the Supabase spine via the gated writer (propose-only;
       // the Worker holds no DB key). Best-effort: persistence never blocks or
@@ -383,14 +399,16 @@ export async function handleCockpitRequest(
         200,
         {
           ok: true,
-          mode: "deterministic",
-          provider: "deterministic",
+          mode: answer.mode,
+          provider: answer.provider,
+          usedLlm: answer.usedLlm,
           request: validation.value,
           intent: result.intent,
-          title: result.title,
-          summary: result.summary,
-          highlights: result.highlights,
-          gaps: result.gaps,
+          title: answer.title,
+          summary: answer.summary,
+          highlights: answer.highlights,
+          gaps: answer.gaps,
+          riskLevel: answer.riskLevel,
           nextSteps: result.nextSteps,
           suggestedCommands: result.suggestedCommands,
           clarifyingQuestion: result.clarifyingQuestion,
