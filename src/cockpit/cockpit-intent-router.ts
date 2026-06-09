@@ -31,10 +31,12 @@ import type { SourceDiagnosticsReport } from "./sources/index.js";
 import { buildFreshnessReport, type FreshnessReport, type FreshnessVerdict } from "./freshness-surface.js";
 import { planResearch } from "../research/research-planner.js";
 import { proposeResearchJob } from "../research/research-job.js";
+import { strategicAwareness, type StrategicBrief } from "../awareness/strategic-awareness.js";
 
 export type CockpitIntent =
   | "system_status"
   | "daily_brief"
+  | "strategic_brief"
   | "fitness_status"
   | "ops_status"
   | "freshness_status"
@@ -161,6 +163,20 @@ export function detectCockpitIntent(request: string): { intent: CockpitIntent; m
   if (m.length || ((has(t, "dry run", "dry-run", "dryrun", "simulate").length) && has(t, "proposal").length)) return { intent: "proposal_dryrun", matchedKeywords: m.length ? m : ["dry-run", "proposal"] };
   m = has(t, "pending proposals", "show proposals", "list proposals", "show pending proposals", "proposal queue", "saved proposals", "my proposals");
   if (m.length) return { intent: "proposal_list", matchedKeywords: m };
+
+  // 0a.4 Strategic Awareness Brief — "what should I be aware of / what's drifting / what
+  // am I not seeing". Distinct from the daily brief (today's to-do) and strategy review
+  // (build leverage): this is the proactive risk/opportunity/drift/blind-spot scan. Placed
+  // before daily_brief so "strategic brief" / "what's drifting" don't get caught by it.
+  m = has(
+    t,
+    "strategic brief", "strategic awareness", "awareness brief", "situational awareness",
+    "what should i be aware of", "what should i know", "anything i should know",
+    "what's drifting", "whats drifting", "what is drifting", "any drift", "drift check",
+    "what are my blind spots", "surface risks", "surface the risks", "what risks am i missing",
+    "what am i not seeing", "what's slipping", "whats slipping", "anything slipping"
+  );
+  if (m.length) return { intent: "strategic_brief", matchedKeywords: m };
 
   // 0a.5 Daily Command Brief (Phase 16) — the morning "what matters today" roll-up.
   // Must beat freshness/ops/fitness/system so "what needs my attention today" lands here.
@@ -917,6 +933,72 @@ function answerDailyBrief(ctx: IntentRouterContext): CockpitIntentResult {
   return base("daily_brief", "Daily Command Brief", lines.join("\n"), highlights, topN(gaps, 5), nextSteps, false);
 }
 
+/**
+ * Strategic Awareness Brief — the proactive "what should I be aware of" scan. Runs the
+ * pure strategicAwareness aggregator over the panels + freshness + proposal queue the
+ * router already has (cross-system perception/forecast are optional enrichment supplied
+ * only by the dashboard view, not the Ask path). Honest: when evidence is insufficient it
+ * says so and surfaces nothing. Creates ZERO proposals (awareness intent).
+ */
+function answerStrategicBrief(ctx: IntentRouterContext): CockpitIntentResult {
+  const fr = freshnessFromCtx(ctx);
+  const brief = strategicAwareness({
+    now: ctx.now ?? fr.domains[0]?.lastUpdated ?? "",
+    panels: ctx.panels,
+    freshness: fr,
+    proposals: ctx.proposalQueue ?? [],
+  });
+
+  if (brief.status === "insufficient_evidence") {
+    return base(
+      "strategic_brief",
+      "Strategic brief — Chief of Staff",
+      `Status: UNKNOWN.\n${brief.note}`,
+      [],
+      ["No domain has resolved live data — awareness can't be earned yet."],
+      [fr.safeNextStep || "Configure/refresh the agent sources, then re-ask."],
+      false,
+    );
+  }
+
+  const lines = strategicBriefLines(brief);
+  const highlights = uniqueNonEmpty([
+    brief.recommendedFocus ? `Focus: ${brief.recommendedFocus}` : undefined,
+    ...brief.risks.slice(0, 2).map((r) => `Risk: ${r.risk}`),
+  ]);
+  const gaps = brief.blindSpots.map((b) => b.blindSpot);
+  const nextSteps = uniqueNonEmpty([
+    brief.recommendedFocus ? brief.recommendedFocus.split(" — ").slice(-1)[0] : undefined,
+    ...brief.opportunities.slice(0, 1).map((o) => o.suggestedAction),
+    ...brief.drift.slice(0, 1).map((d) => d.suggestedCorrection),
+  ]);
+  return base("strategic_brief", "Strategic brief — Chief of Staff", lines.join("\n"), highlights, topN(gaps, 4), nextSteps, false);
+}
+
+/** Render a Strategic Brief into the concise, signal-over-noise text contract. */
+function strategicBriefLines(b: StrategicBrief): string[] {
+  const lines: string[] = [];
+  if (b.recommendedFocus) lines.push(`Recommended focus: ${b.recommendedFocus}`);
+  if (b.risks.length) {
+    lines.push("", "Top risks:");
+    for (const r of b.risks) lines.push(`- ${r.risk} (${r.confidence}) — ${r.why} Evidence: ${r.evidence} → ${r.suggestedAction}`);
+  }
+  if (b.opportunities.length) {
+    lines.push("", "Top opportunities:");
+    for (const o of b.opportunities) lines.push(`- ${o.opportunity} (${o.confidence}) — ${o.why} Upside: ${o.upside} → ${o.suggestedAction}`);
+  }
+  if (b.drift.length) {
+    lines.push("", "Drift signals:");
+    for (const d of b.drift) lines.push(`- ${d.drift} — ${d.evidence} Impact: ${d.impact} → ${d.suggestedCorrection}`);
+  }
+  if (b.blindSpots.length) {
+    lines.push("", "Blind spots (questions to ask):");
+    for (const s of b.blindSpots) lines.push(`- ${s.blindSpot}`);
+  }
+  lines.push("", b.note);
+  return lines;
+}
+
 /** Phase F1 — a deterministic research plan (decompose + name what to gather; never answer). */
 function answerResearch(ctx: IntentRouterContext): CockpitIntentResult {
   const plan = planResearch(ctx.request);
@@ -1067,6 +1149,7 @@ export function routeCockpitIntent(ctx: IntentRouterContext): CockpitIntentResul
   switch (intent) {
     case "system_status": result = answerSystemStatus(ctx); break;
     case "daily_brief": result = answerDailyBrief(ctx); break;
+    case "strategic_brief": result = answerStrategicBrief(ctx); break;
     case "fitness_status": result = answerFitness(ctx); break;
     case "ops_status": result = answerOps(ctx); break;
     case "freshness_status": result = answerFreshness(ctx); break;

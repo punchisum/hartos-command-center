@@ -126,6 +126,37 @@ describe("grounded answers", () => {
     assert.ok(r.summary.includes("1 blocked/risk"), "grounds blocked count");
   });
 
+  it("strategic_brief detection: distinct from daily_brief and strategy_review", () => {
+    assert.equal(detectCockpitIntent("What's drifting?").intent, "strategic_brief");
+    assert.equal(detectCockpitIntent("Strategic brief").intent, "strategic_brief");
+    assert.equal(detectCockpitIntent("What should I be aware of?").intent, "strategic_brief");
+    // neighbors must NOT be cannibalized
+    assert.equal(detectCockpitIntent("What needs my attention today?").intent, "daily_brief");
+    assert.equal(detectCockpitIntent("What am I missing?").intent, "strategy_review");
+  });
+
+  it("strategic_brief produces a Chief-of-Staff brief from grounded panels (risk surfaced)", () => {
+    const r = routeCockpitIntent(ctx("What's drifting?"));
+    assert.equal(r.intent, "strategic_brief");
+    assert.equal(r.title, "Strategic brief — Chief of Staff");
+    assert.equal(r.proposals.length, 0, "awareness intent creates zero proposals");
+    // panelsWithData() has resolved ops/fitness → status ok, not UNKNOWN.
+    assert.ok(!/Status: UNKNOWN/.test(r.summary), "with detected panels the brief is not UNKNOWN");
+  });
+
+  it("strategic_brief returns UNKNOWN when no panel has resolved data (honesty floor)", () => {
+    const empty: IntentRouterContext = {
+      request: "What should I be aware of?",
+      panels: [],
+      systemSummary: SYSTEM,
+      integration: { configPresent: false, agentsConfigured: 0, agentsDetected: 0, readModelsEnabled: 0 },
+      llm: { provider: "deterministic", mode: "fallback" },
+    };
+    const r = routeCockpitIntent(empty);
+    assert.equal(r.intent, "strategic_brief");
+    assert.match(r.summary, /Status: UNKNOWN/, "no evidence → UNKNOWN, never fabricated findings");
+  });
+
   it("ops_status states an honest confidence + source line", () => {
     const r = routeCockpitIntent(ctx("Anything urgent in ops?"));
     // All core fields resolved + not stale → HIGH confidence, with the source named.
