@@ -36,3 +36,7 @@ runtime-provision-reports/
 agent-scaffold/**/wrangler.toml
 .wrangler/
 .dev.vars
+# Supabase CLI transient files — never commit
+supabase/.temp/
+# Stale session handover docs — generated per-session, not repo history
+docs/HANDOVER_*.md
