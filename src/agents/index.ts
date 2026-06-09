@@ -23,3 +23,4 @@ export {
   renderAgentReportMarkdown,
   DEFAULT_AGENT_REPORTS_DIR,
 } from "./agent-report.js";
+export { resolveKnownAgents, type KnownAgents } from "./known-agent-registry.js";

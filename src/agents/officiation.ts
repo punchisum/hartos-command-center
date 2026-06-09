@@ -49,10 +49,15 @@ export function officiateAgent(
   };
 }
 
-/** Officiate every registered contract for which a representative summary is supplied. */
+/**
+ * Officiate every registered contract for which a representative summary is supplied.
+ * `contracts` defaults to the static AGENT_CONTRACTS (backward-compatible); the Factory
+ * passes the COMPOSED set (resolveKnownAgents) so a freshly-created agent is officiated too.
+ */
 export function officiateRegistered(
   samples: Record<string, ReadModelSummary>,
   opts: { now?: Date } = {},
+  contracts: AgentContract[] = AGENT_CONTRACTS,
 ): OfficiationResult[] {
-  return AGENT_CONTRACTS.filter((c) => samples[c.type]).map((c) => officiateAgent(c, samples[c.type]!, opts));
+  return contracts.filter((c) => samples[c.type]).map((c) => officiateAgent(c, samples[c.type]!, opts));
 }
