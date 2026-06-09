@@ -13,6 +13,7 @@
 import pg from "pg";
 import { SupabaseProposalStore, type Queryable, type SyncResult } from "./supabase-proposal-store.js";
 import { listProposals } from "./proposal-queue.js";
+import { buildSupabaseSsl, type SupabaseTlsMode } from "../../lib/supabase-tls.js";
 
 const { Pool } = pg;
 
@@ -21,6 +22,8 @@ export const COCKPIT_SPINE_DB_URL_ENV = "HARTOS_SUPABASE_DB_URL";
 
 export interface ProposalDbHandle {
   store: SupabaseProposalStore;
+  /** "strict" = chain-verified against the Supabase CA; "relaxed" = no CA configured. */
+  tlsMode: SupabaseTlsMode;
   /** Close the underlying pool. Always call this when done. */
   close: () => Promise<void>;
 }
@@ -34,13 +37,22 @@ export function createCockpitProposalDb(env: NodeJS.ProcessEnv = process.env): P
   if (!connectionString || connectionString.trim().length === 0) return null;
 
   // This is a server-side admin write path (the connection string itself is the
-  // secret). Supabase's pooler cert does not always chain to the Node trust
-  // store from every host, so we connect over TLS without strict chain
-  // verification. Small pool — this is a low-volume mirror, not a hot path.
-  const pool = new Pool({ connectionString, max: 2, ssl: { rejectUnauthorized: false } });
+  // secret). Strict TLS chain verification is used whenever a Supabase CA is
+  // configured (HARTOS_SUPABASE_CA / _CA_PATH); absent that we preserve the prior
+  // relaxed behavior so existing deploys do not regress. Small pool — this is a
+  // low-volume mirror, not a hot path.
+  const { ssl, tlsMode } = buildSupabaseSsl(env);
+  if (tlsMode === "relaxed") {
+    console.warn(
+      "[cockpit-proposal-db] TLS chain verification disabled (no HARTOS_SUPABASE_CA configured). " +
+        "Set HARTOS_SUPABASE_CA or HARTOS_SUPABASE_CA_PATH to enable strict verification.",
+    );
+  }
+  const pool = new Pool({ connectionString, max: 2, ssl });
   const db: Queryable = { query: (text, params) => pool.query(text, params) };
   return {
     store: new SupabaseProposalStore(db),
+    tlsMode,
     close: () => pool.end(),
   };
 }
