@@ -124,6 +124,19 @@ describe("grounded answers", () => {
     assert.ok(r.nextSteps.some((s) => s.includes("beezulbub:capability-list")));
   });
 
+  it("build_agent Inbox triage refuses an unsafe build request", () => {
+    const r = routeCockpitIntent(ctx("Create an agent that moves money between my bank accounts"));
+    assert.equal(r.intent, "build_agent");
+    assert.ok(/REFUSED \(unsafe\)/i.test(r.summary));
+    assert.ok(!r.clarifyingQuestion);
+  });
+
+  it("build_agent Inbox triage flags an already-solved request", () => {
+    const r = routeCockpitIntent(ctx("Build a fitness tracker agent"));
+    assert.equal(r.intent, "build_agent");
+    assert.ok(/already solved/i.test(r.summary));
+  });
+
   it("improve_agent targets the named agent with concrete steps", () => {
     const r = routeCockpitIntent(ctx("Improve the fitness agent"));
     assert.equal(r.intent, "improve_agent");

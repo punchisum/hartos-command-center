@@ -24,6 +24,7 @@ import type { CockpitSystemSummary } from "./cockpit-types.js";
 import type { ActionProposal, ProposalQueueItem } from "./proposals/index.js";
 import { generateProposals, type GateEnv } from "./proposals/index.js";
 import { planAgentCreation } from "./agent-planner/index.js";
+import { classifyBuildRequest } from "../hartos/agent-inbox.js";
 import type { SourceDiagnosticsReport } from "./sources/index.js";
 import { buildFreshnessReport, type FreshnessReport, type FreshnessVerdict } from "./freshness-surface.js";
 import { planResearch } from "../research/research-planner.js";
@@ -511,9 +512,23 @@ function answerBuild(ctx: IntentRouterContext): CockpitIntentResult {
   // ranked "what should I build" path is unaffected.
   const wantsRanked = /what should i build|what to build|build next|what next/i.test(ctx.request);
   if (!wantsRanked) {
+    // Factory v1 Inbox triage (step 1): refuse unsafe, flag already-solved; only
+    // buildable/too_vague continue into the dry-run Agent Creation Plan.
+    const inbox = classifyBuildRequest(ctx.request);
     const plan = planAgentCreation(ctx.request);
-    result.summary = `${plan.summary}\n\n${result.summary}`;
-    if (plan.draft.clarifyingQuestions.length > 0) {
+    const inboxLine =
+      inbox.label === "unsafe"
+        ? `Inbox: REFUSED (unsafe) — ${inbox.unsafeExclusion ?? inbox.reasons[0] ?? "matches a doctrine exclusion"}. HartOS will not build this.`
+        : inbox.label === "already_solved"
+          ? `Inbox: already solved — ${inbox.matchedAgent ?? "an existing agent"} already covers this; improve it instead of building new.`
+          : inbox.label === "too_vague"
+            ? "Inbox: too vague to build — interrogate the spec first."
+            : "Inbox: buildable — proceeds to spec interrogation before any build.";
+    result.summary = `${inboxLine}\n${plan.summary}\n\n${result.summary}`;
+    if (inbox.label === "unsafe") {
+      // An unsafe request is refused, not interrogated.
+      result.clarifyingQuestion = null;
+    } else if (plan.draft.clarifyingQuestions.length > 0) {
       result.clarifyingQuestion = plan.draft.clarifyingQuestions[0]!;
     }
   }
