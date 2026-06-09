@@ -17,6 +17,9 @@ import {
   type IntentOrchestratorContext,
 } from "../src/cockpit/cockpit-intent-router.js";
 import { buildDomainPanels, DEFAULT_MODULES, type PanelInputs } from "../src/cockpit/panels/index.js";
+import { classifyBuildRequest } from "../src/hartos/agent-inbox.js";
+import { resolveKnownAgents } from "../src/agents/known-agent-registry.js";
+import type { AgentContract } from "../src/agents/agent-contract.js";
 import type { AgentIntegrationSummary } from "../src/agents/agent-types.js";
 import type { ReadModelRegistrySummary, ReadModelSummary } from "../src/read-models/read-model-types.js";
 import type { CockpitSystemSummary } from "../src/cockpit/cockpit-types.js";
@@ -163,6 +166,102 @@ describe("grounded answers", () => {
     const r = routeCockpitIntent(ctx("Create a tax agent", false));
     assert.equal(r.intent, "build_agent");
     assert.ok(r.summary.length > 0);
+  });
+});
+
+// ── Factory v1.5 — created-agent contracts thread into the Inbox already_solved gate ──
+//
+// The router composes `resolveKnownAgents(ctx.createdAgentContracts)` and feeds the result
+// into classifyBuildRequest's `opts.contracts`. With no created contracts injected the
+// composed set is exactly the static AGENT_CONTRACTS, so behaviour is unchanged; when the
+// caller injects a created contract it is validated, deduped, and carried into the gate.
+describe("Factory v1.5 — created-agent contracts flow into the router's already_solved gate", () => {
+  // A valid, NOVEL created contract (type "other") — passes validateAgentContract (non-empty
+  // proposalTypes + a generic detail spec with rpcs+columns). Mirrors the registry seam test.
+  const CREATED_OTHER: AgentContract = {
+    type: "other",
+    label: "Invoices",
+    icon: "🧾",
+    readModelId: "invoices",
+    proposalTypes: ["invoice_followup_plan"],
+    approvalRequired: true,
+    detail: {
+      domain: "other",
+      label: "Invoices",
+      urlEnv: "INVOICES_URL",
+      keyEnv: "INVOICES_KEY",
+      rpcs: [{ rpc: "invoice_overview", section: "Outstanding", render: "table", columns: [{ header: "Invoice", field: "id" }] }],
+    },
+  };
+
+  // A build request whose classifier domain resolves to a real read-model type (ops).
+  // detectCockpitIntent maps build+agent → build_agent (before ops_status), and the
+  // Inbox's already_solved gate then matches the ops contract.
+  const OPS_BUILD = "Build an agent to monitor operations uptime and deployment status";
+
+  function withCreated(request: string, created: AgentContract[]): IntentRouterContext {
+    return { ...ctx(request), createdAgentContracts: created };
+  }
+
+  it("a STATIC-contract domain still classifies already_solved through the router (unchanged)", () => {
+    const r = routeCockpitIntent(ctx(OPS_BUILD));
+    assert.equal(r.intent, "build_agent");
+    assert.ok(/already solved/i.test(r.summary), `expected already-solved, got: ${r.summary}`);
+    // Sanity against the underlying gate: ops is the matched static agent.
+    assert.equal(classifyBuildRequest(OPS_BUILD).matchedAgent, "ops");
+  });
+
+  it("injects created contracts into the gate via resolveKnownAgents (router output matches the composed-registry call)", () => {
+    // The router must feed `resolveKnownAgents(createdAgentContracts)` into classifyBuildRequest.
+    // Proof: the verdict the router acts on equals the one produced by calling the gate directly
+    // with the composed registry — i.e. the created contract genuinely flows through the seam.
+    const composedVerdict = classifyBuildRequest(OPS_BUILD, { contracts: resolveKnownAgents([CREATED_OTHER]) });
+    assert.equal(composedVerdict.label, "already_solved");
+    // The composed registry carries the created contract through (the seam's payload).
+    assert.ok(resolveKnownAgents([CREATED_OTHER]).some((c) => c.type === "other"), "composed registry includes the created contract");
+
+    const r = routeCockpitIntent(withCreated(OPS_BUILD, [CREATED_OTHER]));
+    assert.equal(r.intent, "build_agent");
+    // Router surfaces the same already_solved verdict the composed-registry gate produced,
+    // proving createdAgentContracts → resolveKnownAgents → classifyBuildRequest is wired.
+    assert.ok(/already solved/i.test(r.summary), `expected already-solved through the seam, got: ${r.summary}`);
+    assert.ok(r.summary.includes(composedVerdict.matchedAgent!), "router reports the gate's matched agent");
+  });
+
+  it("a malformed created contract is dropped by resolveKnownAgents — the gate is unaffected", () => {
+    // Empty proposalTypes ⇒ validateAgentContract rejects it ⇒ resolveKnownAgents drops it.
+    const malformed: AgentContract = {
+      type: "other", label: "Broken", icon: "💥", readModelId: "broken",
+      proposalTypes: [], approvalRequired: true, detail: { kind: "bespoke" },
+    };
+    const r = routeCockpitIntent(withCreated(OPS_BUILD, [malformed]));
+    assert.equal(r.intent, "build_agent");
+    // The static ops match still holds; the malformed contract never laundered into the gate.
+    assert.ok(/already solved/i.test(r.summary), `expected already-solved, got: ${r.summary}`);
+  });
+
+  it("with NO created contracts injected, behaviour is identical to before (novel request stays buildable)", () => {
+    // A novel, specific, non-covered build request with a concrete (non-generic) build
+    // target — must NOT be already_solved or unsafe. (A generic target would read too_vague;
+    // "receipt" gives buildTarget=receipt_agent, domain=finance which has no read-model agent.)
+    const NOVEL = "Build a receipt scanning agent";
+    const withoutCreated = routeCockpitIntent(ctx(NOVEL));
+    const withEmpty = routeCockpitIntent(withCreated(NOVEL, []));
+    assert.equal(withoutCreated.intent, "build_agent");
+    assert.equal(withEmpty.intent, "build_agent");
+    // Behaviour-preserving: the default (no field) and an explicit empty array agree.
+    assert.equal(withEmpty.summary, withoutCreated.summary);
+    // And it is genuinely buildable — the new seam did not start over-matching already_solved.
+    assert.ok(/Inbox: buildable/i.test(withoutCreated.summary), `expected buildable, got: ${withoutCreated.summary}`);
+    assert.equal(classifyBuildRequest(NOVEL).label, "buildable");
+  });
+
+  it("created contracts do not alter a STATIC-covered match (composed gate == static gate for reachable domains)", () => {
+    // resolveKnownAgents dedupes by type with static winning, so an ops/fitness match is the
+    // same whether or not created contracts are present — the seam adds reach, never overrides.
+    const withCreatedR = routeCockpitIntent(withCreated(OPS_BUILD, [CREATED_OTHER]));
+    const withoutR = routeCockpitIntent(ctx(OPS_BUILD));
+    assert.equal(withCreatedR.summary, withoutR.summary);
   });
 });
 

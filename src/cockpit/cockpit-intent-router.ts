@@ -25,6 +25,8 @@ import type { ActionProposal, ProposalQueueItem } from "./proposals/index.js";
 import { generateProposals, type GateEnv } from "./proposals/index.js";
 import { planAgentCreation } from "./agent-planner/index.js";
 import { classifyBuildRequest } from "../hartos/agent-inbox.js";
+import { resolveKnownAgents } from "../agents/known-agent-registry.js";
+import type { AgentContract } from "../agents/agent-contract.js";
 import type { SourceDiagnosticsReport } from "./sources/index.js";
 import { buildFreshnessReport, type FreshnessReport, type FreshnessVerdict } from "./freshness-surface.js";
 import { planResearch } from "../research/research-planner.js";
@@ -95,6 +97,15 @@ export interface IntentRouterContext {
   diagnostics?: SourceDiagnosticsReport;
   /** Phase 14B — persisted proposal queue for the proposal-list intent. */
   proposalQueue?: ProposalQueueItem[];
+  /**
+   * Factory v1.5 seam — contracts of agents the Factory has CREATED (officiated)
+   * beyond the static AGENT_CONTRACTS. When supplied, they are composed via
+   * resolveKnownAgents and fed into the Inbox's already_solved gate so a freshly
+   * built agent's domain is recognised as covered. PLAIN DATA ONLY (no file/db
+   * read) to stay Worker-safe. Defaults to none ⇒ behaviour is exactly the static
+   * registry (no created agents exist yet — this only establishes the seam).
+   */
+  createdAgentContracts?: AgentContract[];
 }
 
 export interface CockpitIntentResult {
@@ -514,7 +525,14 @@ function answerBuild(ctx: IntentRouterContext): CockpitIntentResult {
   if (!wantsRanked) {
     // Factory v1 Inbox triage (step 1): refuse unsafe, flag already-solved; only
     // buildable/too_vague continue into the dry-run Agent Creation Plan.
-    const inbox = classifyBuildRequest(ctx.request);
+    //
+    // Factory v1.5 seam: compose the static AGENT_CONTRACTS with any CREATED-agent
+    // contracts the caller injected (resolveKnownAgents validates + dedupes, static
+    // wins, never mutates AGENT_CONTRACTS). With none supplied this resolves to the
+    // static registry, so the already_solved gate is unchanged until agents are born.
+    const inbox = classifyBuildRequest(ctx.request, {
+      contracts: resolveKnownAgents(ctx.createdAgentContracts),
+    });
     const plan = planAgentCreation(ctx.request);
     const inboxLine =
       inbox.label === "unsafe"
