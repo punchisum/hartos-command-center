@@ -34,6 +34,7 @@ import {
 } from "./cloudflare-cockpit-views.js";
 import { mutationCenterView, type MutationCenterView } from "./views/mutation-center-view.js";
 import { fleetBriefingView, type FleetBrainView } from "./views/fleet-brain-view.js";
+import { mutationDispatchView, type MutationDispatchView } from "./views/mutation-dispatch-view.js";
 import type { FreshnessReport } from "../cockpit/freshness-surface.js";
 import { ACTION_EXECUTION } from "./cloudflare-security.js";
 import type { AgentDetail, FitnessDetail, OpsDetail } from "../read-models/agent-detail.js";
@@ -389,6 +390,23 @@ function fleetBrainBox(view: FleetBrainView): string {
   return box("Fleet Brain · priority briefing", rows, "fleet-brain");
 }
 
+function mutationDispatchBox(view: MutationDispatchView): string {
+  if (!view.available || view.total === 0) {
+    return box("Dispatch readiness", `<div class="muted">${esc(view.note)}</div>`, "mutation-dispatch");
+  }
+  const head = `<div class="li"><b>${view.ready}</b>&nbsp;of ${view.total} dispatch-ready <span class="tag">read-only</span></div>`;
+  const rows = view.rows
+    .slice(0, 6)
+    .map((r) => {
+      const adapter = r.adapterId ? `<span class="tag">${esc(r.adapterId)}</span>` : `<span class="tag pend">no adapter</span>`;
+      const ready = r.dispatchReady ? `<span class="tag">ready</span>` : `<span class="tag no">not ready</span>`;
+      const cmd = r.mutateCommand ? `<div class="muted"><code>${esc(r.mutateCommand)}</code></div>` : "";
+      return `<div class="li">${esc(r.title)} ${adapter}${ready}${cmd}</div>`;
+    })
+    .join("");
+  return box("Dispatch readiness", head + rows, "mutation-dispatch");
+}
+
 function freshBox(fr: FreshnessReport | null): string {
   if (!fr) return box("Data freshness", `<div class="muted">Freshness unavailable (no live read-model data resolved).</div>`);
   const v = tone(fr.verdict, "high", "live");
@@ -498,6 +516,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const props = proposalsView(state);
   const fleet = fleetView(state, now);
   const mutation = mutationCenterView(state);
+  const dispatch = mutationDispatchView(state);
   const briefing = fleetBriefingView(state, now);
   const rms = readModelStatusView(state);
   const threads = opts.threads ?? [];
@@ -554,7 +573,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     askBar +
     `<h2>⚠ Needs attention</h2><div class="attn">${attentionRows}</div>` +
     `<h2 id="fleet">Fleet · click any agent to expand</h2>${fleetSection}` +
-    `<div class="grid3">${suggestionsBox(suggestions)}${trustBox(rms, fr)}${proposalBox(props)}${mutationCenterBox(mutation)}${fleetBrainBox(briefing)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${forecastBox(fleetForecast)}${activityBox(threads)}</div>` +
+    `<div class="grid3">${suggestionsBox(suggestions)}${trustBox(rms, fr)}${proposalBox(props)}${mutationCenterBox(mutation)}${mutationDispatchBox(dispatch)}${fleetBrainBox(briefing)}${freshBox(fr)}${perceptionBox(perception, fleetWork)}${orchestrationBox(fleetPlan)}${forecastBox(fleetForecast)}${activityBox(threads)}</div>` +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</main></div>` +

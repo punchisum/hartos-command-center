@@ -62,6 +62,9 @@ import {
 import { routeHosted, freshnessView, readModelStatusView, proposalsView, fleetView, cockpitSuggestions } from "./cloudflare-cockpit-views.js";
 import { mutationCenterView } from "./views/mutation-center-view.js";
 import { fleetBriefingView } from "./views/fleet-brain-view.js";
+import { mutationDispatchView } from "./views/mutation-dispatch-view.js";
+import { auditTailView } from "./views/audit-tail-view.js";
+import { recentActivityView } from "./views/recent-activity-view.js";
 import { suggestionToProposal } from "../cockpit/suggestions/suggest-actions.js";
 import { stableProposalId } from "../cockpit/proposals/cockpit-proposal-spine.js";
 import {
@@ -94,6 +97,9 @@ export const SUPPORTED_ROUTES = [
   "GET /api/fleet",
   "GET /api/fleet-brain",
   "GET /api/mutation-center",
+  "GET /api/mutation-dispatch",
+  "GET /api/audit-tail",
+  "GET /api/recent-activity",
   "GET /agent/fitness",
   "GET /agent/ops",
   "GET /agent/fitness/ui",
@@ -279,6 +285,20 @@ export async function handleCockpitRequest(
       // Read-only Mutation Center — pending-executable proposals with tier/risk/target
       // + tier-payload refusals. executable:'disabled' by construction (no execute wiring).
       return jsonResponse(200, mutationCenterView(dctx.state), cors);
+    }
+    if (pathname === "/api/mutation-dispatch") {
+      // Read-only dispatch-readiness — which gated adapter would run each pending-executable
+      // proposal + a COPYABLE dry-run `mutate` command. executable:'disabled'; nothing fires here.
+      return jsonResponse(200, mutationDispatchView(dctx.state), cors);
+    }
+    if (pathname === "/api/audit-tail") {
+      // Read-only audit-trail projection. The pg reader is Node-only (never the Worker), so the
+      // Worker serves honest-unavailable until an audit provider supplies rows (go-live wiring).
+      return jsonResponse(200, auditTailView(null), cors);
+    }
+    if (pathname === "/api/recent-activity") {
+      // Read-only recent StateDeltas. Honest-unavailable until a delta source is wired (go-live).
+      return jsonResponse(200, recentActivityView(undefined), cors);
     }
     if (pathname === "/api/debug/status") {
       // Safe, redacted metadata ONLY — presence, never values.
@@ -474,6 +494,7 @@ const LIVE_DATA_ROUTES = new Set<string>([
   "/api/fleet",
   "/api/fleet-brain",
   "/api/mutation-center",
+  "/api/mutation-dispatch",
   "/api/proposals",
   "/api/ask",
   "/api/suggestions/persist",
