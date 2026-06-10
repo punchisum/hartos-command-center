@@ -111,6 +111,8 @@
     "execute:cockpit-approved": "node --env-file-if-exists=.env.local dist/scripts/run-spine-executor.js",
     "preobsidian:wolverine-note": "npm run build",
     "obsidian:wolverine-note": "node --env-file-if-exists=.env.local dist/scripts/obsidian-note.js",
+    "prerinnegan:compile": "npm run build",
+    "rinnegan:compile": "node --env-file-if-exists=.env.local dist/scripts/rinnegan-compile.js",
     "cockpit:ask-host": "npm run build && node --env-file-if-exists=.env.local dist/scripts/cockpit-ask-host.js",
     "prellm:status": "npm run build",
     "llm:status": "node dist/scripts/llm-status.js",
