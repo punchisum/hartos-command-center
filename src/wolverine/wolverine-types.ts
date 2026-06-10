@@ -100,6 +100,17 @@ export interface WolverineInputs {
   proposalStats?: ProposalStats;
   /** Domains the cockpit flagged stale (from sourceDiagnostics.staleSources). Absent ⇒ not assessed. */
   staleSources?: string[];
+  /** Obsidian vault note metadata gathered by the host. Absent ⇒ vault not assessed. */
+  vaultNotes?: VaultNoteMeta[];
+}
+
+export interface VaultNoteMeta {
+  /** Vault-relative path of the note. */
+  relPath: string;
+  /** Age in days from file mtime (host-computed), or null if unknown. */
+  ageDays?: number | null;
+  /** review_by date parsed from frontmatter (ISO), or null/absent. */
+  reviewBy?: string | null;
 }
 
 export interface ProposalStats {

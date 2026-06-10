@@ -24,6 +24,7 @@ import { detectGitHygiene } from "./detectors/git-hygiene.js";
 import { detectProposalHygiene } from "./detectors/proposal-hygiene.js";
 import { detectStaleReadModel } from "./detectors/stale-read-model.js";
 import { detectDoctrineDrift } from "./detectors/doctrine-drift.js";
+import { detectStaleObsidianNote } from "./detectors/stale-obsidian-note.js";
 
 /** The default detector set. Add detectors here as increments land. */
 export const DEFAULT_DETECTORS: WolverineDetector[] = [
@@ -32,6 +33,7 @@ export const DEFAULT_DETECTORS: WolverineDetector[] = [
   detectProposalHygiene,
   detectStaleReadModel,
   detectDoctrineDrift,
+  detectStaleObsidianNote,
 ];
 
 function rankFindings(findings: WolverineFinding[]): WolverineFinding[] {

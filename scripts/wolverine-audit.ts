@@ -11,9 +11,52 @@
 
 import { pathToFileURL } from "node:url";
 import { execSync } from "node:child_process";
+import { readdir, readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import { wolverineAudit } from "../src/wolverine/wolverine-audit.js";
 import { resolveHostedCockpitState } from "../src/runtime/cloudflare-live-read-models.js";
-import type { GitFacts, WolverineFinding, WolverineReport } from "../src/wolverine/wolverine-types.js";
+import type { GitFacts, VaultNoteMeta, WolverineFinding, WolverineReport } from "../src/wolverine/wolverine-types.js";
+
+/** Scan the Obsidian vault for note metadata (mtime age + review_by). Empty when unset/unreadable. */
+async function gatherVaultNotes(vault: string | undefined, now: string): Promise<VaultNoteMeta[]> {
+  if (!vault || vault.trim().length === 0) return [];
+  const nowMs = Date.parse(now);
+  const out: VaultNoteMeta[] = [];
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        await walk(full);
+        continue;
+      }
+      if (!e.name.toLowerCase().endsWith(".md")) continue;
+      let ageDays: number | null = null;
+      let reviewBy: string | null = null;
+      try {
+        const s = await stat(full);
+        ageDays = Math.max(0, Math.round((nowMs - s.mtimeMs) / 86_400_000));
+      } catch {
+        /* ignore */
+      }
+      try {
+        const head = (await readFile(full, "utf8")).slice(0, 800);
+        const m = head.match(/^review_by:\s*(.+)$/m);
+        if (m) reviewBy = m[1].trim();
+      } catch {
+        /* ignore */
+      }
+      out.push({ relPath: path.relative(vault as string, full).replace(/\\/g, "/"), ageDays, reviewBy });
+    }
+  }
+  await walk(vault);
+  return out;
+}
 
 function gatherGitFacts(cwd: string): GitFacts | undefined {
   const git = (args: string): string | null => {
@@ -77,7 +120,8 @@ if (invokedDirectly) {
     // stale-read-model detector. Read-only; null/empty when no read-model env is configured.
     const state = await resolveHostedCockpitState(process.env, { now }).catch(() => null);
     const staleSources = state?.sourceDiagnostics?.staleSources ?? [];
-    const report = wolverineAudit({ now, env: process.env, git: gatherGitFacts(cwd), staleSources });
+    const vaultNotes = await gatherVaultNotes(process.env.HARTOS_OBSIDIAN_VAULT_PATH, now);
+    const report = wolverineAudit({ now, env: process.env, git: gatherGitFacts(cwd), staleSources, vaultNotes });
     for (const line of renderReport(report)) console.log(line);
     console.log("");
   })();
