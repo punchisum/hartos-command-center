@@ -56,6 +56,9 @@ import type { SuggestionSet } from "../cockpit/suggestions/suggest-actions.js";
 import { strategicAwareness, type StrategicBrief } from "../awareness/strategic-awareness.js";
 import { executiveMemory, type ExecutiveMemoryReport, type MemorySnapshot } from "../awareness/executive-memory.js";
 import type { KnowledgeSurface } from "../cockpit/knowledge-surface.js";
+import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
+import { renderAgentOrgPanel, renderStatusStrip } from "./views/agent-org-view.js";
+import { computeStatusSplit } from "../cockpit/status-split.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -709,6 +712,7 @@ const V2_NAV: Array<[string, string, string]> = [
   ["overview", "▣", "Overview"],
   ["awareness", "◬", "Awareness"],
   ["fleet", "⬡", "Fleet"],
+  ["agents", "🤖", "Agents"],
   ["approvals", "✓", "Approvals"],
   ["health", "♥", "Health"],
 ];
@@ -949,6 +953,18 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   });
   const mem: ExecutiveMemoryReport = executiveMemory(memSnapshots, { now });
 
+  // P1/P2/P10 — the meta-agent registry + the SPLIT status (operator vs system vs fleet vs
+  // freshness vs proposals vs provider). A training/recovery risk is the OPERATOR's status, kept
+  // separate so it never reads as "the HartOS system is broken".
+  const metaReg = resolveMetaAgentRegistry({ now });
+  const opRisk = sbrief.risks.find((rk) => /training|recovery|fitness|injur|fuel|sleep/i.test(`${rk.risk} ${rk.why}`));
+  const statusSplit = computeStatusSplit({
+    registry: metaReg,
+    operator: opRisk ? { band: "red" as const, headline: opRisk.risk } : null,
+    freshness: fr ? { staleCount: fr.staleDomains?.length ?? 0, unavailableCount: fr.unavailableDomains?.length ?? 0, note: fr.staleReason ?? undefined } : null,
+    proposals: props.available ? { aging: sbrief.drift.some((d) => /backlog|aging/i.test(d.drift)) ? 1 : 0, pending: props.pending } : null,
+  });
+
   const overall = (brief.highlights[0] ?? "Overall: AMBER.").replace(/^Overall:\s*/i, "").replace(/\.$/, "");
   const sysTone = tone(overall, "high", "live");
   const pending = props.available ? props.pending : 0;
@@ -974,11 +990,17 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const overview = viewBlock(
     "overview",
     true,
-    sec("Executive Brief") + heroSection(sbrief, overall, sysTone, topApproval) +
+    renderStatusStrip(statusSplit) +
+      sec("Executive Brief") + heroSection(sbrief, overall, sysTone, topApproval) +
       sec("Strategic Awareness") + awarenessSection(sbrief) +
       sec("Today's Focus") + focusSection(suggestions) +
       sec("Knowledge & Intelligence") + knowledgeBox(opts.knowledge) +
       sec("Fleet") + fleetSection,
+  );
+  const agentsView = viewBlock(
+    "agents",
+    false,
+    renderStatusStrip(statusSplit) + renderAgentOrgPanel(metaReg),
   );
   const awarenessView = viewBlock(
     "awareness",
@@ -1012,7 +1034,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const body =
     `<div class="app2">${railV2(pending)}<main>` +
     topbar +
-    overview + awarenessView + fleetViewBlk + approvalsView + healthView +
+    overview + awarenessView + fleetViewBlk + agentsView + approvalsView + healthView +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</div>` +

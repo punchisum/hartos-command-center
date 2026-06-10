@@ -63,6 +63,8 @@ import type { RinneganFact, RinneganPattern } from "../rinnegan/rinnegan-types.j
 import { augmentGroundingWithSynthesis } from "../llm/ask-fleet-grounding.js";
 import { buildCockpitState } from "../cockpit/cockpit-read-model.js";
 import { composeKnowledgeSurface, deriveKnowledgeInputs, type KnowledgeSurface } from "../cockpit/knowledge-surface.js";
+import { routeCockpitCommand } from "../cockpit/command-router.js";
+import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import {
   authenticateCockpitRequest,
   attemptLogin,
@@ -263,6 +265,11 @@ export async function handleCockpitRequest(
     }
     if (pathname === "/api/state") {
       return jsonResponse(200, dctx.state ?? { hosted: true, note: "snapshot not embedded" }, cors);
+    }
+    if (pathname === "/api/agents") {
+      // The meta-agent registry (org chart + honest capability/status). Read-only, secret-free.
+      const reg = resolveMetaAgentRegistry({ now: nowFor(dctx) });
+      return jsonResponse(200, { ok: true, rootId: reg.rootId, counts: reg.counts, agents: reg.agents }, cors);
     }
     if (pathname === "/api/reports") {
       return jsonResponse(200, { reports: ctx.reports ?? [] }, cors);
@@ -506,6 +513,9 @@ export async function handleCockpitRequest(
       // Honest gate diagnostics — so "no live LLM was used" is never a silent mystery. Secret-free
       // (explainGate returns only a reason string; resolveLlmConfig's key is never surfaced).
       const gate = explainGate(resolveLlmConfig(env));
+      // Command routing — which agent/mode handles this, and how (read-only / gated proposal /
+      // requires-runner). Surfaced so agent selection is visible + testable; never silent.
+      const route = routeCockpitCommand(validation.value);
       return jsonResponse(
         200,
         {
@@ -516,6 +526,19 @@ export async function handleCockpitRequest(
           providerMode: gate.mode,
           gateReason: gate.reason,
           fallbackReason: answer.fallbackReason,
+          routing: {
+            selectedAgent: route.selectedAgentId,
+            selectedAgentName: route.selectedAgentName,
+            mode: route.selectedMode,
+            intentClass: route.intentClass,
+            reason: route.reason,
+            confidence: route.confidence,
+            directAnswerPossible: route.directAnswerPossible,
+            needsProposal: route.needsProposal,
+            needsApproval: route.needsApproval,
+            requiresLocalRunner: route.requiresLocalRunner,
+            fallback: route.fallback,
+          },
           request: validation.value,
           intent: result.intent,
           title: answer.title,
