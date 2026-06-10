@@ -71,6 +71,8 @@
     "beezulbub:pack-promote": "npm run build && node dist/scripts/beezulbub-pack-promote.js",
     "beezulbub:pack-conflicts": "npm run build && node dist/scripts/beezulbub-pack-conflicts.js",
     "beezulbub:pack-implement": "npm run build && node dist/scripts/beezulbub-pack-implement.js",
+    "prebeezulbub:hunt": "npm run build",
+    "beezulbub:hunt": "node --env-file-if-exists=.env.local dist/scripts/beezulbub-hunt.js",
     "prehartos:orchestrate": "npm run build",
     "hartos:orchestrate": "node dist/scripts/hartos-orchestrate.js",
     "prehartos:strategy-review": "npm run build",

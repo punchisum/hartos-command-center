@@ -18,7 +18,9 @@ export type ObsidianNoteType =
   | "agent_handover"
   | "business_idea_dossier"
   /** A Research Agent dossier — synthesized key findings + reusable knowledge for the fleet. */
-  | "research_dossier";
+  | "research_dossier"
+  /** A Beezulbub capability scout — ranked OSS candidates to absorb for a capability target. */
+  | "capability_dossier";
 
 export type NoteConfidence = "high" | "medium" | "low";
 
