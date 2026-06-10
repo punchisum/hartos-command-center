@@ -79,6 +79,20 @@ export interface HostedPageOptions {
    * the honest "nothing filed yet" line.
    */
   knowledge?: KnowledgeSurface;
+  /**
+   * Runtime diagnostics for the Technical page (secret-free). Surfaces why the LLM did/didn't fire,
+   * provider connectivity, vault sync, version — so "no live LLM" is never a silent mystery.
+   */
+  diagnostics?: {
+    providerMode?: string;
+    gateReason?: string;
+    model?: string;
+    apiKeyEffective?: boolean;
+    opsStatus?: string;
+    opsReason?: string;
+    vaultNotesSynced?: number | null;
+    version?: string | null;
+  };
 }
 
 function esc(s: string): string {
@@ -233,6 +247,13 @@ kbd{border:1px solid var(--line);border-radius:5px;padding:1px 6px;font:11px var
 .card:hover{border-color:#324063;box-shadow:0 10px 30px rgba(0,0,0,.4)}
 code,.mono{font-family:var(--mono)}
 .app2{display:grid;grid-template-columns:64px 1fr;min-height:100vh}
+/* UI v2 — persistent right-side Ask CLI (desktop only; mobile uses the ⌘K palette) */
+.askcli{display:none;flex-direction:column;border-left:1px solid var(--line);background:rgba(10,12,20,.6);height:100vh;position:sticky;top:0;padding:14px 12px;gap:10px}
+.askcli .aclbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.6}
+.askcli .acin{display:flex;gap:6px}
+.askcli input{flex:1;background:#0b0e16;border:1px solid var(--line);border-radius:8px;color:#e6edf3;padding:7px 9px;font-size:12px}
+.askcli pre{flex:1;overflow:auto;white-space:pre-wrap;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;background:#0b0e16;border:1px solid var(--line);border-radius:8px;padding:10px;margin:0}
+@media(min-width:1280px){.app2{grid-template-columns:64px 1fr 360px}.askcli{display:flex}}
 /* icon rail */
 .rail{position:sticky;top:0;height:100vh;background:rgba(15,18,30,.7);backdrop-filter:blur(8px);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
 .rail .mk{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#5B8DEF,#7C5CFF);display:grid;place-items:center;color:#fff;font-size:15px;margin-bottom:10px;box-shadow:0 0 18px var(--glow)}
@@ -710,11 +731,10 @@ function relTime(iso: string, now: string): string {
 
 const V2_NAV: Array<[string, string, string]> = [
   ["overview", "▣", "Overview"],
-  ["awareness", "◬", "Awareness"],
-  ["fleet", "⬡", "Fleet"],
-  ["agents", "🤖", "Agents"],
+  ["agents", "🤖", "Agent Organisation"],
+  ["intelligence", "◬", "Intelligence"],
   ["approvals", "✓", "Approvals"],
-  ["health", "♥", "Health"],
+  ["technical", "⚙", "Technical"],
 ];
 
 /** The 64px icon rail (V2 nav). Destinations toggle server-rendered sections client-side. */
@@ -913,6 +933,36 @@ function knowledgeBox(k?: KnowledgeSurface): string {
   );
 }
 
+/** A compact Approval Queue summary card for the Overview (counts only; the Approvals page decides). */
+function approvalSummaryBox(p: ProposalsView): string {
+  if (!p.available) return `<section class="box"><div class="blbl">Approval Queue</div><div class="muted">No proposal queue resolved.</div></section>`;
+  const total = p.proposals.length;
+  const drafts = p.proposals.filter((x) => x.status === "draft").length;
+  return (
+    `<section class="box"><div class="blbl">Approval Queue</div>` +
+    `<p class="kv">Pending <b>${p.pending}</b> · Total <b>${total}</b>${drafts ? ` · Drafts <b>${drafts}</b>` : ""}</p>` +
+    `<div class="muted" style="font-size:11px">Open Approvals to decide — nothing executes without your approval.</div></section>`
+  );
+}
+
+/** Runtime diagnostics card (Technical page) — why the LLM did/didn't fire, providers, sync, version. Secret-free. */
+function diagnosticsBox(d?: HostedPageOptions["diagnostics"]): string {
+  if (!d) return `<section class="box"><div class="blbl">Runtime Diagnostics</div><div class="muted">Diagnostics not supplied (rendered without a live env).</div></section>`;
+  const row = (k: string, v: string) => `<div class="li"><span>${esc(k)}</span><b style="margin-left:auto">${esc(v)}</b></div>`;
+  return (
+    `<section class="box"><div class="blbl">Runtime Diagnostics</div>` +
+    row("LLM provider mode", d.providerMode ?? "—") +
+    row("LLM gate", d.gateReason ?? "—") +
+    (d.model ? row("Model", d.model) : "") +
+    row("OPENAI_API_KEY effective", d.apiKeyEffective ? "yes (value redacted)" : "no") +
+    (d.opsStatus ? row("Ops provider", `${d.opsStatus}${d.opsReason ? ` — ${d.opsReason}` : ""}`) : "") +
+    (d.vaultNotesSynced != null ? row("Vault notes synced", String(d.vaultNotesSynced)) : "") +
+    (d.version ? row("Version", d.version) : "") +
+    `<div class="muted" style="font-size:11px;margin-top:6px">Per-Ask live-LLM / selected-agent / fallback-reason appear in the Ask panel after a query.</div>` +
+    `</section>`
+  );
+}
+
 export function renderHostedCockpitPage(state: CockpitState | undefined, opts: HostedPageOptions = {}): string {
   const now = opts.now ?? opts.generatedAt ?? state?.generatedAt ?? "";
   const brief = routeHosted(state, "Daily command brief");
@@ -986,32 +1036,30 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     ? `<div class="grid4">${fleet.agents.map((a) => fleetCard(a, panelAdvice(state, a.type))).join("")}</div>`
     : `<div class="box"><div class="muted">${esc(fleet.note)}</div></div>`;
 
-  // ── Views (server-rendered; the rail/bottom-nav toggle visibility client-side) ──
+  // ── Views (UI v2 IA: Overview · Agent Organisation · Intelligence · Approvals · Technical) ──
+  // Overview = CEO cockpit (command clarity). Technical = diagnostics. Every box still renders.
   const overview = viewBlock(
     "overview",
     true,
     renderStatusStrip(statusSplit) +
       sec("Executive Brief") + heroSection(sbrief, overall, sysTone, topApproval) +
-      sec("Strategic Awareness") + awarenessSection(sbrief) +
-      sec("Today's Focus") + focusSection(suggestions) +
+      sec("Fleet") + fleetSection +
       sec("Knowledge & Intelligence") + knowledgeBox(opts.knowledge) +
-      sec("Fleet") + fleetSection,
+      sec("Approval Queue") + approvalSummaryBox(props) +
+      sec("Today's Focus") + focusSection(suggestions) +
+      sec("Strategic Awareness") + awarenessSection(sbrief),
   );
   const agentsView = viewBlock(
     "agents",
     false,
     renderStatusStrip(statusSplit) + renderAgentOrgPanel(metaReg),
   );
-  const awarenessView = viewBlock(
-    "awareness",
+  const intelligenceView = viewBlock(
+    "intelligence",
     false,
-    sec("Strategic Awareness") + awarenessSection(sbrief) +
-      sec("Executive Memory") + memorySection(mem),
-  );
-  const fleetViewBlk = viewBlock(
-    "fleet",
-    false,
-    sec("Fleet Status") + fleetSection + sec("Fleet Brain") + fleetBrainBox(briefing) + fleetSynthesisBox(synthesis),
+    sec("Knowledge & Intelligence") + knowledgeBox(opts.knowledge) +
+      sec("Executive Memory") + memorySection(mem) +
+      sec("Fleet Brain") + fleetBrainBox(briefing) + fleetSynthesisBox(synthesis),
   );
   const approvalsView = viewBlock(
     "approvals",
@@ -1019,10 +1067,11 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     sec("Approvals") + proposalBox(props) + mutationCenterBox(mutation) +
       (autonomy.total > 0 ? autonomyBox(autonomy) : ""),
   );
-  const healthView = viewBlock(
-    "health",
+  const technicalView = viewBlock(
+    "technical",
     false,
-    sec("System Health") +
+    sec("Runtime Diagnostics") + diagnosticsBox(opts.diagnostics) +
+      sec("System Health") +
       `<div class="grid3">` +
       trustBox(rms, fr) + freshBox(fr) + suggestionsBox(suggestions) +
       perceptionBox(perception, fleetWork) + orchestrationBox(fleetPlan) + forecastBox(fleetForecast) +
@@ -1034,11 +1083,18 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const body =
     `<div class="app2">${railV2(pending)}<main>` +
     topbar +
-    overview + awarenessView + fleetViewBlk + agentsView + approvalsView + healthView +
+    overview + agentsView + intelligenceView + approvalsView + technicalView +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
     `No provider / Supabase / ClickUp / Telegram writes. <a href="/health">health</a> · <a href="/api/state">state</a></footer>` +
     `</div>` +
-    `</main></div>` +
+    `</main>` +
+    // UI v2 — persistent right-side Ask CLI (command terminal). Hidden < 1280px (⌘K covers mobile).
+    `<aside class="askcli">` +
+    `<div class="aclbl">HartOS Ask · command terminal</div>` +
+    `<div class="acin"><input id="q2" type="text" placeholder="Ask HartOS…" autocomplete="off" aria-label="Ask HartOS"><button class="send" id="ask2" type="button" title="Ask HartOS" style="width:30px;border:none;border-radius:7px;background:var(--primary);color:#fff;cursor:pointer">&#10148;</button></div>` +
+    `<pre class="answer" id="out2">Ask anything. The selected agent, live-LLM status, and any required proposal/runner show up here.</pre>` +
+    `</aside>` +
+    `</div>` +
     botnav(pending) +
     // Quick-peek drawer (card click) + ⌘K command palette — progressive enhancement.
     `<div class="overlay" id="ov"></div>` +
@@ -1051,7 +1107,14 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function fmt(d){
     if(d&&d.error){return 'Error: '+d.error;}
-    var s=(d.title?d.title+'\\n\\n':'')+(d.summary||'');
+    var head='';
+    if(d.routing){head+='\\u25B8 '+(d.routing.selectedAgentName||d.routing.selectedAgent||'Orchestrator')+' \\u00B7 '+(d.routing.mode||'')+' \\u00B7 '+(d.routing.confidence||'')+' confidence\\n';}
+    if(typeof d.usedLlm!=='undefined'){head+=(d.usedLlm?'\\u25CF live LLM ('+(d.provider||'')+')':'\\u25CB deterministic'+(d.fallbackReason&&d.fallbackReason!=='none'?' ['+d.fallbackReason+']':'')+(d.gateReason?' \\u2014 '+d.gateReason:''))+'\\n';}
+    var s=head+(head?'\\n':'')+(d.title?d.title+'\\n\\n':'')+(d.summary||'');
+    if(d.routing){
+      if(d.routing.requiresLocalRunner){s+='\\n\\n\\u2699 requires a local runner \\u2014 '+(d.routing.fallback||'');}
+      else if(d.routing.needsProposal){s+='\\n\\n\\u2295 becomes a gated proposal'+(d.routing.needsApproval?' (needs your approval)':'')+'.';}
+    }
     if(d.nextSteps&&d.nextSteps.length){s+='\\n\\nNext steps:\\n- '+d.nextSteps.join('\\n- ');}
     if(typeof d.proposalCount==='number'){s+='\\n\\nProposals generated: '+d.proposalCount;}
     return s;
@@ -1066,6 +1129,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   var q=document.getElementById('q'),inBtn=document.getElementById('ask'),out=document.getElementById('out'),form=document.getElementById('ask-form');
   if(form){form.addEventListener('submit',function(e){e.preventDefault();ask(q.value,out);});}
   if(inBtn){inBtn.addEventListener('click',function(e){e.preventDefault();ask(q.value,out);});}
+  var q2=document.getElementById('q2'),ask2=document.getElementById('ask2'),out2=document.getElementById('out2');
+  if(ask2&&q2){ask2.addEventListener('click',function(e){e.preventDefault();ask(q2.value,out2);});q2.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();ask(q2.value,out2);}});}
   Array.prototype.forEach.call(document.querySelectorAll('.chip'),function(c){c.addEventListener('click',function(){q.value=c.getAttribute('data-q');ask(q.value,out);});});
   var kbar=document.getElementById('kbar'),kov=document.getElementById('kov'),kq=document.getElementById('kq'),kout=document.getElementById('kout');
   function openK(){kov.classList.add('show');kbar.classList.add('show');kq.focus();}

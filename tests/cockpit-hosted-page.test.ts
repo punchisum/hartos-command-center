@@ -28,11 +28,36 @@ describe("hosted cockpit page — V2 structure + depth", () => {
     assert.match(html, /<!doctype html>/i);
     assert.match(html, /class="app2"/);
     assert.match(html, /class="rail"/);
-    // five destinations
-    for (const d of ["overview", "awareness", "fleet", "approvals", "health"]) {
+    // UI v2 IA — five destinations
+    for (const d of ["overview", "agents", "intelligence", "approvals", "technical"]) {
       assert.match(html, new RegExp(`data-nav="${d}"`), `rail destination ${d}`);
     }
     assert.match(html, /read-only/);
+  });
+
+  it("UI v2 — Agent Organisation, Intelligence, Technical views + persistent Ask CLI render", () => {
+    assert.match(html, /data-view="agents"/);
+    assert.match(html, /Agent Organisation/);
+    assert.match(html, /data-view="intelligence"/);
+    assert.match(html, /data-view="technical"/);
+    assert.match(html, /Runtime Diagnostics/);
+    // persistent right-side Ask command terminal
+    assert.match(html, /class="askcli"/);
+    assert.match(html, /id="q2"/);
+    assert.match(html, /command terminal/);
+    // status taxonomy split is surfaced
+    assert.match(html, /System Health/);
+    assert.match(html, /Operator Status/);
+  });
+
+  it("UI v2 — diagnostics surface why the LLM fired (provider mode + gate reason), secret-free", () => {
+    const h = renderHostedCockpitPage(undefined, {
+      now: "2026-06-10T12:00:00Z",
+      diagnostics: { providerMode: "deterministic", gateReason: "OPENAI_API_KEY not present in env", model: "gpt-5.5", apiKeyEffective: false },
+    });
+    assert.match(h, /LLM provider mode/);
+    assert.match(h, /OPENAI_API_KEY not present in env/);
+    assert.match(h, /OPENAI_API_KEY effective/);
   });
 
   it("renders the Executive Brief hero + the new executive sections", () => {

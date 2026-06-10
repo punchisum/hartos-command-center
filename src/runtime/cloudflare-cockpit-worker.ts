@@ -75,6 +75,7 @@ import {
   renderLoginPage,
   renderLockedPage,
   renderAgentDetailPage,
+  type HostedPageOptions,
 } from "./cloudflare-cockpit-page.js";
 import { routeHosted, freshnessView, readModelStatusView, proposalsView, fleetView, cockpitSuggestions } from "./cloudflare-cockpit-views.js";
 import { mutationCenterView } from "./views/mutation-center-view.js";
@@ -250,10 +251,12 @@ export async function handleCockpitRequest(
       // Knowledge & Intelligence card — composed from the LIVE vault context pack (best-effort;
       // absent the pack the card renders the honest "nothing filed yet" line). Pure + Worker-safe.
       let knowledge: KnowledgeSurface | undefined;
+      let vaultNotesSynced: number | null = null;
       if (dctx.contextPackProvider) {
         try {
           const notes = await dctx.contextPackProvider();
           if (notes && notes.length) {
+            vaultNotesSynced = notes.length;
             const derived = deriveKnowledgeInputs(notes);
             knowledge = composeKnowledgeSurface(derived);
           }
@@ -261,7 +264,21 @@ export async function handleCockpitRequest(
           /* best-effort; the page still renders without the card */
         }
       }
-      return htmlResponse(hostedHtml(dctx, threads ?? undefined, knowledge), cors);
+      // Technical-page diagnostics — secret-free (gate reason + presence boolean only).
+      const dgCfg = resolveLlmConfig(env);
+      const dgGate = explainGate(dgCfg);
+      const dgReg = resolveMetaAgentRegistry({ now: nowFor(dctx) });
+      const diagnostics = {
+        providerMode: dgGate.mode,
+        gateReason: dgGate.reason,
+        model: dgCfg.model,
+        apiKeyEffective: dgCfg.apiKeyPresent,
+        opsStatus: dgReg.byId["ops"]?.status,
+        opsReason: dgReg.byId["ops"]?.statusReason,
+        vaultNotesSynced,
+        version: null as string | null,
+      };
+      return htmlResponse(hostedHtml(dctx, threads ?? undefined, knowledge, diagnostics), cors);
     }
     if (pathname === "/api/state") {
       return jsonResponse(200, dctx.state ?? { hosted: true, note: "snapshot not embedded" }, cors);
@@ -683,13 +700,19 @@ async function ensureLiveState(ctx: CockpitWorkerContext, pathname: string): Pro
 }
 
 /** Render the hosted page from the context's snapshot (no fs at request time). */
-function hostedHtml(ctx: CockpitWorkerContext, threads?: CockpitThreadSummary[], knowledge?: KnowledgeSurface): string {
+function hostedHtml(
+  ctx: CockpitWorkerContext,
+  threads?: CockpitThreadSummary[],
+  knowledge?: KnowledgeSurface,
+  diagnostics?: HostedPageOptions["diagnostics"],
+): string {
   return renderHostedCockpitPage(ctx.state, {
     runtimeMode: ctx.runtimeMode ?? "hosted",
     generatedAt: ctx.generatedAt ?? ctx.state?.generatedAt ?? null,
     now: nowFor(ctx),
     ...(threads ? { threads } : {}),
     ...(knowledge ? { knowledge } : {}),
+    ...(diagnostics ? { diagnostics } : {}),
   });
 }
 
