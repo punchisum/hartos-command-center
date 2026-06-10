@@ -30,6 +30,26 @@ export type WolverineCategory =
 export type SystemVerdict = "GREEN" | "AMBER" | "RED";
 export type WolverineConfidence = "high" | "medium" | "low";
 
+// Imported as TYPES only (no runtime dependency) so a finding can declare that its repair
+// routes to an EXISTING, already-proven gated mutation adapter — Wolverine adds no new
+// mutation primitive; it reuses the Step-1b approve→execute→audit spine.
+import type { MutationAdapterId } from "../execution/execution-dispatch.js";
+import type { ProposalTier } from "../cockpit/proposals/proposal-types.js";
+
+/**
+ * How a finding's repair would be executed: the gated adapter it routes to, that adapter's
+ * tier, and any payload the adapter needs. Present ONLY on findings whose fix maps cleanly to
+ * an existing gated adapter; advisory-only findings leave it undefined. This is what lets a
+ * FixProposal flow through the proven proposal → approval → execution-gate → audit → rollback
+ * path with NO new authority.
+ */
+export interface WolverineFixRoute {
+  adapterId: MutationAdapterId;
+  tier: ProposalTier;
+  /** Adapter-specific payload (e.g. cardId/cardName). Bulk-by-status adapters need none. */
+  payload?: Record<string, unknown>;
+}
+
 /**
  * One audit finding = a (gated) FixProposal. Carries everything Hart needs to triage:
  * what + why (evidence) + the recommended fix + blast radius + rollback + whether it needs
@@ -59,6 +79,13 @@ export interface WolverineFinding {
   freshness: string;
   /** The detector id that produced this finding. */
   source: string;
+  /**
+   * Present when this finding's repair maps to an existing gated adapter — the finding can then
+   * be turned into a gated FixProposal (see wolverine-fix-proposal.ts). Undefined ⇒ advisory
+   * only (Hart fixes it manually). Wolverine NEVER executes; the FixProposal still requires
+   * Hart's approval + the per-action flag before any mutation.
+   */
+  fixRoute?: WolverineFixRoute;
 }
 
 /** The inputs a host gathers and hands to the (pure) detectors. Extensible per increment. */
@@ -69,6 +96,17 @@ export interface WolverineInputs {
   env?: Record<string, string | undefined>;
   /** Git facts gathered by the host (null fields when unavailable). */
   git?: GitFacts;
+  /** Proposal-queue stats gathered by the host (from the spine). Absent ⇒ not assessed. */
+  proposalStats?: ProposalStats;
+}
+
+export interface ProposalStats {
+  /** Draft/pending proposals older than the aging threshold (backlog drift). */
+  agingDraftCount?: number | null;
+  /** Rejected proposals eligible to be archived (housekeeping). */
+  rejectedCount?: number | null;
+  /** The aging threshold used (hours), surfaced for honest evidence. */
+  agingHours?: number | null;
 }
 
 export interface GitFacts {

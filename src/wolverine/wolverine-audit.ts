@@ -21,9 +21,10 @@ import {
 } from "./wolverine-types.js";
 import { detectUnsafeFlags } from "./detectors/unsafe-flags.js";
 import { detectGitHygiene } from "./detectors/git-hygiene.js";
+import { detectProposalHygiene } from "./detectors/proposal-hygiene.js";
 
 /** The default v1 detector set. Add detectors here as increments land. */
-export const DEFAULT_DETECTORS: WolverineDetector[] = [detectUnsafeFlags, detectGitHygiene];
+export const DEFAULT_DETECTORS: WolverineDetector[] = [detectUnsafeFlags, detectGitHygiene, detectProposalHygiene];
 
 function rankFindings(findings: WolverineFinding[]): WolverineFinding[] {
   return [...findings].sort(
