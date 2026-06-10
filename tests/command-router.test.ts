@@ -89,12 +89,14 @@ describe("routeCockpitCommand — agent selection + safety posture", () => {
     assert.equal(d.directAnswerPossible, true);
   });
 
-  it("unknown/unsafe → fail closed, honest fallback, no fabricated action", () => {
+  it("unknown/unsafe → fail closed, honest fallback that GUIDES recovery, no fabricated action", () => {
     const d = r("asdf qwerty zxcv");
     assert.equal(d.intentClass, "unknown");
     assert.equal(d.selectedAgentId, null);
     assert.equal(d.needsProposal, false);
     assert.equal(d.directAnswerPossible, false);
-    assert.ok(d.fallback.length > 0);
+    // The fallback must actually help — name agents to try + the capability question, not just be non-empty.
+    assert.match(d.fallback, /Wolverine|Beezulbub|Research|Prophet|Factory/);
+    assert.match(d.fallback, /what can HartOS do/i);
   });
 });

@@ -6,7 +6,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { classifyDomain } from "../src/llm/providers/deterministic-provider.js";
+import { classifyDomain, deterministicOutput } from "../src/llm/providers/deterministic-provider.js";
 import { explainGate } from "../src/llm/llm-gateway.js";
 import { composeAskAnswer, type AskGrounding, type AskInfer } from "../src/llm/ask-llm.js";
 import type { LlmGatewayConfig, LlmResult, LlmStructuredOutput } from "../src/llm/llm-types.js";
@@ -41,13 +41,25 @@ describe("P0-A classifyDomain — honest, request-only", () => {
     assert.equal(c.score, 0);
     assert.deepEqual(c.matched, []);
   });
+
+  it("REGRESSION (the real bug): deterministicOutput does NOT fold fitness-heavy grounding context into the domain", () => {
+    // The original bug: deterministicOutput classified over request + JSON.stringify(context),
+    // and the Ask grounding is full of fitness/ops panel data → a war/economy question scored fitness.
+    const out = deterministicOutput({
+      type: "classify_and_contextualize",
+      request: "what are the market opportunities from the war economy",
+      context: { grounding: { summary: "Training/recovery: HRV low, sleep 8.5h, workout done", highlights: ["fitness recovery nutrition training sleep hrv whoop"] } },
+    });
+    assert.notEqual(out.domain, "fitness", "must NOT be fitness — that was the bug");
+    assert.equal(out.domain, "finance"); // from the REQUEST ('market'), not the fitness context
+  });
 });
 
 describe("P0-B explainGate — the gate is never a silent mystery", () => {
-  it("names each disarmed reason + armed", () => {
-    assert.match(explainGate(cfg({ provider: "deterministic" })).reason, /provider/);
-    assert.match(explainGate(cfg({ networkEnabled: false })).reason, /network/);
-    assert.match(explainGate(cfg({ apiKeyPresent: false })).reason, /OPENAI_API_KEY/);
+  it("gives the EXACT, actionable reason for each disarmed branch + armed", () => {
+    assert.equal(explainGate(cfg({ provider: "deterministic" })).reason, 'provider is "deterministic" (set HARTOS_LLM_PROVIDER=openai)');
+    assert.equal(explainGate(cfg({ networkEnabled: false })).reason, "network disabled (set HARTOS_LLM_ENABLE_NETWORK=true)");
+    assert.equal(explainGate(cfg({ apiKeyPresent: false })).reason, "OPENAI_API_KEY not present in env");
     const armed = explainGate(cfg());
     assert.equal(armed.mode, "openai");
     assert.equal(armed.reason, "armed");
