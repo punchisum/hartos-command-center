@@ -10,13 +10,15 @@
  * gated writer in obsidian-writer.ts.
  */
 
-/** The 5 note types we start with (Travel etc. come later). */
+/** The starter note types (Travel etc. come later). */
 export type ObsidianNoteType =
   | "vision_doctrine"
   | "wolverine_audit_summary"
   | "executive_weekly_review"
   | "agent_handover"
-  | "business_idea_dossier";
+  | "business_idea_dossier"
+  /** A Research Agent dossier — synthesized key findings + reusable knowledge for the fleet. */
+  | "research_dossier";
 
 export type NoteConfidence = "high" | "medium" | "low";
 
