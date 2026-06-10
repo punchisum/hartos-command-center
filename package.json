@@ -127,6 +127,8 @@
     "research:run": "node --env-file-if-exists=.env.local dist/scripts/research-run.js",
     "preresearch:file-to-vault": "npm run build",
     "research:file-to-vault": "node --env-file-if-exists=.env.local dist/scripts/research-file-to-vault.js",
+    "preobsidian:mocs": "npm run build",
+    "obsidian:mocs": "node --env-file-if-exists=.env.local dist/scripts/obsidian-mocs.js",
     "cockpit:ask-host": "npm run build && node --env-file-if-exists=.env.local dist/scripts/cockpit-ask-host.js",
     "prellm:status": "npm run build",
     "llm:status": "node dist/scripts/llm-status.js",

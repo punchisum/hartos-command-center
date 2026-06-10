@@ -20,7 +20,9 @@ export type ObsidianNoteType =
   /** A Research Agent dossier — synthesized key findings + reusable knowledge for the fleet. */
   | "research_dossier"
   /** A Beezulbub capability scout — ranked OSS candidates to absorb for a capability target. */
-  | "capability_dossier";
+  | "capability_dossier"
+  /** A Map of Content — a navigation/index note (the vault lobby + per-area maps). */
+  | "moc";
 
 export type NoteConfidence = "high" | "medium" | "low";
 
