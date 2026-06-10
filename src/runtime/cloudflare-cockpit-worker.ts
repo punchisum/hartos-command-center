@@ -65,6 +65,7 @@ import { buildCockpitState } from "../cockpit/cockpit-read-model.js";
 import { composeKnowledgeSurface, deriveKnowledgeInputs, type KnowledgeSurface } from "../cockpit/knowledge-surface.js";
 import { routeCockpitCommand } from "../cockpit/command-router.js";
 import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
+import { jobSpecFromRoute, buildAgentJobProposal } from "../jobs/agent-job.js";
 import {
   authenticateCockpitRequest,
   attemptLogin,
@@ -533,6 +534,25 @@ export async function handleCockpitRequest(
       // Command routing — which agent/mode handles this, and how (read-only / gated proposal /
       // requires-runner). Surfaced so agent selection is visible + testable; never silent.
       const route = routeCockpitCommand(validation.value);
+      // Autonomy spine: a runner-required action no longer dead-ends — the cockpit CREATES a gated
+      // job proposal in the spine (pending_approval). Hart approves in Approvals; the local runner
+      // executes it under that action's own env gates. The cockpit itself never executes.
+      let jobCreated: { id: string; title: string; persisted: boolean; reason: string } | null = null;
+      if (route.needsProposal && route.requiresLocalRunner && ctx.proposalWriteProvider) {
+        const spec = jobSpecFromRoute(route);
+        if (spec) {
+          const jobProposal = buildAgentJobProposal(spec, route, nowFor(dctx));
+          const persist = await ctx
+            .proposalWriteProvider([jobProposal], `agent-job: ${validation.value}`)
+            .catch(() => ({ attempted: true, persisted: 0, failed: 1, reason: "writer error" }));
+          jobCreated = {
+            id: jobProposal.id,
+            title: jobProposal.title,
+            persisted: persist.persisted > 0,
+            reason: persist.persisted > 0 ? "queued for your approval in Approvals" : persist.reason,
+          };
+        }
+      }
       return jsonResponse(
         200,
         {
@@ -556,6 +576,7 @@ export async function handleCockpitRequest(
             requiresLocalRunner: route.requiresLocalRunner,
             fallback: route.fallback,
           },
+          jobCreated,
           request: validation.value,
           intent: result.intent,
           title: answer.title,

@@ -1111,7 +1111,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     if(d.routing){head+='\\u25B8 '+(d.routing.selectedAgentName||d.routing.selectedAgent||'Orchestrator')+' \\u00B7 '+(d.routing.mode||'')+' \\u00B7 '+(d.routing.confidence||'')+' confidence\\n';}
     if(typeof d.usedLlm!=='undefined'){head+=(d.usedLlm?'\\u25CF live LLM ('+(d.provider||'')+')':'\\u25CB deterministic'+(d.fallbackReason&&d.fallbackReason!=='none'?' ['+d.fallbackReason+']':'')+(d.gateReason?' \\u2014 '+d.gateReason:''))+'\\n';}
     var s=head+(head?'\\n':'')+(d.title?d.title+'\\n\\n':'')+(d.summary||'');
-    if(d.routing){
+    if(d.jobCreated){s+='\\n\\n\\u2295 gated job created: '+d.jobCreated.title+' \\u2014 '+(d.jobCreated.persisted?d.jobCreated.reason:('not persisted: '+d.jobCreated.reason));}
+    else if(d.routing){
       if(d.routing.requiresLocalRunner){s+='\\n\\n\\u2699 requires a local runner \\u2014 '+(d.routing.fallback||'');}
       else if(d.routing.needsProposal){s+='\\n\\n\\u2295 becomes a gated proposal'+(d.routing.needsApproval?' (needs your approval)':'')+'.';}
     }
