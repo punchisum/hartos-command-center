@@ -4,6 +4,7 @@ import type { AgentManifest } from "./manifest-types.js";
 import type { AgentContract } from "../agents/agent-contract.js";
 import type { ReadModelSummary } from "../read-models/read-model-types.js";
 import type { TypedActionProposal } from "../cockpit/proposals/proposal-types.js";
+import { assessAgentQuality, type AgentQualityVerdict } from "./officiator-quality-gate.js";
 
 export interface OfficiationOutcome {
   officiated: boolean;
@@ -15,6 +16,8 @@ export interface OfficiationOutcome {
   /** All known agents AFTER this one is folded in (deduped, static wins). */
   expandedRegistry: AgentContract[];
   violations: string[];
+  /** The Officiator quality verdict — ADMIT/REVISE/REJECT + per-facet scorecard. */
+  quality: AgentQualityVerdict;
 }
 
 function stubContract(): AgentContract {
@@ -107,6 +110,13 @@ export function officiateFromManifest(
       persistProposal: stubProposal(""),
       expandedRegistry: resolveKnownAgents([]),
       violations: ["no contract in manifest"],
+      quality: {
+        rating: "REJECT",
+        score: 0,
+        admit: false,
+        facets: [{ facet: "manifest", status: "fail", detail: "no contract in manifest" }],
+        summary: "REJECT — manifest has no contract.",
+      },
     };
   }
 
@@ -114,6 +124,9 @@ export function officiateFromManifest(
   const expandedRegistry = resolveKnownAgents([contract]);
   const persistProposal = buildPersistProposal(contract, now);
   const violations = result.violations.map((v) => `${v.facet}: ${v.detail}`);
+  // Existing fleet = known agents WITHOUT this candidate (resolveKnownAgents([]) excludes it),
+  // so the uniqueness facet can detect a duplicate type / read-model.
+  const quality = assessAgentQuality(manifest, { officiated: result.officiated, violations }, resolveKnownAgents([]));
 
   return {
     officiated: result.officiated,
@@ -123,5 +136,6 @@ export function officiateFromManifest(
     persistProposal,
     expandedRegistry,
     violations,
+    quality,
   };
 }
