@@ -25,6 +25,7 @@ import type { ProposalQueueItem } from "../cockpit/proposals/proposal-types.js";
 // Prophet now projects from — the immune system's findings and the memory layer's trends.
 import type { WolverineReport, WolverineCategory } from "../wolverine/wolverine-types.js";
 import type { ExecutiveMemoryReport, MemoryTrend } from "../awareness/executive-memory.js";
+import type { CapabilityScoutSummary } from "../beezulbub/scout-summary.js";
 
 export type ForecastSeverity = "low" | "medium" | "high";
 export type ForecastHorizon = "now" | "days" | "week+";
@@ -73,6 +74,12 @@ export interface ForecastInput {
    * signal a single snapshot can't produce. Absent ⇒ not assessed. Backward compatible.
    */
   memory?: ExecutiveMemoryReport | null;
+  /**
+   * Beezulbub capability-scout summaries — scouted-but-not-absorbed capabilities are latent gaps,
+   * and scouts whose only top pick is risky/stale have no clean absorption path. Absent ⇒ not
+   * assessed. Backward compatible: omitting it leaves the forecast unchanged.
+   */
+  capabilityScouts?: CapabilityScoutSummary[] | null;
 }
 
 const SEV_RANK: Record<ForecastSeverity, number> = { high: 3, medium: 2, low: 1 };
@@ -250,6 +257,33 @@ export function forecast(input: ForecastInput): ForecastReport {
         horizon: "days",
         basis: t.evidence,
         preventedBy: "Clear faster than inflow — triage the leading source driving the rise before adding new work.",
+      });
+    }
+  }
+
+  // ── Beezulbub capability scouts → latent-gap + no-clean-path consequences ──
+  if (input.capabilityScouts && input.capabilityScouts.length) {
+    scanned.push("capability scouts");
+    const withCandidates = input.capabilityScouts.filter((s) => s.candidateCount > 0);
+    const noCleanPath = withCandidates.filter((s) => s.riskyTopLicense || s.staleTop);
+    if (withCandidates.length) {
+      consequences.push({
+        subject: "capability absorption",
+        projection: `${withCandidates.length} capability(ies) have been scouted but not absorbed — the gaps they'd close stay open, and the scout data ages until someone re-scouts and repeats the work.`,
+        severity: "medium",
+        horizon: "week+",
+        basis: `Beezulbub scouted ${withCandidates.length} capability target(s) with candidates on file; none absorbed yet.`,
+        preventedBy: "Pick a scout to act on: digest the top candidate, then approve/reject absorption — or close it out if no longer needed.",
+      });
+    }
+    if (noCleanPath.length) {
+      consequences.push({
+        subject: "absorption risk",
+        projection: `${noCleanPath.length} scouted capability(ies) lead with a copyleft/unknown-license or stale top pick — there is no clean absorption path, so absorbing blindly drifts license posture or pulls in unmaintained code.`,
+        severity: "medium",
+        horizon: "days",
+        basis: `Top candidates flagged risky-license/stale: ${noCleanPath.map((s) => s.target).slice(0, 4).join(", ")}.`,
+        preventedBy: "Re-scout for a permissive, maintained alternative, or treat the risky pick as reference-only.",
       });
     }
   }

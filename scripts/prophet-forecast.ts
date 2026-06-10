@@ -24,6 +24,7 @@ import { forecast, summarizeForecast, type ForecastReport, type Consequence } fr
 import { wolverineAudit } from "../src/wolverine/wolverine-audit.js";
 import { executiveMemory } from "../src/awareness/executive-memory.js";
 import { createCockpitMemoryDb } from "../src/awareness/supabase-memory-db.js";
+import { readCapabilityScouts } from "../src/beezulbub/scout-vault-reader.js";
 import { resolveHostedCockpitState } from "../src/runtime/cloudflare-live-read-models.js";
 import type { GitFacts } from "../src/wolverine/wolverine-types.js";
 import type { MemorySnapshot } from "../src/awareness/executive-memory.js";
@@ -105,8 +106,11 @@ if (invokedDirectly) {
     }
     const memory = history.length ? executiveMemory(history, { now }) : null;
 
+    // Beezulbub capability scouts filed in the vault → latent-gap / no-clean-path consequences.
+    const capabilityScouts = await readCapabilityScouts(process.env.HARTOS_OBSIDIAN_VAULT_PATH);
+
     // 3) Run the pure forecast over the knowledge-loop signals + the live proposal queue.
-    const report = forecast({ now, wolverine, memory, proposals: state?.proposalQueue ?? [] });
+    const report = forecast({ now, wolverine, memory, proposals: state?.proposalQueue ?? [], capabilityScouts });
     for (const line of renderForecast(report)) console.log(line);
     console.log(
       memory

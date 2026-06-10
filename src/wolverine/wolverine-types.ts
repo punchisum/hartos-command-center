@@ -35,6 +35,7 @@ export type WolverineConfidence = "high" | "medium" | "low";
 // mutation primitive; it reuses the Step-1b approve→execute→audit spine.
 import type { MutationAdapterId } from "../execution/execution-dispatch.js";
 import type { ProposalTier } from "../cockpit/proposals/proposal-types.js";
+import type { CapabilityScoutSummary } from "../beezulbub/scout-summary.js";
 
 /**
  * How a finding's repair would be executed: the gated adapter it routes to, that adapter's
@@ -102,6 +103,8 @@ export interface WolverineInputs {
   staleSources?: string[];
   /** Obsidian vault note metadata gathered by the host. Absent ⇒ vault not assessed. */
   vaultNotes?: VaultNoteMeta[];
+  /** Beezulbub capability-scout summaries the host gathered (from the vault). Absent ⇒ not assessed. */
+  capabilityScouts?: CapabilityScoutSummary[];
 }
 
 export interface VaultNoteMeta {

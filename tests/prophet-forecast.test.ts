@@ -218,6 +218,23 @@ describe("prophet forecast — knowledge-loop ingestion", () => {
     assert.ok(!r.scanned.includes("executive memory")); // status !== ok ⇒ not scanned
   });
 
+  it("projects latent-gap + no-clean-path consequences from Beezulbub capability scouts", () => {
+    const r = forecast({
+      now: NOW,
+      capabilityScouts: [
+        { target: "markdown_editor", mode: "live", candidateCount: 5, topCandidate: "vditor", topLicense: "AGPL-3.0", topStaleRisk: "low", riskyTopLicense: true, staleTop: false },
+        { target: "data_grid", mode: "live", candidateCount: 3, topCandidate: "ag-grid", topLicense: "MIT", topStaleRisk: "low", riskyTopLicense: false, staleTop: false },
+      ],
+    });
+    const latent = r.consequences.find((c) => c.subject === "capability absorption")!;
+    assert.ok(latent, "latent-gap consequence");
+    assert.equal(latent.horizon, "week+");
+    const risk = r.consequences.find((c) => c.subject === "absorption risk")!;
+    assert.ok(risk, "no-clean-path consequence");
+    assert.match(risk.basis, /markdown_editor/);
+    assert.ok(r.scanned.includes("capability scouts"));
+  });
+
   it("stays backward compatible — omitting the new inputs is byte-identical", () => {
     const base = { now: NOW, perception: perceive({ now: NOW, freshness: fresh([dom("ops", "stale")]) }) };
     const a = forecast(base);
