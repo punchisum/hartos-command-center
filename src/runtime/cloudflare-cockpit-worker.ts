@@ -61,6 +61,7 @@ import { compileContext, toBriefing } from "../rinnegan/rinnegan-compiler.js";
 import { executiveMemory } from "../awareness/executive-memory.js";
 import type { RinneganFact, RinneganPattern } from "../rinnegan/rinnegan-types.js";
 import { augmentGroundingWithSynthesis } from "../llm/ask-fleet-grounding.js";
+import { augmentGroundingWithForecast } from "../llm/ask-forecast-grounding.js";
 import { buildCockpitState } from "../cockpit/cockpit-read-model.js";
 import { composeKnowledgeSurface, deriveKnowledgeInputs, type KnowledgeSurface } from "../cockpit/knowledge-surface.js";
 import { routeCockpitCommand } from "../cockpit/command-router.js";
@@ -485,6 +486,13 @@ export async function handleCockpitRequest(
         intent: result.intent,
         request: validation.value,
       });
+      // Prophet — add the FORWARD-tense layer: ground the answer in what the known issues BECOME if
+      // left alone (consequence-of-inaction), so "what's going to bite me?" sees the future, not just
+      // the present. Behavior-preserving when there is nothing to forecast (e.g. thin memory).
+      const groundedForward = augmentGroundingWithForecast(groundedWithSynthesis, dctx.state, nowFor(dctx), {
+        intent: result.intent,
+        request: validation.value,
+      });
       // Rinnegan — compile the vault context pack (Supabase mirror) + live facts + memory patterns
       // into a ranked, freshness-tagged briefing so the LLM reasons over MEANING + facts, not facts
       // alone. The compiler is pure (runs in-Worker); best-effort — absent the pack the Ask is unchanged.
@@ -513,7 +521,7 @@ export async function handleCockpitRequest(
         }
       }
       const answer = await composeAskAnswer(
-        groundedWithSynthesis,
+        groundedForward,
         validation.value,
         { source: "cloudflare-cockpit", ...(rinneganBriefing ? { rinneganBriefing } : {}) },
         { infer: ctx.askInfer },
@@ -731,6 +739,9 @@ function hostedHtml(
     runtimeMode: ctx.runtimeMode ?? "hosted",
     generatedAt: ctx.generatedAt ?? ctx.state?.generatedAt ?? null,
     now: nowFor(ctx),
+    // Real wall-clock render time so the topbar shows the TRUE data age, not a perpetual "just now".
+    // Distinct from the snapshot time (now/generatedAt). Read-only; affects display text only.
+    renderedAt: new Date().toISOString(),
     ...(threads ? { threads } : {}),
     ...(knowledge ? { knowledge } : {}),
     ...(diagnostics ? { diagnostics } : {}),

@@ -65,6 +65,13 @@ export interface HostedPageOptions {
   generatedAt?: string | null;
   /** ISO now used for freshness; defaults to the snapshot generatedAt. */
   now?: string;
+  /**
+   * Real wall-clock render time (the Worker injects `new Date()` at request time). Distinct from
+   * `now`/`generatedAt` (which are the SNAPSHOT time), this lets the topbar show the TRUE data age
+   * ("12 min ago") instead of a perpetual "just now". Absent (tests/deterministic) ⇒ falls back to
+   * the snapshot time, preserving the old behavior.
+   */
+  renderedAt?: string | null;
   /** Phase D — recent thread summaries from the spine, for the activity panel. */
   threads?: CockpitThreadSummary[];
   /**
@@ -271,6 +278,7 @@ code,.mono{font-family:var(--mono)}
 .cmd:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px var(--glow)}
 .cmd input{flex:1;border:none;outline:none;background:transparent;font:inherit;color:var(--txt)}
 .tstamp{color:var(--faint);font-size:12px;font-family:var(--mono)}
+.tstamp.a{color:var(--amber)}
 .wrap{padding:22px 26px;max-width:1200px;margin:0 auto}
 /* section + view system */
 .view[hidden]{display:none}
@@ -756,26 +764,29 @@ function railV2(pending: number): string {
   );
 }
 
-/** Mobile bottom nav (thumb zone). Mirrors the rail; Health folds under Approvals on mobile. */
+/**
+ * Mobile bottom nav (thumb zone). Mirrors the rail's REAL views (overview/agents/intelligence/
+ * approvals — the keys must match `data-view`, or the tap would blank the screen) and adds a
+ * one-tap Ask that opens the ⌘K palette, since mobile has no keyboard chord and no right-side CLI.
+ */
 function botnav(pending: number): string {
   const items: Array<[string, string, string]> = [
     ["overview", "▣", "Brief"],
-    ["awareness", "◬", "Aware"],
-    ["fleet", "⬡", "Fleet"],
+    ["agents", "🤖", "Agents"],
+    ["intelligence", "◬", "Intel"],
     ["approvals", "✓", "Approve"],
   ];
-  return (
-    `<nav class="botnav">` +
-    items
-      .map(
-        ([key, ic, label], i) =>
-          `<div class="bn${i === 0 ? " active" : ""}" data-nav="${key}">${ic}` +
-          `${key === "approvals" && pending > 0 ? `<span class="cnt">${pending}</span>` : ""}` +
-          `<span>${esc(label)}</span></div>`,
-      )
-      .join("") +
-    `</nav>`
-  );
+  const navItems = items
+    .map(
+      ([key, ic, label], i) =>
+        `<div class="bn${i === 0 ? " active" : ""}" data-nav="${key}">${ic}` +
+        `${key === "approvals" && pending > 0 ? `<span class="cnt">${pending}</span>` : ""}` +
+        `<span>${esc(label)}</span></div>`,
+    )
+    .join("");
+  // The Ask entry is NOT a view (no data-nav) — it opens the command palette via data-act="ask".
+  const askItem = `<div class="bn" id="bn-ask" data-act="ask" role="button" tabindex="0">⌘<span>Ask</span></div>`;
+  return `<nav class="botnav">` + navItems + askItem + `</nav>`;
 }
 
 function awTone(kind: "risk" | "opp" | "drift" | "blind", confidence?: string): Tone {
@@ -1020,6 +1031,19 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const pending = props.available ? props.pending : 0;
   const topApproval = props.available ? props.proposals.find((p) => p.status === "pending_approval") ?? null : null;
 
+  // Freshness stamp — show the TRUE data age (snapshot time vs real render time), not "just now".
+  // dataAt = when the snapshot was generated; renderAt = wall-clock now (Worker-injected). Tint
+  // amber once the data is older than STALE_STAMP_MIN so a stale cockpit reads as stale at a glance.
+  const STALE_STAMP_MIN = 90;
+  const dataAt = opts.generatedAt ?? state?.generatedAt ?? now;
+  const renderAt = opts.renderedAt ?? now;
+  const ageMin = (() => {
+    const d = Date.parse(dataAt);
+    const r = Date.parse(renderAt);
+    return Number.isNaN(d) || Number.isNaN(r) ? 0 : Math.max(0, (r - d) / 60000);
+  })();
+  const stampTone = ageMin > STALE_STAMP_MIN ? " a" : "";
+
   const topbar =
     `<div class="tb">` +
     `<form class="cmd" id="ask-form" action="/api/ask" method="post"><span>⌘</span>` +
@@ -1028,7 +1052,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     `<button class="send" id="ask" type="submit" title="Ask HartOS" style="width:26px;height:26px;border:none;border-radius:7px;background:var(--primary);color:#fff;cursor:pointer">&#10148;</button></form>` +
     `<div class="grow"></div>` +
     `<span class="pill ${sysTone}"><span class="dot ${sysTone}"></span>${esc(overall.toUpperCase())}</span>` +
-    `<span class="tstamp">⟳ ${esc(relTime(now, now))}</span>` +
+    `<span class="tstamp${stampTone}" title="data as of ${esc(dataAt || "unknown")}">⟳ ${esc(relTime(dataAt, renderAt))}</span>` +
     `</div>` +
     `<div class="wrap"><pre class="answer" id="out" style="display:none;margin:0 0 14px"></pre>`;
 
@@ -1201,6 +1225,12 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     n.addEventListener('click',function(){showView(n.getAttribute('data-nav'));});
     n.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();showView(n.getAttribute('data-nav'));}});
   });
+  // Mobile one-tap Ask — the bottom-nav Ask entry opens the ⌘K palette (no keyboard chord on phones).
+  var askNav=document.querySelector('[data-act="ask"]');
+  if(askNav){
+    askNav.addEventListener('click',function(){openK();});
+    askNav.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();openK();}});
+  }
 })();
 </script>`;
   return shell("HartOS Command Center", body);
