@@ -83,6 +83,8 @@
     "hartos:cto-review": "node dist/scripts/hartos-cto-review.js",
     "prehartos:build-plan": "npm run build",
     "hartos:build-plan": "node dist/scripts/hartos-build-plan.js",
+    "prefactory:birth": "npm run build",
+    "factory:birth": "node dist/scripts/factory-birth.js",
     "prehartos:handover": "npm run build",
     "hartos:handover": "node dist/scripts/hartos-handover.js",
     "precommand-center:contract": "npm run build",
