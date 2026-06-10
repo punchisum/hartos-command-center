@@ -123,16 +123,22 @@ function escMultiline(s: string): string {
 const STYLE = `
 *{box-sizing:border-box}
 :root{
-  /* Cockpit V2 — navy-tinted dark (validated by the Light Blue reference; skin only, IA unchanged) */
-  --bg:#0B0E16;--panel:#141927;--line:#232A3B;--line2:#1b2231;
-  --txt:#E8EBF2;--dim:#9AA3B8;--faint:#5B6479;
-  --green:#3FB950;--amber:#D29922;--red:#F85149;--idle:#6E7681;
-  --sg:rgba(63,185,80,.14);--sa:rgba(210,153,34,.16);--sb:rgba(91,141,239,.16);--sr:rgba(248,81,73,.16);
-  --primary:#5B8DEF;--primaryH:#6f9bf2;--accent:#5B8DEF;--glow:rgba(91,141,239,.18);
+  /* Cockpit V2 — FUTURISTIC NEON / GLASS skin (space-black + glass panels + cyan/violet glow). Skin
+     only: every layout/grid/size is unchanged; only colour, glass + glow change. */
+  --bg:#06080F;--panel:rgba(20,26,46,.55);--panel-solid:#0E1322;
+  --line:rgba(95,165,255,.16);--line2:rgba(95,165,255,.09);
+  --txt:#E9F0FF;--dim:#A2B2D6;--faint:#6A7AA0;
+  --green:#34E0A1;--amber:#F5C451;--red:#FF6B6B;--idle:#5B6B8C;
+  --sg:rgba(52,224,161,.14);--sa:rgba(245,196,81,.15);--sb:rgba(34,211,238,.15);--sr:rgba(255,107,107,.15);
+  --primary:#22D3EE;--primaryH:#67E8F9;--accent:#A78BFA;--glow:rgba(34,211,238,.30);
+  --glass:blur(14px) saturate(140%);
   --mono:ui-monospace,SFMono-Regular,"Geist Mono",Menlo,Consolas,monospace;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
 }
-body{margin:0;background:linear-gradient(180deg,#0E1220 0,#0B0E16 520px) fixed,#0B0E16;color:var(--txt);font-family:var(--sans);font-size:13.5px;line-height:1.5}
+body{margin:0;min-height:100vh;background:
+  radial-gradient(900px 520px at 10% -10%, rgba(34,211,238,.10), transparent 60%),
+  radial-gradient(820px 520px at 100% 0%, rgba(167,139,250,.11), transparent 55%),
+  #06080F fixed;color:var(--txt);font-family:var(--sans);font-size:13.5px;line-height:1.5}
 a{color:var(--accent);text-decoration:none}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;background:var(--line2);border-radius:5px;padding:1px 5px}
 .app{display:grid;grid-template-columns:208px 1fr;min-height:100vh}
@@ -346,6 +352,31 @@ code,.mono{font-family:var(--mono)}
   @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(248,81,73,.5)}50%{box-shadow:0 0 0 4px rgba(248,81,73,0)}}
 }
 .login-card input,.x{background:#0f1320}
+/* ───────────── Futuristic neon / glass overlay (skin only — no layout changes) ───────────── */
+.card,.box,.attn,pre.answer,.ask,.htile,.askcli,.kbox,.drawer,.login-card{
+  background:var(--panel);
+  -webkit-backdrop-filter:var(--glass);backdrop-filter:var(--glass);
+  border:1px solid var(--line);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 10px 34px rgba(0,0,0,.45);
+}
+.card:hover{border-color:rgba(34,211,238,.45);box-shadow:0 0 0 1px var(--glow),0 14px 38px rgba(0,0,0,.55)}
+.htile.lead{border-color:rgba(34,211,238,.40);box-shadow:0 0 0 1px var(--glow),0 0 44px rgba(34,211,238,.10),0 12px 34px rgba(0,0,0,.5)}
+.rail,.tb,.botnav,.side{background:rgba(8,11,20,.62);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-color:var(--line)}
+/* glowing accents */
+.brand .mk,.rail .mk{box-shadow:0 0 18px var(--glow)}
+.ask .send,.send,button.send{box-shadow:0 0 16px var(--glow)}
+.nav.active,.rb.active,.bn.active{box-shadow:inset 0 0 0 1px rgba(34,211,238,.35)}
+.dot.g{box-shadow:0 0 9px rgba(52,224,161,.75)}.dot.a{box-shadow:0 0 9px rgba(245,196,81,.65)}.dot.r{box-shadow:0 0 9px rgba(255,107,107,.75)}
+.expandhint,.nav.active,.rb.active{text-shadow:0 0 12px var(--glow)}
+/* retire the leftover light-grey chips/text from the old light theme → translucent neon-neutral */
+.vpill,.conf,.badge2,.tag,.verdict,.pill.i,.why{background:rgba(95,165,255,.10);color:var(--dim)}
+.sum{color:var(--dim)}
+.who .av{background:rgba(95,165,255,.14);color:var(--dim)}
+.qbtn{background:rgba(8,11,20,.5);color:var(--primary)}
+svg.spark{background:rgba(95,165,255,.06)}
+.login-card input{background:rgba(8,11,20,.6);color:var(--txt)}
+a{color:var(--primary)}
+::selection{background:rgba(34,211,238,.30);color:#fff}
 `;
 
 // ─── Shared shell + small helpers ─────────────────────────────────────────────
