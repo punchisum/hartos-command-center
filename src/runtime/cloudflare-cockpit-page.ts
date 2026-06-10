@@ -58,6 +58,7 @@ import { executiveMemory, type ExecutiveMemoryReport, type MemorySnapshot } from
 import type { KnowledgeSurface } from "../cockpit/knowledge-surface.js";
 import type { PulseRun } from "../cockpit/pulse/pulse-run-spine.js";
 import { scoreForecastAccuracy } from "../prophet/forecast-accuracy.js";
+import { synthesizeDecisions, type DecisionBrief } from "../cockpit/decision-synthesis.js";
 import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { renderAgentOrgPanel, renderStatusStrip } from "./views/agent-org-view.js";
 import { computeStatusSplit } from "../cockpit/status-split.js";
@@ -283,6 +284,8 @@ code,.mono{font-family:var(--mono)}
 .cmd input{flex:1;border:none;outline:none;background:transparent;font:inherit;color:var(--txt)}
 .tstamp{color:var(--faint);font-size:12px;font-family:var(--mono)}
 .tstamp.a{color:var(--amber)}
+.dec{padding:9px 0;border-top:1px solid var(--line2)}
+.dec:first-of-type{border-top:none;padding-top:2px}
 /* a11y: skip-to-content (visible on keyboard focus) + visible focus ring + tap targets */
 .skip{position:absolute;left:-9999px;top:0;z-index:100;background:var(--primary);color:#fff;padding:9px 14px;border-radius:0 0 8px 0;font-weight:700;text-decoration:none}
 .skip:focus{left:0}
@@ -397,6 +400,32 @@ function listHtml(items: string[], ordered = false): string {
 
 function box(label: string, inner: string, id?: string): string {
   return `<div class="box"${id ? ` id="${id}"` : ""}><div class="blbl">${esc(label)}</div>${inner}</div>`;
+}
+
+/**
+ * "Today's Decisions" hero — the Chief-of-Staff synthesis. The 2-3 cross-brain-ranked decisions,
+ * each with the leverage, horizon, the specific ask, the cost of waiting, and which brains
+ * corroborated it. Honest empty state when nothing crossed the threshold.
+ */
+function decisionsHero(d: DecisionBrief): string {
+  if (d.status !== "ok" || d.decisions.length === 0) {
+    return box("Today's Decisions", `<div class="muted">${esc(d.note)}</div>`);
+  }
+  const levTone = (l: string) => (l === "high" ? "r" : l === "medium" ? "a" : "g");
+  const items = d.decisions
+    .map(
+      (dec, i) =>
+        `<div class="dec">` +
+        `<div class="li"><span class="dot ${levTone(dec.leverage)}"></span><b>${i + 1}. ${esc(dec.title)}</b>` +
+        `<span class="tag" style="margin-left:auto">${esc(dec.leverage)} · ${esc(dec.horizon)}</span></div>` +
+        `<div class="muted" style="margin:3px 0 3px">${esc(dec.why)}</div>` +
+        `<div style="font-size:12.5px"><b>Do:</b> ${esc(dec.theAsk)}</div>` +
+        `<div class="muted" style="font-size:11.5px;margin-top:2px">Cost of waiting: ${esc(dec.costOfInaction)}</div>` +
+        `<div class="muted" style="font-size:10.5px;margin-top:3px">corroborated by: ${esc(dec.corroboration.join(", "))}</div>` +
+        `</div>`,
+    )
+    .join("");
+  return box("Today's Decisions", `<div class="muted" style="margin-bottom:9px">${esc(d.headline)}</div>${items}`);
 }
 
 /**
@@ -1066,6 +1095,20 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   });
   const mem: ExecutiveMemoryReport = executiveMemory(memSnapshots, { now });
 
+  // Chief-of-Staff synthesis — fuse every brain (brief + Prophet forecast + memory + cross-agent
+  // synthesis + forecast-accuracy trust) into the 2-3 decisions that matter most today, ranked by
+  // cross-brain corroboration. Pure; the brains above are already computed.
+  const decisionBrief: DecisionBrief = synthesizeDecisions({
+    now,
+    brief: sbrief,
+    forecast: fleetForecast,
+    memory: mem,
+    accuracy: scoreForecastAccuracy(opts.pulseRuns ?? []),
+    crossAgentRisks: synthesis.available
+      ? synthesis.topRisks.map((r) => ({ subject: r.subject, sources: r.sources, confidence: String(r.confidence) }))
+      : [],
+  });
+
   // P1/P2/P10 — the meta-agent registry + the SPLIT status (operator vs system vs fleet vs
   // freshness vs proposals vs provider). A training/recovery risk is the OPERATOR's status, kept
   // separate so it never reads as "the HartOS system is broken".
@@ -1118,6 +1161,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     "overview",
     true,
     renderStatusStrip(statusSplit) +
+      sec("Today's Decisions") + decisionsHero(decisionBrief) +
       sec("Executive Brief") + heroSection(sbrief, overall, sysTone, topApproval) +
       sec("Fleet") + fleetSection +
       sec("Knowledge & Intelligence") + knowledgeBox(opts.knowledge) +

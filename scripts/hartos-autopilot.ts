@@ -30,6 +30,7 @@ import { runWolverinePropose } from "./wolverine-propose.js";
 import { runJobRunner } from "./hartos-runner.js";
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
 import { buildPulseRunRow } from "../src/cockpit/pulse/pulse-run-spine.js";
+import { synthesizeDecisions } from "../src/cockpit/decision-synthesis.js";
 import type { GitFacts } from "../src/wolverine/wolverine-types.js";
 import type { WolverineReport } from "../src/wolverine/wolverine-types.js";
 import type { ForecastReport } from "../src/prophet/forecast.js";
@@ -148,7 +149,9 @@ export async function runAutopilot(env: Record<string, string | undefined>, now:
   const recorded = await recordPulseRun(env, now, audit, fcast, pulseLine);
   push(`6 LOG      ${recorded}`);
 
-  // 7. REPORT.
+  // 7. REPORT — lead with the Chief-of-Staff decision synthesis (forecast + memory fused).
+  const decisions = synthesizeDecisions({ now, forecast: fcast, memory: memory ?? undefined }, { max: 3 });
+  if (decisions.status === "ok") push(`\n${decisions.headline}`);
   push(`\nPulse complete. Approve pending work in the cockpit; the next pulse executes it.`);
   return out;
 }

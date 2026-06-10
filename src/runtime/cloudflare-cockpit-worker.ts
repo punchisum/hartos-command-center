@@ -62,6 +62,7 @@ import { executiveMemory } from "../awareness/executive-memory.js";
 import type { RinneganFact, RinneganPattern } from "../rinnegan/rinnegan-types.js";
 import { augmentGroundingWithSynthesis } from "../llm/ask-fleet-grounding.js";
 import { augmentGroundingWithForecast } from "../llm/ask-forecast-grounding.js";
+import { augmentGroundingWithDecisions } from "../llm/ask-decision-grounding.js";
 import { buildCockpitState } from "../cockpit/cockpit-read-model.js";
 import { composeKnowledgeSurface, deriveKnowledgeInputs, type KnowledgeSurface } from "../cockpit/knowledge-surface.js";
 import { routeCockpitCommand } from "../cockpit/command-router.js";
@@ -497,6 +498,13 @@ export async function handleCockpitRequest(
         intent: result.intent,
         request: validation.value,
       });
+      // Chief-of-Staff — ground strategy/status/daily Asks in the ranked decision synthesis (the
+      // 2-3 decisions that matter today, with the ask + cost of waiting). Behavior-preserving when
+      // there is nothing to decide.
+      const groundedDecisions = augmentGroundingWithDecisions(groundedForward, dctx.state, nowFor(dctx), {
+        intent: result.intent,
+        request: validation.value,
+      });
       // Rinnegan — compile the vault context pack (Supabase mirror) + live facts + memory patterns
       // into a ranked, freshness-tagged briefing so the LLM reasons over MEANING + facts, not facts
       // alone. The compiler is pure (runs in-Worker); best-effort — absent the pack the Ask is unchanged.
@@ -525,7 +533,7 @@ export async function handleCockpitRequest(
         }
       }
       const answer = await composeAskAnswer(
-        groundedForward,
+        groundedDecisions,
         validation.value,
         // intent rides in the context so buildAskInfer can route to the specialized reasoning
         // (strategy/CTO) prompt; source + the optional Rinnegan briefing travel alongside.
