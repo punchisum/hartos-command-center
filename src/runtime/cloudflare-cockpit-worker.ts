@@ -523,7 +523,9 @@ export async function handleCockpitRequest(
       const answer = await composeAskAnswer(
         groundedForward,
         validation.value,
-        { source: "cloudflare-cockpit", ...(rinneganBriefing ? { rinneganBriefing } : {}) },
+        // intent rides in the context so buildAskInfer can route to the specialized reasoning
+        // (strategy/CTO) prompt; source + the optional Rinnegan briefing travel alongside.
+        { source: "cloudflare-cockpit", intent: result.intent, ...(rinneganBriefing ? { rinneganBriefing } : {}) },
         { infer: ctx.askInfer },
       );
       // Phase E (Gap E) — when the deterministic answer produced proposal drafts,

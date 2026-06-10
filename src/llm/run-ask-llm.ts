@@ -59,7 +59,17 @@ export function buildAskInfer(opts: BuildAskInferOptions = {}): AskInfer {
 
   return async (redactedRequest, context) => {
     try {
-      const result = await gateway.classifyAndContextualize(redactedRequest, context);
+      // Intent-specialized reasoning: a strategy question gets the strategist prompt, a build/CTO
+      // question gets the CTO prompt; everything else keeps the general classify path. The intent
+      // rides in the (already-redacted) context the orchestrator forwards. All three self-gate
+      // identically — a real OpenAI call still requires the armed gate; otherwise deterministic.
+      const intent = typeof context?.["intent"] === "string" ? (context["intent"] as string) : "";
+      const result =
+        intent === "strategy_review"
+          ? await gateway.runStrategyReasoning(redactedRequest, context)
+          : intent === "build_agent"
+            ? await gateway.runCtoReasoning(redactedRequest, context)
+            : await gateway.classifyAndContextualize(redactedRequest, context);
       if (!result || result.success !== true) {
         return null;
       }

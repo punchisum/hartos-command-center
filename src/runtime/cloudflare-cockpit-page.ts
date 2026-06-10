@@ -279,6 +279,11 @@ code,.mono{font-family:var(--mono)}
 .cmd input{flex:1;border:none;outline:none;background:transparent;font:inherit;color:var(--txt)}
 .tstamp{color:var(--faint);font-size:12px;font-family:var(--mono)}
 .tstamp.a{color:var(--amber)}
+/* a11y: skip-to-content (visible on keyboard focus) + visible focus ring + tap targets */
+.skip{position:absolute;left:-9999px;top:0;z-index:100;background:var(--primary);color:#fff;padding:9px 14px;border-radius:0 0 8px 0;font-weight:700;text-decoration:none}
+.skip:focus{left:0}
+.rb:focus-visible,.bn:focus-visible,a:focus-visible,button:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+@media(max-width:760px){.rb,.bn,.send,.btn,.pbtn{min-height:44px}}
 .wrap{padding:22px 26px;max-width:1200px;margin:0 auto}
 /* section + view system */
 .view[hidden]{display:none}
@@ -322,7 +327,8 @@ code,.mono{font-family:var(--mono)}
   .cols{grid-template-columns:1fr}.cols2{grid-template-columns:1fr}
   .grid4{grid-template-columns:1fr 1fr}
   .botnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:40;background:rgba(15,18,30,.94);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:8px 6px;justify-content:space-around}
-  .bn{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--faint);font-size:10px;font-weight:700;padding:4px 12px;border-radius:10px;cursor:pointer}
+  .bn{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--faint);font-size:10px;font-weight:700;padding:4px 12px;min-width:44px;min-height:44px;border-radius:10px;cursor:pointer}
+  .bn:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
   .bn.active{color:var(--primary);background:var(--sb)}
   .bn .cnt{position:absolute;top:0;right:8px;min-width:14px;height:14px;border-radius:7px;background:var(--red);color:#fff;font-size:8px;display:grid;place-items:center}
 }
@@ -747,19 +753,23 @@ const V2_NAV: Array<[string, string, string]> = [
 
 /** The 64px icon rail (V2 nav). Destinations toggle server-rendered sections client-side. */
 function railV2(pending: number): string {
-  const items = V2_NAV.map(
-    ([key, ic, label], i) =>
-      `<div class="rb${i === 0 ? " active" : ""}" data-nav="${key}" role="button" tabindex="0">${ic}` +
-      `${key === "approvals" && pending > 0 ? `<span class="cnt">${pending}</span>` : ""}` +
-      `<span class="lbl">${esc(label)}</span></div>`,
-  ).join("");
+  const items = V2_NAV.map(([key, ic, label], i) => {
+    const aria = key === "approvals" && pending > 0 ? `${label}, ${pending} pending` : label;
+    return (
+      `<div class="rb${i === 0 ? " active" : ""}" data-nav="${key}" role="button" tabindex="0"` +
+      ` aria-label="${esc(aria)}"${i === 0 ? ` aria-current="page"` : ""}>` +
+      `<span aria-hidden="true">${ic}</span>` +
+      `${key === "approvals" && pending > 0 ? `<span class="cnt" aria-hidden="true">${pending}</span>` : ""}` +
+      `<span class="lbl">${esc(label)}</span></div>`
+    );
+  }).join("");
   return (
-    `<nav class="rail">` +
-    `<div class="mk">◆</div>` +
+    `<nav class="rail" aria-label="Primary">` +
+    `<div class="mk" aria-hidden="true">◆</div>` +
     items +
     `<div class="sp"></div>` +
-    `<div class="rb" title="read-only" style="cursor:default">●<span class="lbl">read-only · ${esc(ACTION_EXECUTION)}</span></div>` +
-    `<div class="av">H</div>` +
+    `<div class="rb" title="read-only" style="cursor:default" aria-label="read-only mode"><span aria-hidden="true">●</span><span class="lbl">read-only · ${esc(ACTION_EXECUTION)}</span></div>` +
+    `<div class="av" aria-hidden="true">H</div>` +
     `</nav>`
   );
 }
@@ -777,16 +787,22 @@ function botnav(pending: number): string {
     ["approvals", "✓", "Approve"],
   ];
   const navItems = items
-    .map(
-      ([key, ic, label], i) =>
-        `<div class="bn${i === 0 ? " active" : ""}" data-nav="${key}">${ic}` +
-        `${key === "approvals" && pending > 0 ? `<span class="cnt">${pending}</span>` : ""}` +
-        `<span>${esc(label)}</span></div>`,
-    )
+    .map(([key, ic, label], i) => {
+      const aria = key === "approvals" && pending > 0 ? `${label}, ${pending} pending` : label;
+      return (
+        `<div class="bn${i === 0 ? " active" : ""}" data-nav="${key}" role="button" tabindex="0"` +
+        ` aria-label="${esc(aria)}"${i === 0 ? ` aria-current="page"` : ""}>` +
+        `<span aria-hidden="true">${ic}</span>` +
+        `${key === "approvals" && pending > 0 ? `<span class="cnt" aria-hidden="true">${pending}</span>` : ""}` +
+        `<span>${esc(label)}</span></div>`
+      );
+    })
     .join("");
   // The Ask entry is NOT a view (no data-nav) — it opens the command palette via data-act="ask".
-  const askItem = `<div class="bn" id="bn-ask" data-act="ask" role="button" tabindex="0">⌘<span>Ask</span></div>`;
-  return `<nav class="botnav">` + navItems + askItem + `</nav>`;
+  const askItem =
+    `<div class="bn" id="bn-ask" data-act="ask" role="button" tabindex="0" aria-label="Open Ask HartOS">` +
+    `<span aria-hidden="true">⌘</span><span>Ask</span></div>`;
+  return `<nav class="botnav" aria-label="Primary (mobile)">` + navItems + askItem + `</nav>`;
 }
 
 function awTone(kind: "risk" | "opp" | "drift" | "blind", confidence?: string): Tone {
@@ -1054,7 +1070,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     `<span class="pill ${sysTone}"><span class="dot ${sysTone}"></span>${esc(overall.toUpperCase())}</span>` +
     `<span class="tstamp${stampTone}" title="data as of ${esc(dataAt || "unknown")}">⟳ ${esc(relTime(dataAt, renderAt))}</span>` +
     `</div>` +
-    `<div class="wrap"><pre class="answer" id="out" style="display:none;margin:0 0 14px"></pre>`;
+    `<div class="wrap"><pre class="answer" id="out" role="status" aria-live="polite" style="display:none;margin:0 0 14px"></pre>`;
 
   const fleetSection = fleet.agents.length
     ? `<div class="grid4">${fleet.agents.map((a) => fleetCard(a, panelAdvice(state, a.type))).join("")}</div>`
@@ -1105,7 +1121,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   );
 
   const body =
-    `<div class="app2">${railV2(pending)}<main>` +
+    `<a class="skip" href="#main">Skip to content</a>` +
+    `<div class="app2">${railV2(pending)}<main id="main" tabindex="-1">` +
     topbar +
     overview + agentsView + intelligenceView + approvalsView + technicalView +
     `<footer>HartOS Command Center — hosted, read-only. Verdict computed from facts; the cockpit only reads and recommends. ` +
@@ -1116,15 +1133,15 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     `<aside class="askcli">` +
     `<div class="aclbl">HartOS Ask · command terminal</div>` +
     `<div class="acin"><input id="q2" type="text" placeholder="Ask HartOS…" autocomplete="off" aria-label="Ask HartOS"><button class="send" id="ask2" type="button" title="Ask HartOS" style="width:30px;border:none;border-radius:7px;background:var(--primary);color:#fff;cursor:pointer">&#10148;</button></div>` +
-    `<pre class="answer" id="out2">Ask anything. The selected agent, live-LLM status, and any required proposal/runner show up here.</pre>` +
+    `<pre class="answer" id="out2" role="status" aria-live="polite">Ask anything. The selected agent, live-LLM status, and any required proposal/runner show up here.</pre>` +
     `</aside>` +
     `</div>` +
     botnav(pending) +
     // Quick-peek drawer (card click) + ⌘K command palette — progressive enhancement.
     `<div class="overlay" id="ov"></div>` +
-    `<aside class="drawer" id="drawer" aria-hidden="true"><div class="dwrap" id="dbody"></div></aside>` +
+    `<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Agent detail" aria-hidden="true"><div class="dwrap" id="dbody"></div></aside>` +
     `<div class="overlay" id="kov"></div>` +
-    `<div class="kbar" id="kbar"><div class="kbox"><input id="kq" type="text" placeholder="Ask HartOS… (Enter to ask, Esc to close)" autocomplete="off" aria-label="Ask HartOS"><pre class="answer" id="kout" style="display:none;margin:10px 0 0"></pre></div></div>` +
+    `<div class="kbar" id="kbar" role="dialog" aria-modal="true" aria-label="Ask HartOS"><div class="kbox"><input id="kq" type="text" placeholder="Ask HartOS… (Enter to ask, Esc to close)" autocomplete="off" aria-label="Ask HartOS"><pre class="answer" id="kout" role="status" aria-live="polite" style="display:none;margin:10px 0 0"></pre></div></div>` +
     voiceInputClientScript() +
     `<script>
 (function(){
@@ -1217,7 +1234,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
       if(s.getAttribute('data-view')===name){s.removeAttribute('hidden');}else{s.setAttribute('hidden','');}
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-nav]'),function(n){
-      if(n.getAttribute('data-nav')===name){n.classList.add('active');}else{n.classList.remove('active');}
+      var on=n.getAttribute('data-nav')===name;
+      if(on){n.classList.add('active');n.setAttribute('aria-current','page');}else{n.classList.remove('active');n.removeAttribute('aria-current');}
     });
     window.scrollTo(0,0);
   }

@@ -6,7 +6,7 @@
  * centrally and fall back safely on malformed responses.
  */
 
-import type { LlmRequest } from "./llm-types.js";
+import type { LlmRequest, LlmRequestType } from "./llm-types.js";
 
 export const ALLOWED_CONFIDENCE = ["low", "medium", "high"] as const;
 export const ALLOWED_RISK = ["low", "medium", "high"] as const;
@@ -46,9 +46,36 @@ export const OUTPUT_CONTRACT_DESCRIPTION = JSON.stringify({
   summary: "string",
 });
 
-export function buildSystemPrompt(): string {
+/**
+ * A short role specialization appended to the base prompt for the reasoning-heavy request types, so
+ * a strategy question is answered by a strategist and a build/CTO question by an engineer-leader —
+ * instead of every Ask getting the same generic classifier voice. Still propose-only; still grounded
+ * ONLY in the supplied facts. Returns "" for the default classify/summarize types (unchanged).
+ */
+function specializationFor(requestType?: LlmRequestType): string {
+  switch (requestType) {
+    case "strategy_reasoning":
+      return (
+        "ROLE: Reason as Hart's STRATEGY advisor. Lead with the single highest-leverage next move, then the key " +
+        "tradeoffs and sequencing — what to do first, what to defer, and why — grounded strictly in the supplied facts. " +
+        "Be decisive: a recommendation, not a survey. Still propose-only; never invent facts or actions beyond them."
+      );
+    case "cto_reasoning":
+      return (
+        "ROLE: Reason as Hart's CTO. Focus on technical feasibility, architecture, capability gaps, and build-vs-buy, " +
+        "grounded strictly in the supplied facts. Name the concrete next engineering step and its main risk. Still " +
+        "propose-only; never invent capabilities, metrics, or actions not present in the facts."
+      );
+    default:
+      return "";
+  }
+}
+
+export function buildSystemPrompt(requestType?: LlmRequestType): string {
+  const specialization = specializationFor(requestType);
   return [
     "You are the HartOS executive reasoning assistant for a single operator (Hart). You SUGGEST and CONTEXTUALIZE only — you never mutate anything and never request actions be executed.",
+    ...(specialization ? [specialization] : []),
     "HartOS domains are Hart's own agents, NOT generic IT/datacenter systems. In particular:",
     "- ops = Hart's ClickUp task cards (active / waiting-on-Hart / blocked / no-next-action / stale). It is NOT DevOps or SRE: there are no servers, incidents, alerts, SLOs/SLAs, deployments, or on-call rotations. Never introduce those concepts.",
     "- fitness = Hart's training, nutrition, recovery. factory = building new agents. proposals = pending approvals.",

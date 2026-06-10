@@ -44,7 +44,7 @@ export function buildChatRequestBody(config: LlmGatewayConfig, req: LlmRequest):
   const body: Record<string, unknown> = {
     model: config.model,
     messages: [
-      { role: "system", content: buildSystemPrompt() },
+      { role: "system", content: buildSystemPrompt(req.type) },
       { role: "user", content: buildUserPrompt(req) },
     ],
     response_format: { type: "json_object" },
