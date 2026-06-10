@@ -143,22 +143,44 @@ unsafe, or worth improving. **Wolverine should surface it before Hart has to go 
 
 ## 5. Status — today vs. endgame
 
-This document describes the endgame. To honor the honesty clause, here is where it actually stands.
+This document describes the endgame. To honor the honesty clause, here is where it actually stands
+(updated 2026-06-10).
 
 **Proven live:** the cockpit, the proposal spine, and the execution gate (capability tokens, allowlist,
 kill-switch, audit). The full loop — propose → approve → execute → audit → remember — has fired on real
 ClickUp cards. Real specialists: Fitness, Ops, Factory, Beezulbub. Executive memory persists durably in
-Supabase behind a deployed Worker. LLM Ask now reasons over live HartOS context — the "deeply-briefed
-operator" cockpit — shipped 2026-06-10, pending Hart's login verify.
+Supabase behind a deployed Worker. **LLM Ask reasons over live HartOS context AND the meaning layer** —
+verified 2026-06-10: the deployed cockpit Ask briefed from a synced Research Dossier in the vault.
 
-**Built, not yet fully wired/live:** Factory v1 (Inbox → Interrogator → Manifest Compiler), the research
-job, officiation core, Fleet Brain.
+**The knowledge loop is closed, end-to-end and live.** Research Agent (full Factory pipeline + real
+cited web research via the gated `web_search` path) and Beezulbub (live GitHub scout, LLM-deepened
+due-diligence) both file gated dossiers into the Obsidian vault → Rinnegan compiles them into the
+context pack → the deployed Ask reasons over them. Proven on a 67-source war/economy brief and a live
+capability hunt.
 
-**Still ahead:** Wolverine (the immune system) and the new domains — Travel, Life Coach, Business Co-Pilot.
-The intelligence core is now wired; what remains is self-maintenance and breadth.
+**Wolverine is built and GREEN** (no longer "ahead"): a read-only audit with 6 detectors (unsafe flags,
+git hygiene, proposal hygiene, stale read-model, doctrine drift, stale vault notes) **plus a
+capability-risk detector that audits Beezulbub's scouts** (copyleft/unknown-license or stale top picks).
+It produces a GREEN/AMBER/RED verdict + ranked repair queue + gated FixProposals. Prophet forecasts
+consequence-of-inaction over the same signals (Wolverine findings, executive-memory trends, capability
+scouts). A unified **Knowledge & Intelligence** read-model composes dossiers + scouts + the Wolverine
+verdict + the Prophet forecast (`cockpit:knowledge`).
 
-**Honest read:** the hardest half — the safe-execution spine — is done. What remains is mostly adding
-intelligence and domains on rails already laid. Breadth waits for depth.
+**Factory quality:** the Officiator quality gate (ADMIT/REVISE/REJECT, 9 facets incl. non-duplication)
+and the Replay/Simulator (replays scenarios through the agent's own boundary) are done; the Research
+Agent passed the full pipeline end to end.
+
+**Built, not yet surfaced/live:** the **deployed cockpit dashboard card** for the Knowledge & Intelligence
+surface (it runs as a CLI today; the deployed UI doesn't show it yet). Ask **briefing depth** is shallow —
+it surfaces a dossier's framing, not yet its full substance (a Rinnegan compile-depth tweak). Live
+**agent auto-birth** (provision → deploy a created agent) remains gated/partial.
+
+**Still ahead:** new domains — Travel, Life Coach, Business Co-Pilot, Tax/Finance; voice; wider Wolverine
+coverage; the daily-use habit that the one-hard-test demands.
+
+**Honest read:** the hard half — the safe-execution spine, the intelligence core, the immune system, and
+the knowledge loop — is done and proven live. What remains is **surfacing it in the deployed cockpit,
+breadth (more domains), and the daily-use proof**. Breadth waits for depth; depth now largely exists.
 
 ---
 
