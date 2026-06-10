@@ -24,6 +24,8 @@ export interface ProposalDbHandle {
   store: SupabaseProposalStore;
   /** "strict" = chain-verified against the Supabase CA; "relaxed" = no CA configured. */
   tlsMode: SupabaseTlsMode;
+  /** Raw read access on the same pooled connection (for hygiene counts etc.). */
+  query: (text: string, params?: unknown[]) => Promise<{ rowCount?: number | null; rows: unknown[] }>;
   /** Close the underlying pool. Always call this when done. */
   close: () => Promise<void>;
 }
@@ -53,6 +55,7 @@ export function createCockpitProposalDb(env: NodeJS.ProcessEnv = process.env): P
   return {
     store: new SupabaseProposalStore(db),
     tlsMode,
+    query: db.query,
     close: () => pool.end(),
   };
 }

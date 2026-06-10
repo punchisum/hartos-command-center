@@ -107,6 +107,8 @@
     "wolverine:audit": "node --env-file-if-exists=.env.local dist/scripts/wolverine-audit.js",
     "prewolverine:propose": "npm run build",
     "wolverine:propose": "node --env-file-if-exists=.env.local dist/scripts/wolverine-propose.js",
+    "preexecute:cockpit-approved": "npm run build",
+    "execute:cockpit-approved": "node --env-file-if-exists=.env.local dist/scripts/run-spine-executor.js",
     "cockpit:ask-host": "npm run build && node --env-file-if-exists=.env.local dist/scripts/cockpit-ask-host.js",
     "prellm:status": "npm run build",
     "llm:status": "node dist/scripts/llm-status.js",
