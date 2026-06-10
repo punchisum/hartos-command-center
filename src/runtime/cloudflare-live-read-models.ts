@@ -70,6 +70,12 @@ import {
   mapRowToThreadSummary,
   type CockpitThreadSummary,
 } from "../cockpit/threads/cockpit-thread-spine.js";
+import {
+  COCKPIT_PULSE_RUNS_RPC,
+  coercePulseRunRows,
+  mapRowToPulseRun,
+  type PulseRun,
+} from "../cockpit/pulse/pulse-run-spine.js";
 import type { MemorySnapshot } from "../awareness/executive-memory.js";
 import type { RinneganNote } from "../rinnegan/rinnegan-types.js";
 import { COCKPIT_MEMORY_RPC, coerceCockpitMemoryRows } from "../awareness/cockpit-memory-spine.js";
@@ -365,6 +371,32 @@ export async function resolveCockpitThreads(
   try {
     const body = await client.readRpc(COCKPIT_THREADS_RPC, { p_limit: options.limit ?? 50 });
     return coerceCockpitThreadRows(body).map(mapRowToThreadSummary);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read recent autopilot PULSE RUNS LIVE from the fitness project via the anon, read-only RPC
+ * (mirrors resolveCockpitThreads). Anon key only (service-role refused), sent as a header, never
+ * echoed. Returns the runs newest-first (possibly empty) on success, or null when the fitness env
+ * is absent / a service-role key is presented / the read fails — the cockpit then shows no
+ * Last-Pulse tile rather than fabricating one.
+ */
+export async function resolveRecentPulseRuns(
+  env: Env,
+  options: { fetchImpl?: FetchLike; limit?: number } = {},
+): Promise<PulseRun[] | null> {
+  const url = env[HOSTED_READ_MODEL_ENV.fitnessUrl];
+  const key = env[HOSTED_READ_MODEL_ENV.fitnessKey];
+  if (!url || !key || isServiceRoleKey(key)) return null;
+  const client = new SupabaseReadClient(
+    { url, key, allowedTables: [], allowedRpcs: [COCKPIT_PULSE_RUNS_RPC] },
+    options.fetchImpl,
+  );
+  try {
+    const body = await client.readRpc(COCKPIT_PULSE_RUNS_RPC, { p_limit: options.limit ?? 14 });
+    return coercePulseRunRows(body).map(mapRowToPulseRun);
   } catch {
     return null;
   }

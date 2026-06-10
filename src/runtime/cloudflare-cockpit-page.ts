@@ -56,6 +56,8 @@ import type { SuggestionSet } from "../cockpit/suggestions/suggest-actions.js";
 import { strategicAwareness, type StrategicBrief } from "../awareness/strategic-awareness.js";
 import { executiveMemory, type ExecutiveMemoryReport, type MemorySnapshot } from "../awareness/executive-memory.js";
 import type { KnowledgeSurface } from "../cockpit/knowledge-surface.js";
+import type { PulseRun } from "../cockpit/pulse/pulse-run-spine.js";
+import { scoreForecastAccuracy } from "../prophet/forecast-accuracy.js";
 import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { renderAgentOrgPanel, renderStatusStrip } from "./views/agent-org-view.js";
 import { computeStatusSplit } from "../cockpit/status-split.js";
@@ -72,6 +74,8 @@ export interface HostedPageOptions {
    * the snapshot time, preserving the old behavior.
    */
   renderedAt?: string | null;
+  /** Recent autopilot pulse runs (newest-first) — drives the Last-Pulse tile + forecast accuracy. */
+  pulseRuns?: PulseRun[];
   /** Phase D — recent thread summaries from the spine, for the activity panel. */
   threads?: CockpitThreadSummary[];
   /**
@@ -393,6 +397,38 @@ function listHtml(items: string[], ordered = false): string {
 
 function box(label: string, inner: string, id?: string): string {
   return `<div class="box"${id ? ` id="${id}"` : ""}><div class="blbl">${esc(label)}</div>${inner}</div>`;
+}
+
+/**
+ * Last-Pulse tile + forecast-accuracy line. Surfaces the daily autopilot pulse IN the cockpit
+ * (verdict, when, summary, predicted-consequence count) instead of it dying in a log file, and
+ * scores how often Prophet's predicted consequences actually persisted. Honest when nothing has
+ * been recorded yet (no fabricated pulse).
+ */
+function lastPulseBox(pulseRuns: PulseRun[] | undefined, renderAt: string): string {
+  const runs = pulseRuns ?? [];
+  if (runs.length === 0) {
+    return box(
+      "Autopilot Pulse",
+      `<div class="muted">No pulse recorded yet. The daily autopilot writes one each morning — sense → propose → remember → foresee → act.</div>`,
+    );
+  }
+  const latest = runs[0]!;
+  const acc = scoreForecastAccuracy(runs);
+  const v = `${latest.verdict} ${latest.forecastVerdict}`.toLowerCase();
+  const vtone = /urgent|red/.test(v) ? "r" : /degrad|amber/.test(v) ? "a" : "g";
+  const when = relTime(latest.at, renderAt);
+  const accLine =
+    acc.status === "ok"
+      ? `<div class="li"><span>Forecast accuracy</span><b style="margin-left:auto">${Math.round(acc.persistenceRate * 100)}% held · ${acc.persisted}/${acc.predicted}</b></div>`
+      : `<div class="li"><span>Forecast accuracy</span><b style="margin-left:auto">building — ${runs.length} pulse${runs.length === 1 ? "" : "s"}</b></div>`;
+  return box(
+    "Autopilot Pulse",
+    `<div class="li"><span class="dot ${vtone}"></span>Last pulse<b style="margin-left:auto">${esc(when)}</b></div>` +
+      `<div class="muted" style="margin:4px 0 9px">${esc(latest.summary || `${latest.verdict} · ${latest.findingCount} finding(s)`)}</div>` +
+      accLine +
+      `<div class="li"><span>Predicted consequences (this pulse)</span><b style="margin-left:auto">${latest.consequenceSubjects.length}</b></div>`,
+  );
 }
 
 // ─── Sidebar (chrome; every link has a real destination) ──────────────────────
@@ -1085,6 +1121,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
       sec("Executive Brief") + heroSection(sbrief, overall, sysTone, topApproval) +
       sec("Fleet") + fleetSection +
       sec("Knowledge & Intelligence") + knowledgeBox(opts.knowledge) +
+      sec("Autopilot Pulse") + lastPulseBox(opts.pulseRuns, renderAt) +
       sec("Approval Queue") + approvalSummaryBox(props) +
       sec("Today's Focus") + focusSection(suggestions) +
       sec("Strategic Awareness") + awarenessSection(sbrief),

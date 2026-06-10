@@ -97,6 +97,7 @@ import {
   persistCockpitProposals,
   transitionCockpitProposal,
   resolveCockpitThreads,
+  resolveRecentPulseRuns,
   resolveContextPack,
   type ProposalPersistResult,
   type ProposalTransitionResult,
@@ -108,6 +109,7 @@ import {
 } from "./cloudflare-control-surface.js";
 import type { ControlSurfaceRender } from "../cockpit/control-surface/index.js";
 import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spine.js";
+import type { PulseRun } from "../cockpit/pulse/pulse-run-spine.js";
 
 export const SUPPORTED_ROUTES = [
   "GET /",
@@ -250,6 +252,8 @@ export async function handleCockpitRequest(
       if (dctx.html) return htmlResponse(dctx.html, cors);
       // Phase D — surface recent threads from the spine in the activity panel.
       const threads = dctx.threadsProvider ? await dctx.threadsProvider().catch(() => null) : null;
+      // Recent autopilot pulse runs — for the Last-Pulse tile + forecast-accuracy scoring.
+      const pulseRuns = dctx.pulseRunsProvider ? await dctx.pulseRunsProvider().catch(() => null) : null;
       // Knowledge & Intelligence card — composed from the LIVE vault context pack (best-effort;
       // absent the pack the card renders the honest "nothing filed yet" line). Pure + Worker-safe.
       let knowledge: KnowledgeSurface | undefined;
@@ -280,7 +284,7 @@ export async function handleCockpitRequest(
         vaultNotesSynced,
         version: null as string | null,
       };
-      return htmlResponse(hostedHtml(dctx, threads ?? undefined, knowledge, diagnostics), cors);
+      return htmlResponse(hostedHtml(dctx, threads ?? undefined, knowledge, diagnostics, pulseRuns ?? undefined), cors);
     }
     if (pathname === "/api/state") {
       return jsonResponse(200, dctx.state ?? { hosted: true, note: "snapshot not embedded" }, cors);
@@ -736,6 +740,7 @@ function hostedHtml(
   threads?: CockpitThreadSummary[],
   knowledge?: KnowledgeSurface,
   diagnostics?: HostedPageOptions["diagnostics"],
+  pulseRuns?: PulseRun[],
 ): string {
   return renderHostedCockpitPage(ctx.state, {
     runtimeMode: ctx.runtimeMode ?? "hosted",
@@ -747,6 +752,7 @@ function hostedHtml(
     ...(threads ? { threads } : {}),
     ...(knowledge ? { knowledge } : {}),
     ...(diagnostics ? { diagnostics } : {}),
+    ...(pulseRuns ? { pulseRuns } : {}),
   });
 }
 
@@ -832,6 +838,7 @@ export default {
       proposalWriteProvider: async (proposals, sourceIntent) => persistCockpitProposals(env, proposals, { sourceIntent }),
       proposalTransitionProvider: async (input) => transitionCockpitProposal(env, input),
       threadsProvider: async () => resolveCockpitThreads(env),
+      pulseRunsProvider: async () => resolveRecentPulseRuns(env),
       // Step 3 — Worker-direct LLM Ask. Self-gating: a real OpenAI call happens ONLY when the
       // gate is armed (HARTOS_LLM_PROVIDER=openai + HARTOS_LLM_ENABLE_NETWORK=true + OPENAI_API_KEY
       // secret); otherwise deterministic. Propose-only — the LLM reasons, never executes.

@@ -18,6 +18,7 @@ import type { GenericAgentDetail } from "../read-models/agent-detail-registry.js
 import type { ActionProposal } from "../cockpit/proposals/proposal-types.js";
 import type { ProposalPersistResult, ProposalTransitionResult, CockpitTransitionAction } from "./cloudflare-live-read-models.js";
 import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spine.js";
+import type { PulseRun } from "../cockpit/pulse/pulse-run-spine.js";
 import type { AskInfer } from "../llm/ask-llm.js";
 import type { RinneganNote } from "../rinnegan/rinnegan-types.js";
 
@@ -90,6 +91,8 @@ export interface CockpitWorkerContext {
    * back to the (empty on hosted) local list. Never throws.
    */
   threadsProvider?: () => Promise<CockpitThreadSummary[] | null>;
+  /** Recent autopilot pulse runs (spine) — for the Last-Pulse tile + forecast-accuracy scoring. */
+  pulseRunsProvider?: () => Promise<PulseRun[] | null>;
   /** Rinnegan — the Worker-readable vault context pack (Supabase mirror), for Ask briefings. */
   contextPackProvider?: () => Promise<RinneganNote[] | null>;
 }

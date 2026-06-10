@@ -28,7 +28,51 @@ import { createCockpitMemoryDb } from "../src/awareness/supabase-memory-db.js";
 import { runMemoryCapture } from "./cockpit-memory-capture.js";
 import { runWolverinePropose } from "./wolverine-propose.js";
 import { runJobRunner } from "./hartos-runner.js";
+import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
+import { buildPulseRunRow } from "../src/cockpit/pulse/pulse-run-spine.js";
 import type { GitFacts } from "../src/wolverine/wolverine-types.js";
+import type { WolverineReport } from "../src/wolverine/wolverine-types.js";
+import type { ForecastReport } from "../src/prophet/forecast.js";
+
+/**
+ * Persist this pulse to the cockpit_pulse_runs spine so the cockpit can show a Last-Pulse tile and
+ * score forecast accuracy. Insert-only via the elevated pg URL; honest message when not configured;
+ * never throws (a failed log must not fail the pulse).
+ */
+async function recordPulseRun(
+  env: Record<string, string | undefined>,
+  now: string,
+  audit: WolverineReport,
+  fcast: ForecastReport,
+  summaryLine: string,
+): Promise<string> {
+  const handle = createCockpitProposalDb(env);
+  if (!handle) return "pulse not recorded (proposal spine not configured — set HARTOS_SUPABASE_DB_URL)";
+  try {
+    const row = buildPulseRunRow({
+      at: now,
+      verdict: audit.verdict,
+      forecastVerdict: fcast.verdict,
+      summary: summaryLine,
+      findingCount: audit.findingCount,
+      consequenceSubjects: fcast.consequences.map((c) => c.subject),
+      payload: {
+        topRisks: audit.topRisks.slice(0, 3).map((r) => ({ severity: r.severity, title: r.title })),
+        consequences: fcast.consequences.slice(0, 5).map((c) => ({ subject: c.subject, severity: c.severity })),
+      },
+    });
+    await handle.query(
+      `insert into public.cockpit_pulse_runs (at, verdict, forecast_verdict, summary, finding_count, consequence_subjects, payload)
+         values ($1, $2, $3, $4, $5, $6, $7)`,
+      [row.at, row.verdict, row.forecast_verdict, row.summary, row.finding_count, row.consequence_subjects, JSON.stringify(row.payload)],
+    );
+    return "recorded to cockpit_pulse_runs (feeds the Last-Pulse tile + forecast scoring)";
+  } catch (e) {
+    return `pulse not recorded: ${e instanceof Error ? e.message : String(e)}`;
+  } finally {
+    await handle.close();
+  }
+}
 
 function gatherGitFacts(cwd: string): GitFacts | undefined {
   const git = (args: string): string | null => {
@@ -99,7 +143,12 @@ export async function runAutopilot(env: Record<string, string | undefined>, now:
   push(`5 ACT      ${ran[0] ?? ""}`);
   for (const l of ran.slice(1)) push(`           ${l}`);
 
-  // 6. REPORT.
+  // 6. LOG — persist this pulse (Last-Pulse tile + forecast-accuracy scoring).
+  const pulseLine = `${audit.verdict} · forecast ${fcast.verdict} · ${audit.findingCount} finding(s)`;
+  const recorded = await recordPulseRun(env, now, audit, fcast, pulseLine);
+  push(`6 LOG      ${recorded}`);
+
+  // 7. REPORT.
   push(`\nPulse complete. Approve pending work in the cockpit; the next pulse executes it.`);
   return out;
 }
