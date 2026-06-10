@@ -19,6 +19,7 @@ import type { ActionProposal } from "../cockpit/proposals/proposal-types.js";
 import type { ProposalPersistResult, ProposalTransitionResult, CockpitTransitionAction } from "./cloudflare-live-read-models.js";
 import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spine.js";
 import type { AskInfer } from "../llm/ask-llm.js";
+import type { RinneganNote } from "../rinnegan/rinnegan-types.js";
 
 /** Server-side env available to the hosted cockpit. Values are NEVER exposed. */
 export type CloudflareCockpitEnv = Record<string, string | undefined>;
@@ -89,6 +90,8 @@ export interface CockpitWorkerContext {
    * back to the (empty on hosted) local list. Never throws.
    */
   threadsProvider?: () => Promise<CockpitThreadSummary[] | null>;
+  /** Rinnegan — the Worker-readable vault context pack (Supabase mirror), for Ask briefings. */
+  contextPackProvider?: () => Promise<RinneganNote[] | null>;
 }
 
 /** Result of a deploy-gate check, following the Factory gate doctrine. */

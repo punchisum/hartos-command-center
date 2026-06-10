@@ -54,6 +54,11 @@ import { composeAskAnswer } from "../llm/ask-llm.js";
 // deterministic, identical to before. OPENAI_API_KEY is a server-side Worker secret, never sent
 // to the browser. (Supersedes the earlier "never import the gateway" rule, by Hart's decision.)
 import { buildAskInfer } from "../llm/run-ask-llm.js";
+// Rinnegan — the context compiler is PURE/Worker-safe; the Worker compiles the briefing in-request
+// from the Supabase context pack + live facts + memory. (No vault fs access in the Worker.)
+import { compileContext, toBriefing } from "../rinnegan/rinnegan-compiler.js";
+import { executiveMemory } from "../awareness/executive-memory.js";
+import type { RinneganFact, RinneganPattern } from "../rinnegan/rinnegan-types.js";
 import { augmentGroundingWithSynthesis } from "../llm/ask-fleet-grounding.js";
 import { buildCockpitState } from "../cockpit/cockpit-read-model.js";
 import {
@@ -85,6 +90,7 @@ import {
   persistCockpitProposals,
   transitionCockpitProposal,
   resolveCockpitThreads,
+  resolveContextPack,
   type ProposalPersistResult,
   type ProposalTransitionResult,
 } from "./cloudflare-live-read-models.js";
@@ -438,10 +444,35 @@ export async function handleCockpitRequest(
         intent: result.intent,
         request: validation.value,
       });
+      // Rinnegan — compile the vault context pack (Supabase mirror) + live facts + memory patterns
+      // into a ranked, freshness-tagged briefing so the LLM reasons over MEANING + facts, not facts
+      // alone. The compiler is pure (runs in-Worker); best-effort — absent the pack the Ask is unchanged.
+      let rinneganBriefing: string | undefined;
+      if (ctx.contextPackProvider) {
+        try {
+          const notes = await ctx.contextPackProvider();
+          if (notes && notes.length) {
+            const facts: RinneganFact[] = (result.highlights ?? []).map((h) => ({
+              label: result.intent,
+              value: h,
+              source: "read-model",
+              freshness: "live",
+            }));
+            const mem = executiveMemory(dctx.state?.memorySnapshots ?? [], { now: nowFor(dctx) });
+            const patterns: RinneganPattern[] =
+              mem.status === "ok" ? mem.recurringPatterns.map((p) => ({ subject: p.subject, evidence: p.evidence })) : [];
+            const compiled = compileContext({ intent: validation.value, now: nowFor(dctx), notes, facts, patterns });
+            const briefing = toBriefing(compiled);
+            if (briefing) rinneganBriefing = briefing;
+          }
+        } catch {
+          /* briefing is best-effort; the Ask still works without it */
+        }
+      }
       const answer = await composeAskAnswer(
         groundedWithSynthesis,
         validation.value,
-        { source: "cloudflare-cockpit" },
+        { source: "cloudflare-cockpit", ...(rinneganBriefing ? { rinneganBriefing } : {}) },
         { infer: ctx.askInfer },
       );
       // Phase E (Gap E) — when the deterministic answer produced proposal drafts,
@@ -700,6 +731,8 @@ export default {
       // gate is armed (HARTOS_LLM_PROVIDER=openai + HARTOS_LLM_ENABLE_NETWORK=true + OPENAI_API_KEY
       // secret); otherwise deterministic. Propose-only — the LLM reasons, never executes.
       askInfer: buildAskInfer({ env }),
+      // Rinnegan — feed the deployed Ask the vault context pack (Worker reads the Supabase mirror).
+      contextPackProvider: async () => resolveContextPack(env),
     });
   },
 };

@@ -71,6 +71,7 @@ import {
   type CockpitThreadSummary,
 } from "../cockpit/threads/cockpit-thread-spine.js";
 import type { MemorySnapshot } from "../awareness/executive-memory.js";
+import type { RinneganNote } from "../rinnegan/rinnegan-types.js";
 import { COCKPIT_MEMORY_RPC, coerceCockpitMemoryRows } from "../awareness/cockpit-memory-spine.js";
 
 type Env = Record<string, string | undefined>;
@@ -390,6 +391,53 @@ export async function resolveCockpitMemory(
   try {
     const body = await client.readRpc(COCKPIT_MEMORY_RPC, { p_limit: options.limit ?? 120 });
     return coerceCockpitMemoryRows(body);
+  } catch {
+    return null;
+  }
+}
+
+/** Rinnegan — the anon read RPC for the vault context pack (created by the 20260610100000 migration). */
+export const COCKPIT_CONTEXT_PACK_RPC = "get_cockpit_context_pack";
+
+/** Coerce context-pack rows → RinneganNote[] (body_excerpt becomes the note body). Defensive. */
+function coerceContextPackRows(body: unknown): RinneganNote[] {
+  const rows = Array.isArray(body) ? body : [];
+  const out: RinneganNote[] = [];
+  for (const r of rows) {
+    if (!r || typeof r !== "object") continue;
+    const o = r as Record<string, unknown>;
+    if (typeof o.rel_path !== "string" || typeof o.title !== "string") continue;
+    out.push({
+      relPath: o.rel_path,
+      title: o.title,
+      tags: Array.isArray(o.tags) ? (o.tags as unknown[]).filter((t): t is string => typeof t === "string") : [],
+      body: typeof o.body_excerpt === "string" ? o.body_excerpt : "",
+      reviewBy: typeof o.review_by === "string" ? o.review_by : null,
+      ageDays: typeof o.age_days === "number" ? o.age_days : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Rinnegan — read the context pack (the Obsidian vault mirror) LIVE from the fitness project via
+ * the anon, read-only RPC. Same strict boundary as the other reads (anon only, service-role
+ * refused). Returns the notes (possibly empty) on success, or null when env is absent / read fails.
+ */
+export async function resolveContextPack(
+  env: Env,
+  options: { fetchImpl?: FetchLike; limit?: number } = {},
+): Promise<RinneganNote[] | null> {
+  const url = env[HOSTED_READ_MODEL_ENV.fitnessUrl];
+  const key = env[HOSTED_READ_MODEL_ENV.fitnessKey];
+  if (!url || !key || isServiceRoleKey(key)) return null;
+  const client = new SupabaseReadClient(
+    { url, key, allowedTables: [], allowedRpcs: [COCKPIT_CONTEXT_PACK_RPC] },
+    options.fetchImpl,
+  );
+  try {
+    const body = await client.readRpc(COCKPIT_CONTEXT_PACK_RPC, { p_limit: options.limit ?? 400 });
+    return coerceContextPackRows(body);
   } catch {
     return null;
   }
