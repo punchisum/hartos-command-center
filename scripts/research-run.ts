@@ -20,7 +20,16 @@ import { researchDossierNote } from "../src/research/research-dossier-note.js";
 import { RESEARCH_AGENT_SPEC } from "../src/agents/research-agent-spec.js";
 import { resolveLlmConfig } from "../src/llm/llm-gateway.js";
 
-export async function runResearch(question: string, env: Record<string, string | undefined>, now: string): Promise<string[]> {
+export interface ResearchRunResult {
+  /** Console lines (status + summary). */
+  lines: string[];
+  /** The full dossier report as Markdown (the deliverable). */
+  report: string;
+  /** A filesystem-safe slug for the report filename. */
+  slug: string;
+}
+
+export async function runResearch(question: string, env: Record<string, string | undefined>, now: string): Promise<ResearchRunResult> {
   const out: string[] = [];
   const push = (s = "") => out.push(s);
 
@@ -68,7 +77,9 @@ export async function runResearch(question: string, env: Record<string, string |
         `Arm with ${RESEARCH_GATHER_FLAG}=true + the LLM gateway to do a real run.)`,
     );
   }
-  return out;
+
+  const slug = plan.question.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "research";
+  return { lines: out, report: note.body, slug };
 }
 
 const invokedDirectly = typeof process.argv[1] === "string" && import.meta.url === pathToFileURL(process.argv[1]).href;
@@ -78,12 +89,23 @@ if (invokedDirectly) {
     console.error('Usage: npm run research:run -- "<your research question>"');
     process.exit(2);
   }
-  runResearch(question, process.env, new Date().toISOString())
-    .then((lines) => {
+  void (async () => {
+    try {
+      const now = new Date().toISOString();
+      const { lines, report, slug } = await runResearch(question, process.env, now);
       for (const l of lines) console.log(l);
-    })
-    .catch((e) => {
+
+      // Write the full report as a local artifact (NOT the gated vault write) so it can be delivered.
+      const { mkdir, writeFile } = await import("node:fs/promises");
+      const path = await import("node:path");
+      const dir = path.join(process.cwd(), "research-reports");
+      await mkdir(dir, { recursive: true });
+      const file = path.join(dir, `${slug}-${now.slice(0, 10)}.md`);
+      await writeFile(file, report, "utf8");
+      console.log(`\nFull report written: ${file}`);
+    } catch (e) {
       console.error(`research-run: unexpected error: ${e instanceof Error ? e.message : String(e)}`);
       process.exit(1);
-    });
+    }
+  })();
 }

@@ -40,8 +40,10 @@ export interface GatheredSource {
 export interface KeyFinding {
   /** The sub-question this answers (verbatim from the plan). */
   question: string;
-  /** The synthesized answer — grounded in the cited sources, never invented. */
+  /** The condensed answer (lead sentences) — for the one-screen summary. Grounded, never invented. */
   finding: string;
+  /** The FULL grounded answer (the complete gathered prose) — for the full report. */
+  detail: string;
   /** Source refs backing it (≥1; a finding with zero sources is an unknown, not a finding). */
   sources: string[];
   confidence: ResearchConfidence;
@@ -135,8 +137,9 @@ export function synthesizeResearch(
       return;
     }
     const refs = [...new Set(bearing.map((s) => s.ref))];
+    const detail = bearing.map((s) => s.content.trim()).filter(Boolean).join("\n\n");
     const confidence: ResearchConfidence = refs.length >= floor ? "high" : "medium";
-    keyFindings.push({ question, finding, sources: refs, confidence });
+    keyFindings.push({ question, finding, detail, sources: refs, confidence });
   });
 
   // Reusable knowledge: every grounded finding becomes a cross-fleet claim (medium/high only),

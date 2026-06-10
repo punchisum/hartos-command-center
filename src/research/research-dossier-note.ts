@@ -30,10 +30,14 @@ export function researchDossierNote(dossier: ResearchDossier, now: string): Obsi
     "",
     "## Key findings",
     ...(dossier.keyFindings.length
-      ? dossier.keyFindings.map(
-          (f) =>
-            `- **${f.question}**\n    - ${f.finding}\n    - sources: ${f.sources.join(", ")} · confidence: ${f.confidence}`,
-        )
+      ? dossier.keyFindings.flatMap((f) => [
+          `### ${f.question}`,
+          "",
+          f.detail || f.finding,
+          "",
+          `_sources: ${f.sources.join(", ")} · confidence: ${f.confidence}_`,
+          "",
+        ])
       : ["- _No findings gathered yet — see open questions below._"]),
     "",
     "## Reusable knowledge (usable across HartOS)",
