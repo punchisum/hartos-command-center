@@ -10,7 +10,7 @@
 
 import type { WolverineReport, SystemVerdict } from "../wolverine/wolverine-types.js";
 import type { ForecastReport, ForecastVerdict } from "../prophet/forecast.js";
-import type { CapabilityScoutSummary } from "../beezulbub/scout-summary.js";
+import { parseCapabilityScoutNote, type CapabilityScoutSummary } from "../beezulbub/scout-summary.js";
 
 /** A filed knowledge note projected for the surface (title + kind + confidence + day). */
 export interface KnowledgeDossier {
@@ -93,6 +93,55 @@ export function composeKnowledgeSurface(input: KnowledgeSurfaceInput = {}): Know
     intel,
     headline,
   };
+}
+
+/** A vault note as the context pack hands it in (minimal shape). */
+export interface RawKnowledgeNote {
+  relPath: string;
+  title: string;
+  tags: string[];
+  body: string;
+}
+
+function frontmatterValue(body: string, key: string): string | null {
+  const m = body.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
+  return m ? m[1].trim().replace(/^"(.*)"$/, "$1") : null;
+}
+
+/**
+ * Derive the knowledge-surface inputs (dossiers + capability scouts) from raw context-pack notes.
+ * Pure + Worker-safe — lets the deployed cockpit build the surface from the pack it already reads,
+ * with NO host gathering (Wolverine/Prophet intel is omitted in the Worker and added by a host CLI).
+ */
+export function deriveKnowledgeInputs(notes: RawKnowledgeNote[]): {
+  dossiers: KnowledgeDossier[];
+  capabilityScouts: CapabilityScoutSummary[];
+} {
+  const dossiers: KnowledgeDossier[] = [];
+  const capabilityScouts: CapabilityScoutSummary[] = [];
+  for (const n of notes) {
+    const tagStr = `${n.relPath} ${n.tags.join(" ")}`.toLowerCase();
+    const type =
+      frontmatterValue(n.body, "type") ??
+      (/capability scout|capability-scout|capability_dossier/.test(tagStr)
+        ? "capability_dossier"
+        : /research dossier|research_dossier/.test(tagStr)
+          ? "research_dossier"
+          : null);
+    if (type === "research_dossier" || type === "capability_dossier") {
+      dossiers.push({
+        title: n.title,
+        type,
+        confidence: frontmatterValue(n.body, "confidence"),
+        day: (frontmatterValue(n.body, "created") ?? "").slice(0, 10) || null,
+      });
+    }
+    if (type === "capability_dossier") {
+      const s = parseCapabilityScoutNote(n.body);
+      if (s) capabilityScouts.push(s);
+    }
+  }
+  return { dossiers, capabilityScouts };
 }
 
 /** Render the surface as cockpit lines (also reusable as a deployed card body). Deterministic. */

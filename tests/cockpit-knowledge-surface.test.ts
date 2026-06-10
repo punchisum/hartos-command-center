@@ -4,7 +4,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { composeKnowledgeSurface, renderKnowledgeSurface } from "../src/cockpit/knowledge-surface.js";
+import { composeKnowledgeSurface, renderKnowledgeSurface, deriveKnowledgeInputs } from "../src/cockpit/knowledge-surface.js";
 import type { WolverineReport } from "../src/wolverine/wolverine-types.js";
 import type { ForecastReport } from "../src/prophet/forecast.js";
 import type { CapabilityScoutSummary } from "../src/beezulbub/scout-summary.js";
@@ -52,5 +52,26 @@ describe("composeKnowledgeSurface", () => {
     const s = composeKnowledgeSurface({});
     assert.equal(s.dossierCount, 0);
     assert.match(s.headline, /nothing filed yet/);
+  });
+});
+
+describe("deriveKnowledgeInputs (from context-pack notes)", () => {
+  it("classifies dossiers by frontmatter type and parses capability scouts", () => {
+    const research = ["---", 'title: "War economy"', "type: research_dossier", "confidence: high", "created: 2026-06-10T12:00:00Z", "---", "# Research Dossier — war economy", "body"].join("\n");
+    const capability = [
+      "---", 'title: "Cap scout"', "type: capability_dossier", "confidence: medium", "created: 2026-06-10T12:00:00Z", "---",
+      "# Capability Scout — markdown_editor", "**Mode: LIVE** · confidence: medium · 2026-06-10", "## Candidates (1, ranked by value)",
+      "### 1. vditor — 10/10", "- license: AGPL-3.0 · stale-risk: low",
+    ].join("\n");
+    const { dossiers, capabilityScouts } = deriveKnowledgeInputs([
+      { relPath: "HartOS/Research Dossiers/x.md", title: "War economy", tags: ["research"], body: research },
+      { relPath: "HartOS/Capability Scout/y.md", title: "Cap scout", tags: ["beezulbub"], body: capability },
+      { relPath: "Vision/v.md", title: "Vision", tags: ["doctrine"], body: "# Vision\nnot a dossier" },
+    ]);
+    assert.equal(dossiers.length, 2); // research + capability, not the vision note
+    assert.deepEqual(dossiers.map((d) => d.type).sort(), ["capability_dossier", "research_dossier"]);
+    assert.equal(capabilityScouts.length, 1);
+    assert.equal(capabilityScouts[0].topCandidate, "vditor");
+    assert.equal(capabilityScouts[0].riskyTopLicense, true); // AGPL
   });
 });

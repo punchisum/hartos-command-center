@@ -55,6 +55,7 @@ import { triageOps, type OpsSignals } from "../ops/triage-core.js";
 import type { SuggestionSet } from "../cockpit/suggestions/suggest-actions.js";
 import { strategicAwareness, type StrategicBrief } from "../awareness/strategic-awareness.js";
 import { executiveMemory, type ExecutiveMemoryReport, type MemorySnapshot } from "../awareness/executive-memory.js";
+import type { KnowledgeSurface } from "../cockpit/knowledge-surface.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -69,6 +70,12 @@ export interface HostedPageOptions {
    * a future persister populates it and the same render surfaces real patterns/trends/lessons.
    */
   memorySnapshots?: MemorySnapshot[];
+  /**
+   * Knowledge & Intelligence surface (research/capability dossiers from the context pack + optional
+   * Wolverine/Prophet intel). Composed by the Worker from the live pack; absent ⇒ the card renders
+   * the honest "nothing filed yet" line.
+   */
+  knowledge?: KnowledgeSurface;
 }
 
 function esc(s: string): string {
@@ -871,6 +878,37 @@ function viewBlock(name: string, visible: boolean, inner: string): string {
 }
 
 /** The authed landing cockpit. Grounded, read-only, server-rendered. */
+/** The Knowledge & Intelligence card — dossiers + capability scouts (+ optional immune/forecast intel). */
+function knowledgeBox(k?: KnowledgeSurface): string {
+  if (!k || (k.dossierCount === 0 && k.capabilityScoutCount === 0)) {
+    return `<section class="box"><div class="blbl">Knowledge &amp; Intelligence</div><div class="muted">Nothing filed yet — run a research job or a Beezulbub hunt to populate the vault.</div></section>`;
+  }
+  const types = Object.entries(k.byType).map(([t, n]) => `${esc(t)}: ${n}`).join(" · ");
+  const recent = k.recent
+    .map(
+      (d) =>
+        `<li>${esc(d.title)}${d.confidence ? ` <span class="muted">[${esc(String(d.confidence))}]</span>` : ""}` +
+        `${d.day ? ` <span class="muted">(${esc(String(d.day))})</span>` : ""}</li>`,
+    )
+    .join("");
+  const scouts = k.capabilityScoutCount
+    ? `<p class="kv">Capability scouts <b>${k.capabilityScoutCount}</b>${k.riskyScoutCount ? ` · <b>${k.riskyScoutCount}</b> with a risky/stale top pick` : ""}</p>`
+    : "";
+  const intelLines: string[] = [];
+  if (k.intel.wolverineVerdict) intelLines.push(`Immune <b>${esc(k.intel.wolverineVerdict)}</b> (${k.intel.wolverineFindingCount ?? 0})`);
+  if (k.intel.forecastVerdict) intelLines.push(`Forecast <b>${esc(k.intel.forecastVerdict.toUpperCase())}</b>`);
+  const intel = intelLines.length ? `<p class="kv">${intelLines.join(" · ")}</p>` : "";
+  return (
+    `<section class="box"><div class="blbl">Knowledge &amp; Intelligence</div>` +
+    `<div class="muted">${esc(k.headline)}</div>` +
+    `<p class="kv">Dossiers <b>${k.dossierCount}</b> — ${types}</p>` +
+    (recent ? `<ul>${recent}</ul>` : "") +
+    scouts +
+    intel +
+    `</section>`
+  );
+}
+
 export function renderHostedCockpitPage(state: CockpitState | undefined, opts: HostedPageOptions = {}): string {
   const now = opts.now ?? opts.generatedAt ?? state?.generatedAt ?? "";
   const brief = routeHosted(state, "Daily command brief");
@@ -939,6 +977,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     sec("Executive Brief") + heroSection(sbrief, overall, sysTone, topApproval) +
       sec("Strategic Awareness") + awarenessSection(sbrief) +
       sec("Today's Focus") + focusSection(suggestions) +
+      sec("Knowledge & Intelligence") + knowledgeBox(opts.knowledge) +
       sec("Fleet") + fleetSection,
   );
   const awarenessView = viewBlock(

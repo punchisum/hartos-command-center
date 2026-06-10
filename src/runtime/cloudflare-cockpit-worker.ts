@@ -61,6 +61,7 @@ import { executiveMemory } from "../awareness/executive-memory.js";
 import type { RinneganFact, RinneganPattern } from "../rinnegan/rinnegan-types.js";
 import { augmentGroundingWithSynthesis } from "../llm/ask-fleet-grounding.js";
 import { buildCockpitState } from "../cockpit/cockpit-read-model.js";
+import { composeKnowledgeSurface, deriveKnowledgeInputs, type KnowledgeSurface } from "../cockpit/knowledge-surface.js";
 import {
   authenticateCockpitRequest,
   attemptLogin,
@@ -243,7 +244,21 @@ export async function handleCockpitRequest(
       if (dctx.html) return htmlResponse(dctx.html, cors);
       // Phase D — surface recent threads from the spine in the activity panel.
       const threads = dctx.threadsProvider ? await dctx.threadsProvider().catch(() => null) : null;
-      return htmlResponse(hostedHtml(dctx, threads ?? undefined), cors);
+      // Knowledge & Intelligence card — composed from the LIVE vault context pack (best-effort;
+      // absent the pack the card renders the honest "nothing filed yet" line). Pure + Worker-safe.
+      let knowledge: KnowledgeSurface | undefined;
+      if (dctx.contextPackProvider) {
+        try {
+          const notes = await dctx.contextPackProvider();
+          if (notes && notes.length) {
+            const derived = deriveKnowledgeInputs(notes);
+            knowledge = composeKnowledgeSurface(derived);
+          }
+        } catch {
+          /* best-effort; the page still renders without the card */
+        }
+      }
+      return htmlResponse(hostedHtml(dctx, threads ?? undefined, knowledge), cors);
     }
     if (pathname === "/api/state") {
       return jsonResponse(200, dctx.state ?? { hosted: true, note: "snapshot not embedded" }, cors);
@@ -461,7 +476,9 @@ export async function handleCockpitRequest(
             const mem = executiveMemory(dctx.state?.memorySnapshots ?? [], { now: nowFor(dctx) });
             const patterns: RinneganPattern[] =
               mem.status === "ok" ? mem.recurringPatterns.map((p) => ({ subject: p.subject, evidence: p.evidence })) : [];
-            const compiled = compileContext({ intent: validation.value, now: nowFor(dctx), notes, facts, patterns });
+            // noteSnippetMax raised so the briefing carries a dossier's SUBSTANCE (findings/
+            // opportunities), not just its framing — fixes the "knows the dossier, not its content" gap.
+            const compiled = compileContext({ intent: validation.value, now: nowFor(dctx), notes, facts, patterns }, { noteSnippetMax: 1400 });
             const briefing = toBriefing(compiled);
             if (briefing) rinneganBriefing = briefing;
           }
@@ -636,12 +653,13 @@ async function ensureLiveState(ctx: CockpitWorkerContext, pathname: string): Pro
 }
 
 /** Render the hosted page from the context's snapshot (no fs at request time). */
-function hostedHtml(ctx: CockpitWorkerContext, threads?: CockpitThreadSummary[]): string {
+function hostedHtml(ctx: CockpitWorkerContext, threads?: CockpitThreadSummary[], knowledge?: KnowledgeSurface): string {
   return renderHostedCockpitPage(ctx.state, {
     runtimeMode: ctx.runtimeMode ?? "hosted",
     generatedAt: ctx.generatedAt ?? ctx.state?.generatedAt ?? null,
     now: nowFor(ctx),
     ...(threads ? { threads } : {}),
+    ...(knowledge ? { knowledge } : {}),
   });
 }
 

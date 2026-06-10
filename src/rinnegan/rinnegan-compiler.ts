@@ -76,11 +76,17 @@ export interface CompileOptions {
   maxNotes?: number;
   /** Max total items in the briefing (default 12). */
   maxItems?: number;
+  /**
+   * Per-note snippet length (default 240 — a teaser). For an LLM briefing, pass a larger value so
+   * the model sees a dossier's SUBSTANCE (findings/opportunities), not just its framing/intro.
+   */
+  noteSnippetMax?: number;
 }
 
 export function compileContext(inputs: RinneganInputs, opts: CompileOptions = {}): CompiledContext {
   const maxNotes = opts.maxNotes ?? 5;
   const maxItems = opts.maxItems ?? 12;
+  const noteSnippetMax = opts.noteSnippetMax ?? 240;
   const nowMs = Date.parse(inputs.now);
   const intentTerms = terms(inputs.intent);
 
@@ -97,7 +103,7 @@ export function compileContext(inputs: RinneganInputs, opts: CompileOptions = {}
       (x): ContextItem => ({
         kind: noteKind(x.n.relPath, x.n.tags),
         title: x.n.title,
-        snippet: snippet(x.n.body),
+        snippet: snippet(x.n.body, noteSnippetMax),
         source: `obsidian:${x.n.relPath}`,
         freshness: x.stale ? "STALE (review overdue)" : "current",
         relevance: Math.round(x.relevance * 100) / 100,
