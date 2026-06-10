@@ -22,6 +22,7 @@ secrets/
 llm-reports/
 agent-integration-reports/
 read-model-reports/
+research-reports/
 cloudflare-cockpit-reports/
 cockpit-reports/
 cockpit-threads/
