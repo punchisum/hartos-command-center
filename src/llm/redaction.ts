@@ -11,7 +11,9 @@ const REDACTION_PLACEHOLDER = "[REDACTED]";
 
 /** Ordered list of secret-looking patterns. */
 export const SECRET_PATTERNS: RegExp[] = [
-  /sk-[A-Za-z0-9_-]{16,}/g, // OpenAI-style
+  /\bsk-[A-Za-z0-9_-]{16,}/g, // OpenAI-style. \b anchors to a token boundary so benign
+  // hyphenated words ("ri·sk-insurance-facility-for-u", "ta·sk-management-...") don't false-match;
+  // a real key is always a standalone token, so this keeps every true positive.
   /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWT (Supabase keys are JWTs)
   /eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/g, // 2-segment JWT-ish
   /gh[pousr]_[A-Za-z0-9_]{20,}/g, // GitHub tokens

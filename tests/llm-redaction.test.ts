@@ -34,6 +34,15 @@ describe("llm redaction", () => {
     assert.equal(redact(text), text);
   });
 
+  it("does NOT false-match hyphenated words that merely end in sk- (risk-/task-/ask-)", () => {
+    // The EBRD citation URL that wrongly tripped the dossier vault write.
+    const url = "https://www.ebrd.com/.../ebrd-and-aon-launch-innovative-war-risk-insurance-facility-for-u.html";
+    assert.equal(containsSecret(url), false);
+    assert.equal(containsSecret("a task-management-platform-for-teams"), false);
+    // A real standalone sk- key is still caught (boundary at the token start).
+    assert.equal(containsSecret("OPENAI_API_KEY=sk-" + "a".repeat(28)), true);
+  });
+
   it("deep-redacts nested objects and arrays", () => {
     const obj = { a: SK, b: ["ok", GH], c: { d: 1 } };
     const out = redactDeep(obj);
