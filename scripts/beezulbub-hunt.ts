@@ -14,9 +14,11 @@
 import { pathToFileURL } from "node:url";
 import { scoutCandidates } from "../src/beezulbub/scout.js";
 import { capabilityScoutNote } from "../src/beezulbub/capability-dossier-note.js";
+import { buildCapabilityAssessor, assessTopCandidates } from "../src/beezulbub/llm-assessment.js";
 import { writeObsidianNote } from "../src/obsidian/obsidian-writer.js";
 import { renderObsidianNote } from "../src/obsidian/obsidian-note.js";
 import { CAPABILITY_TARGETS } from "../src/beezulbub/registry.js";
+import { resolveLlmConfig } from "../src/llm/llm-gateway.js";
 
 export async function runBeezulbubHunt(
   target: string,
@@ -42,7 +44,13 @@ export async function runBeezulbubHunt(
   }
   push(`\nRecommendation: ${result.recommendation}`);
 
-  const note = capabilityScoutNote(result, now);
+  // Option 2: LLM-deepen the top candidates when the gateway is armed (else heuristics only).
+  const cfg = resolveLlmConfig(env);
+  const deepen = cfg.provider === "openai" && cfg.networkEnabled && cfg.apiKeyPresent;
+  const assessments = deepen ? await assessTopCandidates(result.candidates, buildCapabilityAssessor(env), 3) : [];
+  push(`\nLLM due-diligence: ${deepen ? `${assessments.length} candidate(s) assessed (model=${cfg.model})` : "off (set HARTOS_LLM_PROVIDER=openai to deepen)"}`);
+
+  const note = capabilityScoutNote(result, now, { assessments });
   push(`\n--- Gated knowledge-loop output ---`);
   push(`  note: "${note.title}" → ${note.folder} (type ${note.noteType}, ${note.confidence} confidence)`);
   const write = await writeObsidianNote(note, env);

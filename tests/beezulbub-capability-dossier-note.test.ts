@@ -40,6 +40,15 @@ describe("capabilityScoutNote", () => {
     assert.equal(note.confidence, "low");
   });
 
+  it("renders LLM due-diligence and rises to high confidence when assessments are present", () => {
+    const note = capabilityScoutNote(result(), NOW, {
+      assessments: [{ name: "milkdown", assessment: "Well-maintained, MIT, strong HartOS fit. Lean: DEVOUR." }],
+    });
+    assert.equal(note.confidence, "high");
+    assert.match(note.body, /LLM due-diligence/);
+    assert.match(note.body, /Lean: DEVOUR/);
+  });
+
   it("ranks candidates by value (highest first)", () => {
     const note = capabilityScoutNote(
       result({

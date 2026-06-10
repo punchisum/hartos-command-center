@@ -11,17 +11,28 @@
  */
 
 import type { BeezulbubScoutResult } from "./types.js";
+import type { CapabilityAssessment } from "./llm-assessment.js";
 import type { ObsidianNoteProposal, NoteConfidence } from "../obsidian/obsidian-types.js";
 
-function scoutConfidence(result: BeezulbubScoutResult): NoteConfidence {
-  // A live scout with real candidates is a real (if shallow) read; fixtures/empty are weaker.
-  if (result.mode === "live" && result.candidates.length > 0) return "medium";
+export interface CapabilityNoteOptions {
+  /** LLM-deepened per-candidate assessments (Option 2). Present → confidence may rise to high. */
+  assessments?: CapabilityAssessment[];
+}
+
+function scoutConfidence(result: BeezulbubScoutResult, assessed: boolean): NoteConfidence {
+  // A live scout with real candidates is a real (if shallow) read; an LLM-deepened one is stronger.
+  if (result.mode === "live" && result.candidates.length > 0) return assessed ? "high" : "medium";
   return "low";
 }
 
-export function capabilityScoutNote(result: BeezulbubScoutResult, now: string): ObsidianNoteProposal {
+export function capabilityScoutNote(
+  result: BeezulbubScoutResult,
+  now: string,
+  opts: CapabilityNoteOptions = {},
+): ObsidianNoteProposal {
   const day = now.slice(0, 10);
-  const confidence = scoutConfidence(result);
+  const assessments = opts.assessments ?? [];
+  const confidence = scoutConfidence(result, assessments.length > 0);
   const ranked = [...result.candidates].sort((a, b) => b.estimatedValue - a.estimatedValue);
 
   const body = [
@@ -43,6 +54,14 @@ export function capabilityScoutNote(result: BeezulbubScoutResult, now: string): 
           "",
         ])
       : ["- _No candidates found — try a different target or enable live search._", ""]),
+    ...(assessments.length
+      ? [
+          "## LLM due-diligence (deepened analysis)",
+          "_Reasoned read per top candidate — advisory model analysis, not a vetted digest._",
+          "",
+          ...assessments.flatMap((a) => [`### ${a.name}`, "", a.assessment, ""]),
+        ]
+      : []),
     "## How to absorb (next step)",
     "Beezulbub PROPOSES; it never auto-copies code. To go deeper on a pick: clone it and run",
     "`beezulbub:digest` for a full poison/license/security scan, a 7-dim score, a DEVOUR/REJECT",
