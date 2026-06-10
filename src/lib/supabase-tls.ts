@@ -23,6 +23,17 @@ export interface SupabaseSslConfig {
 export const SUPABASE_CA_ENV = "HARTOS_SUPABASE_CA";
 /** The env var holding a path to a LOCAL Supabase CA PEM file (read synchronously). */
 export const SUPABASE_CA_PATH_ENV = "HARTOS_SUPABASE_CA_PATH";
+/**
+ * Opt-in gate (default OFF): when "true", a configuration that would fall back to RELAXED TLS
+ * throws instead of silently downgrading. This makes strict TLS ASSERTABLE — a typo'd CA path or a
+ * missing CA can no longer leave Hart on relaxed verification with only a console.warn. Off by
+ * default so existing deploys do not regress.
+ */
+export const SUPABASE_TLS_REQUIRE_STRICT_ENV = "HARTOS_SUPABASE_TLS_REQUIRE_STRICT";
+
+function requireStrict(env: Record<string, string | undefined>): boolean {
+  return String(env[SUPABASE_TLS_REQUIRE_STRICT_ENV] ?? "").trim().toLowerCase() === "true";
+}
 
 /**
  * Resolve the pg `ssl` block + the resulting TLS mode from env.
@@ -46,11 +57,23 @@ export function buildSupabaseSsl(env: Record<string, string | undefined>): Supab
       const pem = readFileSync(caPath, "utf8");
       return { ssl: { ca: pem, rejectUnauthorized: true }, tlsMode: "strict" };
     } catch {
-      // The CA path was supplied but unreadable: fall back to today's relaxed behavior
-      // rather than failing the connection outright (no regression).
+      // The CA path was supplied but unreadable. With strict REQUIRED, fail closed rather than
+      // silently connecting relaxed (a typo'd path must not downgrade verification). Otherwise
+      // preserve today's relaxed fallback (no regression).
+      if (requireStrict(env)) {
+        throw new Error(
+          `${SUPABASE_TLS_REQUIRE_STRICT_ENV} is set but the CA at ${SUPABASE_CA_PATH_ENV} could not be read — refusing to connect with relaxed TLS.`,
+        );
+      }
       return { ssl: { rejectUnauthorized: false }, tlsMode: "relaxed" };
     }
   }
 
+  // No CA configured at all. Fail closed when strict is required; else relaxed (today's behavior).
+  if (requireStrict(env)) {
+    throw new Error(
+      `${SUPABASE_TLS_REQUIRE_STRICT_ENV} is set but no CA is configured — set ${SUPABASE_CA_ENV} (inline PEM) or ${SUPABASE_CA_PATH_ENV} (PEM path) to enable strict verification.`,
+    );
+  }
   return { ssl: { rejectUnauthorized: false }, tlsMode: "relaxed" };
 }

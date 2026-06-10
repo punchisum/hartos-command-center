@@ -13,6 +13,7 @@ import {
   buildSupabaseSsl,
   SUPABASE_CA_ENV,
   SUPABASE_CA_PATH_ENV,
+  SUPABASE_TLS_REQUIRE_STRICT_ENV,
 } from "../src/lib/supabase-tls.js";
 
 const FAKE_PEM = "-----BEGIN CERTIFICATE-----\nMIIFAKE\n-----END CERTIFICATE-----\n";
@@ -55,5 +56,36 @@ describe("buildSupabaseSsl", () => {
     assert.equal(cfg.tlsMode, "strict");
     assert.equal(cfg.ssl.ca, FAKE_PEM);
     assert.equal(cfg.ssl.rejectUnauthorized, true);
+  });
+});
+
+describe("buildSupabaseSsl — HARTOS_SUPABASE_TLS_REQUIRE_STRICT (fail closed)", () => {
+  it("throws when strict is required but no CA is configured (no silent relaxed downgrade)", () => {
+    assert.throws(
+      () => buildSupabaseSsl({ [SUPABASE_TLS_REQUIRE_STRICT_ENV]: "true" }),
+      /no CA is configured/,
+    );
+  });
+
+  it("throws when strict is required but the CA path is unreadable (typo must not downgrade)", () => {
+    assert.throws(
+      () =>
+        buildSupabaseSsl({
+          [SUPABASE_TLS_REQUIRE_STRICT_ENV]: "true",
+          [SUPABASE_CA_PATH_ENV]: "/hartos/does-not-exist/no-such-ca.pem",
+        }),
+      /could not be read/,
+    );
+  });
+
+  it("still succeeds (strict) when required AND an inline CA is present", () => {
+    const cfg = buildSupabaseSsl({ [SUPABASE_TLS_REQUIRE_STRICT_ENV]: "true", [SUPABASE_CA_ENV]: FAKE_PEM });
+    assert.equal(cfg.tlsMode, "strict");
+    assert.equal(cfg.ssl.rejectUnauthorized, true);
+  });
+
+  it("default (flag off) is unchanged — relaxed when no CA, never throws", () => {
+    const cfg = buildSupabaseSsl({});
+    assert.equal(cfg.tlsMode, "relaxed");
   });
 });

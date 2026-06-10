@@ -16,12 +16,41 @@ import type { ActionProposal, ProposalActionType } from "../cockpit/proposals/pr
 import type { RoutingDecision } from "../cockpit/command-router.js";
 
 /** The runner-executable job kinds (each maps to an existing, gated local action). */
-export type AgentJobKind =
-  | "beezulbub.hunt"
-  | "wolverine.audit"
-  | "research.brief"
-  | "memory.capture"
-  | "rinnegan.sync";
+export const AGENT_JOB_KINDS = [
+  "beezulbub.hunt",
+  "wolverine.audit",
+  "research.brief",
+  "memory.capture",
+  "rinnegan.sync",
+] as const;
+
+export type AgentJobKind = (typeof AGENT_JOB_KINDS)[number];
+
+/**
+ * Runtime guard for a value read off the spine row before it is dispatched. The runner is the
+ * gated HANDS of the autonomy spine — it must verify the instructions it trusts rather than cast
+ * blindly. An unknown kind is rejected (audited `failed`), never silently swallowed by a default.
+ */
+export function isAgentJobKind(v: unknown): v is AgentJobKind {
+  return typeof v === "string" && (AGENT_JOB_KINDS as readonly string[]).includes(v);
+}
+
+/**
+ * Clamp + sanitize a job argument read off the spine before it reaches a live action (e.g. a
+ * GitHub search query). Strips control characters, collapses whitespace, and bounds the length —
+ * defense in depth for the gated hands; the per-action gates still decide whether anything runs.
+ */
+export function sanitizeJobArg(v: unknown): string {
+  if (typeof v !== "string") return "";
+  // Replace control characters (code point < 0x20, or 0x7f) with a space — no control-char
+  // literals in source. Then collapse whitespace, trim, and bound the length.
+  let cleaned = "";
+  for (const ch of v) {
+    const code = ch.codePointAt(0) ?? 0;
+    cleaned += code < 0x20 || code === 0x7f ? " " : ch;
+  }
+  return cleaned.replace(/\s+/g, " ").trim().slice(0, 200);
+}
 
 export interface AgentJobSpec {
   kind: AgentJobKind;

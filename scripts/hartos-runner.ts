@@ -19,7 +19,7 @@ import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-propo
 import { runBeezulbubHunt } from "./beezulbub-hunt.js";
 import { runResearch } from "./research-run.js";
 import { runMemoryCapture } from "./cockpit-memory-capture.js";
-import type { AgentJobKind } from "../src/jobs/agent-job.js";
+import { isAgentJobKind, sanitizeJobArg, type AgentJobKind } from "../src/jobs/agent-job.js";
 
 const COCKPIT_APPROVED_STATUS = "simulated_approved";
 
@@ -81,26 +81,71 @@ export async function runJobRunner(env: Record<string, string | undefined>, now:
       out.push("No Hart-approved agent jobs in the spine — nothing to run.");
       return out;
     }
+
+    // Audit EVERY terminal outcome — executed | skipped | failed — not only successes. The runner's
+    // promise is that the cockpit shows the truth; a safety system that records only successes
+    // launders failure into absence. (Audit table columns: proposal_id, event, to_status.)
+    const auditOutcome = async (proposalId: string, outcome: "executed" | "skipped" | "failed"): Promise<void> => {
+      const toStatus = outcome === "executed" ? "executed" : COCKPIT_APPROVED_STATUS;
+      await handle.query(
+        `insert into public.cockpit_proposal_audit (proposal_id, event, to_status) values ($1, $2, $3)`,
+        [proposalId, outcome, toStatus],
+      );
+    };
+
     out.push(`${rows.length} Hart-approved agent job(s):`);
+    let executed = 0;
+    let skipped = 0;
+    let failed = 0;
     for (const row of rows) {
-      const kind = (row.payload?.proposedPayload?.jobKind ?? "") as AgentJobKind;
-      const arg = String(row.payload?.proposedPayload?.jobArg ?? "");
+      const rawKind = row.payload?.proposedPayload?.jobKind;
+      const arg = sanitizeJobArg(row.payload?.proposedPayload?.jobArg);
+
+      // Validate the instruction before the gated hands act on it. An unrecognized kind is a
+      // FAILED outcome (audited), never silently dropped by the dispatcher's default.
+      if (!isAgentJobKind(rawKind)) {
+        failed += 1;
+        out.push(`  • ${row.id} [${String(rawKind)}] → failed: unrecognized job kind (not in the allowlist)`);
+        await auditOutcome(row.id, "failed");
+        continue;
+      }
+      const kind: AgentJobKind = rawKind;
+
       let result: { ok: boolean; detail: string };
       try {
         result = await executeJob(kind, arg, env, now);
       } catch (e) {
         result = { ok: false, detail: `threw: ${e instanceof Error ? e.message : String(e)}` };
       }
-      out.push(`  • ${row.id} [${kind}] → ${result.ok ? "executed" : "skipped"}: ${result.detail}`);
+
       if (result.ok) {
-        await handle.query(`update public.cockpit_proposals set status='executed', updated_at=now() where id=$1`, [row.id]);
-        await handle.query(
-          `insert into public.cockpit_proposal_audit (proposal_id, event, to_status) values ($1, 'executed', 'executed')`,
-          [row.id],
+        // Idempotent compare-and-set: only advance the row if it is STILL cockpit-approved. The
+        // autopilot ACT step and a manual runner can read the same simulated_approved rows; the
+        // guard ensures only the first claimant advances + audits (no double-advance, no double
+        // audit row). Crash-safe + re-runnable: a failure before this leaves the row approved.
+        const upd = await handle.query(
+          `update public.cockpit_proposals set status='executed', updated_at=now() where id=$1 and status=$2`,
+          [row.id, COCKPIT_APPROVED_STATUS],
         );
-        out.push("    spine advanced → executed (+ audit row)");
+        if ((upd.rowCount ?? 0) === 1) {
+          executed += 1;
+          await auditOutcome(row.id, "executed");
+          out.push(`  • ${row.id} [${kind}] → executed: ${result.detail}`);
+          out.push("    spine advanced → executed (+ audit row)");
+        } else {
+          // Lost the race to a concurrent runner — do NOT re-audit; the winner already did.
+          skipped += 1;
+          out.push(`  • ${row.id} [${kind}] → already claimed by another runner — skipped (no double audit)`);
+        }
+      } else {
+        // Honest skip (disarmed gate / policy) — the row stays cockpit-approved + re-runnable, and
+        // the skip is recorded so it is visible, not silently absent.
+        skipped += 1;
+        out.push(`  • ${row.id} [${kind}] → skipped: ${result.detail}`);
+        await auditOutcome(row.id, "skipped");
       }
     }
+    out.push(`Summary: ${executed} executed · ${skipped} skipped · ${failed} failed.`);
     return out;
   } finally {
     await handle.close();

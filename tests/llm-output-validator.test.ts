@@ -50,4 +50,11 @@ describe("llm output validator", () => {
     assert.equal(validateLlmOutput({ ...VALID, intent: "x".repeat(1000) }).ok, false);
     assert.equal(validateLlmOutput({ ...VALID, neededContext: Array(50).fill("a") }).ok, false);
   });
+
+  it("allows a longer summary than other fields (the synthesized answer), still bounded", () => {
+    // summary has the larger MAX_SUMMARY_LENGTH ceiling so it is not forced below the
+    // deterministic baseline it enriches; other 600-cap fields are unaffected.
+    assert.equal(validateLlmOutput({ ...VALID, summary: "x".repeat(1500) }).ok, true);
+    assert.equal(validateLlmOutput({ ...VALID, summary: "x".repeat(5000) }).ok, false);
+  });
 });

@@ -49,18 +49,25 @@ export async function findLatestReport(
     } catch {
       continue;
     }
-    for (const file of entries) {
-      if (!file.endsWith(".md") && !file.endsWith(".json")) continue;
-      if (matcher && !matcher.test(file)) continue;
-      const filePath = path.join(full, file);
-      try {
-        const s = await stat(filePath);
-        if (!best || s.mtimeMs > best.mtimeMs) {
-          best = { full: filePath, rel: `${dir}/${file}`, mtimeMs: s.mtimeMs };
+    const candidates = entries.filter(
+      (file) => (file.endsWith(".md") || file.endsWith(".json")) && (!matcher || matcher.test(file)),
+    );
+    // Stat candidates CONCURRENTLY. This was a serial await-in-loop — O(files) sequential syscalls,
+    // which with thousands of report files dominated cockpit:snapshot latency. Same selection: the
+    // most recent by mtime, first-seen wins ties (candidate order preserved + strict `>`).
+    const stats = await Promise.all(
+      candidates.map(async (file) => {
+        const filePath = path.join(full, file);
+        try {
+          const s = await stat(filePath);
+          return { full: filePath, rel: `${dir}/${file}`, mtimeMs: s.mtimeMs };
+        } catch {
+          return null; // ignore unreadable entries
         }
-      } catch {
-        // ignore unreadable entries
-      }
+      }),
+    );
+    for (const c of stats) {
+      if (c && (!best || c.mtimeMs > best.mtimeMs)) best = c;
     }
   }
   if (!best) return null;

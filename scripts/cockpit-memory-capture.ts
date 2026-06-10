@@ -23,10 +23,49 @@ import { resolveHostedCockpitState } from "../src/runtime/cloudflare-live-read-m
 import { strategicAwareness } from "../src/awareness/strategic-awareness.js";
 import { captureSnapshot, MEMORY_CAPTURE_FLAG } from "../src/awareness/memory-capture.js";
 import { createCockpitMemoryDb, MEMORY_SPINE_DB_URL_ENV } from "../src/awareness/supabase-memory-db.js";
+import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
+import type { DecisionRecord } from "../src/awareness/executive-memory.js";
 
 export interface MemoryCaptureCliResult {
   exitCode: number;
   lines: string[];
+}
+
+/**
+ * Read recently-EXECUTED spine proposals as DecisionRecords so the snapshot carries Hart's actual
+ * decisions — this lights up Executive Memory's causal half (deriveLessons / the "Tracked decisions"
+ * view), which was inert because nothing ever supplied decisions. Honest about the unknown: the
+ * OUTCOME is left null (we record that a decision was executed, not yet how it turned out). Pure
+ * read; resilient — any error yields an empty list (capture proceeds without decisions).
+ */
+export async function collectRecentExecutedDecisions(
+  env: Record<string, string | undefined>,
+  now: string,
+  limit = 8,
+): Promise<DecisionRecord[]> {
+  const handle = createCockpitProposalDb(env);
+  if (!handle) return [];
+  try {
+    const res = await handle.query(
+      `select id, title, domain, action_type, updated_at from public.cockpit_proposals
+         where status = 'executed' order by updated_at desc nulls last limit $1`,
+      [limit],
+    );
+    return (res.rows as Array<Record<string, unknown>>).map((r) => {
+      const at = r["updated_at"] != null ? new Date(r["updated_at"] as string) : null;
+      return {
+        decision: String(r["title"] ?? r["id"] ?? "executed proposal"),
+        domain: String(r["domain"] ?? "system"),
+        at: at && !Number.isNaN(at.getTime()) ? at.toISOString() : now,
+        evidence: `Executed via the cockpit spine (${String(r["action_type"] ?? "proposal")}).`,
+        outcome: null,
+      };
+    });
+  } catch {
+    return [];
+  } finally {
+    await handle.close();
+  }
 }
 
 /**
@@ -74,9 +113,12 @@ export async function runMemoryCapture(
   lines.push(`  store TLS: ${handle.tlsMode}`);
 
   // 3) Capture (flag-gated). captureSnapshot reads the store first, so `total` is reported
-  //    even on a dry/skip heartbeat.
+  //    even on a dry/skip heartbeat. When armed, attach Hart's recently-executed decisions so
+  //    memory carries cause (decisions) alongside effect (the brief), feeding causal lessons.
   try {
-    const result = await captureSnapshot({ store: handle.store, brief, now, env });
+    const decisions = flagOn ? await collectRecentExecutedDecisions(env, now) : [];
+    if (decisions.length) lines.push(`  decisions attached: ${decisions.length} recently-executed proposal(s)`);
+    const result = await captureSnapshot({ store: handle.store, brief, now, env, decisions });
     lines.push(`  ${result.captured ? "CAPTURED" : "skipped"}: ${result.reason}`);
     lines.push(`  snapshots in store: ${result.total}`);
     lines.push(

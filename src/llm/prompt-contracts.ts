@@ -24,6 +24,13 @@ export const OUTPUT_KEYS = [
 
 /** Validation bounds — keep outputs small and safe. */
 export const MAX_STRING_LENGTH = 600;
+/**
+ * The synthesized answer (`summary`) gets a larger ceiling than other fields: the deterministic
+ * `answerOps`/`answerDailyBrief` builders already emit multi-line briefs, so a 600-char cap would
+ * force the LLM to compress BELOW the rule-based baseline it is meant to enrich. Still bounded +
+ * secret-scanned, so the larger cap carries no safety cost.
+ */
+export const MAX_SUMMARY_LENGTH = 2000;
 export const MAX_ARRAY_LENGTH = 12;
 export const MAX_ARRAY_ITEM_LENGTH = 80;
 
@@ -58,11 +65,44 @@ export function buildSystemPrompt(): string {
 }
 
 export function buildUserPrompt(req: LlmRequest): string {
-  const ctx = req.context ? JSON.stringify(req.context) : "{}";
-  return [
-    `Request type: ${req.type}`,
-    `Request: ${req.request}`,
-    `Deterministic context (already-known facts): ${ctx}`,
-    "Return only the JSON object described in the system prompt.",
-  ].join("\n");
+  const ctx = (req.context && typeof req.context === "object" ? req.context : {}) as Record<string, unknown>;
+  const lines: string[] = [`Request type: ${req.type}`, `Request: ${req.request}`];
+  const used = new Set<string>();
+
+  const pushText = (label: string, v: unknown): void => {
+    if (v == null) return;
+    const s = String(v).trim();
+    if (s) lines.push(`${label}:`, s);
+  };
+  const pushList = (label: string, v: unknown): void => {
+    if (!Array.isArray(v)) return;
+    const items = v.map((x) => (x == null ? "" : String(x).trim())).filter(Boolean).map((x) => `- ${x}`);
+    if (items.length) lines.push(`${label}:`, ...items);
+  };
+
+  // Render the high-signal deterministic facts as LABELED, READABLE sections rather than one
+  // escaped JSON.stringify blob (which mangles quotes and buries the signal the model needs). The
+  // authoritative facts arrive nested under `grounding` (see ask-llm.ts); the Rinnegan fleet
+  // briefing, when present, is top-level. Nothing is dropped — residual keys still ride as JSON.
+  const grounding = ctx["grounding"];
+  if (grounding && typeof grounding === "object" && !Array.isArray(grounding)) {
+    used.add("grounding");
+    const g = grounding as Record<string, unknown>;
+    pushText("Already-known facts — summary", g["summary"]);
+    pushList("Already-known facts — highlights", g["highlights"]);
+    pushList("Already-known facts — gaps", g["gaps"]);
+  }
+  if (typeof ctx["rinneganBriefing"] === "string") {
+    used.add("rinneganBriefing");
+    pushText("Fleet briefing (Rinnegan)", ctx["rinneganBriefing"]);
+  }
+
+  const residual: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(ctx)) if (!used.has(k)) residual[k] = v;
+  if (Object.keys(residual).length) {
+    lines.push(`Other deterministic context (JSON): ${JSON.stringify(residual)}`);
+  }
+
+  lines.push("Return only the JSON object described in the system prompt.");
+  return lines.join("\n");
 }

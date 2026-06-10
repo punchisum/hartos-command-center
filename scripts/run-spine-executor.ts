@@ -86,12 +86,22 @@ export async function runSpineExecutor(
     for (const r of summary.results) {
       out.push(`  • ${r.proposalId} [${r.adapterId ?? "—"}] → ${r.outcome}: ${r.detail}`);
       if (r.wrote) {
-        await handle.query(`update public.cockpit_proposals set status='executed', updated_at=now() where id=$1`, [r.proposalId]);
-        await handle.query(
-          `insert into public.cockpit_proposal_audit (proposal_id, event, to_status) values ($1, 'executed', 'executed')`,
-          [r.proposalId],
+        // Idempotent advance: only the first claimant flips the row + writes the audit. A manual run
+        // and the autopilot can race the same cockpit-approved rows; the status guard prevents a
+        // double-advance + a duplicate audit row.
+        const upd = await handle.query(
+          `update public.cockpit_proposals set status='executed', updated_at=now() where id=$1 and status=$2`,
+          [r.proposalId, COCKPIT_APPROVED_STATUS],
         );
-        out.push("    spine advanced → executed (+ durable audit row)");
+        if ((upd.rowCount ?? 0) === 1) {
+          await handle.query(
+            `insert into public.cockpit_proposal_audit (proposal_id, event, to_status) values ($1, 'executed', 'executed')`,
+            [r.proposalId],
+          );
+          out.push("    spine advanced → executed (+ durable audit row)");
+        } else {
+          out.push("    already advanced by a concurrent run — not re-audited");
+        }
       }
     }
     return out;

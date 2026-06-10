@@ -13,6 +13,7 @@ import {
   MAX_ARRAY_ITEM_LENGTH,
   MAX_ARRAY_LENGTH,
   MAX_STRING_LENGTH,
+  MAX_SUMMARY_LENGTH,
   OUTPUT_KEYS,
 } from "./prompt-contracts.js";
 import { containsSecret } from "./redaction.js";
@@ -23,6 +24,15 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 function badString(v: unknown): boolean {
   return typeof v !== "string" || v.length === 0 || v.length > MAX_STRING_LENGTH || containsSecret(v);
+}
+
+/**
+ * Like badString but with the larger summary ceiling. `summary` carries the synthesized answer, so
+ * a 600-char cap would force the LLM below the deterministic baseline it enriches; still non-empty,
+ * bounded (MAX_SUMMARY_LENGTH), and secret-scanned.
+ */
+function badSummary(v: unknown): boolean {
+  return typeof v !== "string" || v.length === 0 || v.length > MAX_SUMMARY_LENGTH || containsSecret(v);
 }
 
 /**
@@ -47,9 +57,11 @@ export function validateLlmOutput(raw: unknown): OutputValidation {
   const { intent, domain, confidence, neededContext, recommendedSpecialist, riskLevel, nextAction, summary } = raw;
 
   // Core fields must be present + non-empty; advisory fields may be empty ("none").
-  for (const [name, value] of Object.entries({ intent, domain, summary })) {
+  for (const [name, value] of Object.entries({ intent, domain })) {
     if (badString(value)) return { ok: false, error: `Invalid string field: ${name}` };
   }
+  // summary gets the larger ceiling so the synthesized answer is not truncated below the baseline.
+  if (badSummary(summary)) return { ok: false, error: "Invalid string field: summary" };
   for (const [name, value] of Object.entries({ recommendedSpecialist, nextAction })) {
     if (badOptionalString(value)) return { ok: false, error: `Invalid string field: ${name}` };
   }

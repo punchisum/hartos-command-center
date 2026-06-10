@@ -26,6 +26,7 @@ import { writeObsidianNote } from "../src/obsidian/obsidian-writer.js";
 import { executiveMemory, type MemorySnapshot } from "../src/awareness/executive-memory.js";
 import { createCockpitMemoryDb } from "../src/awareness/supabase-memory-db.js";
 import { runMemoryCapture } from "./cockpit-memory-capture.js";
+import { runWolverinePropose } from "./wolverine-propose.js";
 import { runJobRunner } from "./hartos-runner.js";
 import type { GitFacts } from "../src/wolverine/wolverine-types.js";
 
@@ -57,6 +58,16 @@ export async function runAutopilot(env: Record<string, string | undefined>, now:
   const audit = wolverineAudit({ now, env, git: gatherGitFacts(process.cwd()), capabilityScouts });
   push(`1 SENSE    Wolverine: ${audit.verdict} — ${audit.verdictReason} (${audit.findingCount} finding(s))`);
   for (const f of audit.topRisks.slice(0, 3)) push(`           ! [${f.severity}] ${f.title}`);
+
+  // 1b. PROPOSE — Wolverine writes fixable findings into the cockpit spine as GATED FixProposals
+  //     (pending_approval). This turns the pulse from "observes problems" into "queues fixes to
+  //     Hart's phone". It NEVER executes — Hart approves in Approvals; the gated executor mutates.
+  const proposed = await runWolverinePropose(env, now);
+  const proposeHeadline =
+    proposed.lines.find((l) => /now in the cockpit|No fixable findings|not configured/i.test(l))?.trim() ??
+    proposed.lines[proposed.lines.length - 1]?.trim() ??
+    "ran";
+  push(`1b PROPOSE Wolverine→cockpit: ${proposeHeadline}`);
 
   // 2. REMEMBER — memory capture (its own flag decides; dry heartbeat otherwise).
   const mem = await runMemoryCapture(env, now);
