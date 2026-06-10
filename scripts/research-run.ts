@@ -15,8 +15,10 @@ import { pathToFileURL } from "node:url";
 import { planResearch } from "../src/research/research-planner.js";
 import { gatherSources } from "../src/research/research-gatherer.js";
 import { buildLlmSourceFetcher, researchGatherArmed, RESEARCH_GATHER_FLAG } from "../src/research/run-research-gather.js";
+import { buildWebSourceFetcher } from "../src/research/research-web.js";
 import { synthesizeResearch, summarizeDossier } from "../src/research/research-synthesis.js";
 import { researchDossierNote } from "../src/research/research-dossier-note.js";
+import { writeObsidianNote } from "../src/obsidian/obsidian-writer.js";
 import { RESEARCH_AGENT_SPEC } from "../src/agents/research-agent-spec.js";
 import { resolveLlmConfig } from "../src/llm/llm-gateway.js";
 
@@ -36,16 +38,21 @@ export async function runResearch(question: string, env: Record<string, string |
   const plan = planResearch(question);
   const cfg = resolveLlmConfig(env);
   const armed = researchGatherArmed(env);
+  const mode = (env["HARTOS_RESEARCH_MODE"] ?? "llm").trim().toLowerCase() === "web" ? "web" : "llm";
 
   push(`\n=== Research run (read-only, propose-only) ===`);
   push(`Question: ${plan.question}`);
   push(`Plan: ${plan.shape} · ${plan.verdict} · ${plan.subQuestions.length} sub-question(s) · risk ${plan.risk}`);
   push(
-    `Gating: ${RESEARCH_GATHER_FLAG}=${armed ? "true (armed)" : "off"} · LLM provider=${cfg.provider} · network=${cfg.networkEnabled} · key=${cfg.apiKeyPresent ? "present" : "absent"}`,
+    `Gating: ${RESEARCH_GATHER_FLAG}=${armed ? "true (armed)" : "off"} · mode=${mode} · LLM provider=${cfg.provider} · network=${cfg.networkEnabled} · key=${cfg.apiKeyPresent ? "present" : "absent"}`,
   );
 
   // Gather within the Research Agent's declared boundary (network + LLM are declared/gated there).
-  const fetcher = buildLlmSourceFetcher({ topic: plan.question, now, env });
+  // mode=web uses real web search (cited URLs → high confidence); mode=llm uses model knowledge.
+  const fetcher =
+    mode === "web"
+      ? buildWebSourceFetcher({ topic: plan.question, now, env })
+      : buildLlmSourceFetcher({ topic: plan.question, now, env });
   const gathered = await gatherSources(plan, { boundary: RESEARCH_AGENT_SPEC.boundary, fetcher, now, armed });
   push(`\nGathering:`);
   for (const n of gathered.notes) push(`  - ${n}`);
@@ -68,9 +75,15 @@ export async function runResearch(question: string, env: Record<string, string |
   }
 
   const note = researchDossierNote(dossier, now);
-  push(`\n--- Gated knowledge-loop output (non-executable proposal) ---`);
+  push(`\n--- Gated knowledge-loop output ---`);
   push(`  note: "${note.title}" → ${note.folder} (type ${note.noteType}, ${note.confidence} confidence)`);
-  push(`  approve + arm the Obsidian writer to file it; then Rinnegan briefs the LLM Ask on it.`);
+
+  // Gated vault write: only fires with HARTOS_OBSIDIAN_VAULT_PATH + ALLOW_OBSIDIAN_WRITE armed.
+  const write = await writeObsidianNote(note, env);
+  push(`  vault: ${write.written ? `FILED → ${write.relPath}` : write.reason}`);
+  if (write.written) {
+    push(`  → run rinnegan:sync-pack to brief the DEPLOYED LLM Ask; local Rinnegan sees it immediately.`);
+  }
   if (!armed || gathered.refused || dossier.confidence === "unknown") {
     push(
       `\n  (Honest read: ${gathered.refused ? "boundary refused gathering" : !armed ? "gathering disarmed" : "no real model sources"} — nothing fabricated. ` +

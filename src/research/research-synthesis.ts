@@ -137,7 +137,9 @@ export function synthesizeResearch(
       return;
     }
     const refs = [...new Set(bearing.map((s) => s.ref))];
-    const detail = bearing.map((s) => s.content.trim()).filter(Boolean).join("\n\n");
+    // Dedupe identical content (web gathering emits one source per cited URL, all sharing the
+    // same answer) so the full detail isn't repeated N times — distinct refs still corroborate.
+    const detail = [...new Set(bearing.map((s) => s.content.trim()).filter(Boolean))].join("\n\n");
     const confidence: ResearchConfidence = refs.length >= floor ? "high" : "medium";
     keyFindings.push({ question, finding, detail, sources: refs, confidence });
   });

@@ -61,6 +61,19 @@ describe("synthesizeResearch", () => {
     assert.ok(k.sources.length >= 1);
   });
 
+  it("multiple distinct cited sources → HIGH confidence, detail not duplicated", () => {
+    const gathered: GatheredSource[] = [
+      { ref: "https://a", title: "A", content: "Shared cited answer.", answers: [0], asOf: NOW },
+      { ref: "https://b", title: "B", content: "Shared cited answer.", answers: [0], asOf: NOW },
+      { ref: "https://c", title: "C", content: "Shared cited answer.", answers: [0], asOf: NOW },
+    ];
+    const d = synthesizeResearch(PLAN, gathered, { now: NOW });
+    const f = d.keyFindings.find((x) => x.question === PLAN.subQuestions[0])!;
+    assert.equal(f.confidence, "high"); // 3 distinct URL refs ≥ corroboration floor
+    assert.equal(f.sources.length, 3);
+    assert.equal(f.detail, "Shared cited answer."); // deduped, not repeated 3×
+  });
+
   it("a finding never has zero sources (zero-source items are unknowns, not findings)", () => {
     const d = synthesizeResearch(PLAN, [src({ answers: [2] })], { now: NOW });
     assert.ok(d.keyFindings.every((f) => f.sources.length >= 1));
