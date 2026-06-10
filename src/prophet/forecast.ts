@@ -21,6 +21,10 @@
 import type { PerceptionReport } from "../rinnegan/perception.js";
 import type { FleetPlan } from "../fleet/orchestrator.js";
 import type { ProposalQueueItem } from "../cockpit/proposals/proposal-types.js";
+// Type-only (erased at runtime → no module cycle): the two newest knowledge-loop signals
+// Prophet now projects from — the immune system's findings and the memory layer's trends.
+import type { WolverineReport, WolverineCategory } from "../wolverine/wolverine-types.js";
+import type { ExecutiveMemoryReport, MemoryTrend } from "../awareness/executive-memory.js";
 
 export type ForecastSeverity = "low" | "medium" | "high";
 export type ForecastHorizon = "now" | "days" | "week+";
@@ -57,9 +61,61 @@ export interface ForecastInput {
   proposals?: ProposalQueueItem[];
   /** Pending-proposal age (hours) past which a stalled decision is projected. Default 72. */
   agingHours?: number;
+  /**
+   * Wolverine's immune-system report — its KNOWN findings are issues that don't heal on their
+   * own, so Prophet projects each finding's consequence-of-inaction. Absent ⇒ not assessed
+   * (carried as a blind spot). Backward compatible: omitting it leaves the forecast unchanged.
+   */
+  wolverine?: WolverineReport | null;
+  /**
+   * Executive Memory — the ONLY input that sees across time. A recurring pattern or a rising
+   * problem-count trend is the genuinely forward-looking "this is becoming a standing condition"
+   * signal a single snapshot can't produce. Absent ⇒ not assessed. Backward compatible.
+   */
+  memory?: ExecutiveMemoryReport | null;
 }
 
 const SEV_RANK: Record<ForecastSeverity, number> = { high: 3, medium: 2, low: 1 };
+
+/**
+ * The consequence-of-inaction for a Wolverine finding, BY CATEGORY (the entailment of leaving
+ * that class of defect alone). Grounded in the finding's own evidence at the call site; this is
+ * the projection ("if you do nothing, this is what continues"), never a fabricated prediction.
+ */
+function projectFinding(category: WolverineCategory, title: string): string {
+  switch (category) {
+    case "unsafe_flag":
+      return `An execution flag is left enabled — the mutation floor stays open and an unintended write can fire at any time; it does not disarm itself.`;
+    case "git_hygiene":
+      return `Uncommitted or unpushed work stays one disk loss away from gone, and the longer it sits the harder the eventual merge.`;
+    case "stale_data":
+      return `Every decision reading this source stays wrong until it's refreshed — the error doesn't heal on its own.`;
+    case "broken_wiring":
+      return `The broken wiring keeps silently dropping work each run — the feature looks present but does nothing until it's repaired.`;
+    case "missing_test":
+      return `Untested behavior keeps regressing undetected — the next change can break it with nothing to catch it.`;
+    case "doctrine_drift":
+      return `The drift from doctrine widens with every further change — realigning later costs more than realigning now.`;
+    case "proposal_bug":
+      return `The proposal defect keeps mis-handling decisions on every run until it's fixed — bad outputs compound silently.`;
+    case "failed_deploy":
+      return `The failed/again-failing deploy means the live system stays behind intent until it lands — fixes you think shipped haven't.`;
+    case "suspicious_confidence":
+      return `A confidently-wrong answer keeps getting trusted as if solid — acting on it is the real risk, and it persists until corrected.`;
+    case "duplicate_capability":
+      return `Two agents claim the same job — work gets done twice or not at all, and ownership stays ambiguous until it's resolved.`;
+    case "improvement":
+      return `This improvement stays unrealized — not a defect, but the upside keeps not landing until it's picked up.`;
+    default:
+      return `"${title}" persists and compounds until the recommended fix is applied — it does not resolve on its own.`;
+  }
+}
+
+/** A rising trend on a PROBLEM-count metric (more risks/drift/blind-spots) is bad; rising opportunities/confidence are not. */
+function isRisingProblemTrend(t: MemoryTrend): boolean {
+  const PROBLEM_METRICS = new Set(["risk_count", "drift_count", "blind_spot_count"]);
+  return t.direction === "rising" && PROBLEM_METRICS.has(t.metric);
+}
 
 /**
  * Forecast the consequence of inaction. Deterministic: same input → same report.
@@ -148,6 +204,56 @@ export function forecast(input: ForecastInput): ForecastReport {
     }
   }
 
+  let knownDefects = false;
+  let risingProblems = false;
+
+  // ── Wolverine findings → consequence-of-inaction (a detected issue won't self-heal) ──
+  if (input.wolverine) {
+    scanned.push("wolverine");
+    // Project the worst findings first; the immune system already ranked them.
+    for (const fnd of input.wolverine.topRisks.slice(0, 4)) {
+      knownDefects = true;
+      consequences.push({
+        subject: fnd.ownerAgent ? `${fnd.ownerAgent}: ${fnd.title}` : fnd.title,
+        projection: projectFinding(fnd.category, fnd.title),
+        severity: fnd.severity === "critical" || fnd.severity === "high" ? "high" : fnd.severity === "medium" ? "medium" : "low",
+        horizon: fnd.severity === "critical" ? "now" : fnd.severity === "high" || fnd.severity === "medium" ? "days" : "week+",
+        basis: fnd.evidence,
+        preventedBy: fnd.recommendedFix,
+      });
+    }
+  } else {
+    blindSpots.push("wolverine (no report) — cannot forecast the consequence of known defects");
+  }
+
+  // ── Executive memory → trajectory consequences (the across-time signal) ──
+  if (input.memory && input.memory.status === "ok") {
+    scanned.push("executive memory");
+    // A recurring risk/drift is a worsening standing condition, not a blip.
+    for (const p of input.memory.recurringPatterns.filter((x) => x.kind === "risk" || x.kind === "drift").slice(0, 3)) {
+      consequences.push({
+        subject: `recurring: ${p.subject}`,
+        projection: `"${p.subject}" has recurred ${p.occurrences}× — left unaddressed it hardens into a standing condition, not a one-off, and the cost of each recurrence keeps landing.`,
+        severity: p.occurrences >= 4 ? "high" : "medium",
+        horizon: "week+",
+        basis: p.evidence,
+        preventedBy: `Fix the root cause of "${p.subject}" — recurring means the symptom-level fix isn't holding.`,
+      });
+    }
+    // A rising problem-count trend = accumulating faster than clearing.
+    for (const t of input.memory.trends.filter(isRisingProblemTrend)) {
+      risingProblems = true;
+      consequences.push({
+        subject: `trend: ${t.metric}`,
+        projection: `${t.metric} is rising (${t.from} → ${t.to}) — the system is accumulating problems faster than it's clearing them; the trajectory is the warning, not any single item.`,
+        severity: "medium",
+        horizon: "days",
+        basis: t.evidence,
+        preventedBy: "Clear faster than inflow — triage the leading source driving the rise before adding new work.",
+      });
+    }
+  }
+
   // ── Compounding: stale inputs AND uncleared work reinforce each other ──
   if (staleData && deferredWork) {
     consequences.push({
@@ -157,6 +263,18 @@ export function forecast(input: ForecastInput): ForecastReport {
       horizon: "days",
       basis: "Both data staleness and deferred fleet work are present at once.",
       preventedBy: "Clear the wave-1 refresh/repair first, then expand capacity for the rest.",
+    });
+  }
+
+  // ── Compounding: a RED immune system WHILE problems are trending up = a worsening crisis ──
+  if (knownDefects && risingProblems && input.wolverine?.verdict === "RED") {
+    consequences.push({
+      subject: "system",
+      projection: "The immune system is RED and the problem count is rising at the same time — known defects are landing while the system falls further behind on clearing them.",
+      severity: "high",
+      horizon: "now",
+      basis: "Wolverine verdict RED and a rising problem-count trend coincide.",
+      preventedBy: "Stop new intake; clear the top Wolverine repairs first, then re-measure the trend.",
     });
   }
 

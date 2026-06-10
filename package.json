@@ -115,6 +115,8 @@
     "rinnegan:compile": "node --env-file-if-exists=.env.local dist/scripts/rinnegan-compile.js",
     "prerinnegan:sync-pack": "npm run build",
     "rinnegan:sync-pack": "node --env-file-if-exists=.env.local dist/scripts/rinnegan-sync-pack.js",
+    "preprophet:forecast": "npm run build",
+    "prophet:forecast": "node --env-file-if-exists=.env.local dist/scripts/prophet-forecast.js",
     "cockpit:ask-host": "npm run build && node --env-file-if-exists=.env.local dist/scripts/cockpit-ask-host.js",
     "prellm:status": "npm run build",
     "llm:status": "node dist/scripts/llm-status.js",
