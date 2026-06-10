@@ -5,6 +5,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { gatherSources, llmResultToSources, type SourceFetcher } from "../src/research/research-gatherer.js";
+import { buildLlmSourceFetcher } from "../src/research/run-research-gather.js";
 import { planResearch } from "../src/research/research-planner.js";
 import { RESEARCH_AGENT_SPEC } from "../src/agents/research-agent-spec.js";
 import type { BoundaryDefinition } from "../src/research/agent-job-types.js";
@@ -72,5 +73,25 @@ describe("gatherSources — boundary + arm gating", () => {
     const r = await gatherSources(PLAN, { boundary: RESEARCH_AGENT_SPEC.boundary, fetcher: boom, now: NOW, armed: true });
     assert.equal(r.sources.length, 0);
     assert.ok(r.notes.every((n) => /fetch failed/.test(n)));
+  });
+});
+
+describe("buildLlmSourceFetcher — free-text infer → cited source (injected, no network)", () => {
+  it("wraps a real model answer into one cited source", async () => {
+    const fetcher = buildLlmSourceFetcher({
+      topic: "t",
+      now: NOW,
+      infer: async (q) => ({ content: `answer to ${q}`, model: "gpt-5.5" }),
+    });
+    const s = await fetcher("sub-q", 2);
+    assert.equal(s.length, 1);
+    assert.equal(s[0].ref, "llm:gpt-5.5");
+    assert.deepEqual(s[0].answers, [2]);
+    assert.match(s[0].content, /answer to sub-q/);
+  });
+
+  it("a null infer (no real model) yields no source — honest unknown", async () => {
+    const fetcher = buildLlmSourceFetcher({ topic: "t", now: NOW, infer: async () => null });
+    assert.deepEqual(await fetcher("sub-q", 0), []);
   });
 });

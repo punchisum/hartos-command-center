@@ -12,18 +12,18 @@
  *      HARTOS_LLM_PROVIDER=openai AND HARTOS_LLM_ENABLE_NETWORK=true AND OPENAI_API_KEY present;
  *      otherwise it runs deterministic, which llmResultToSources REFUSES to cite as a source.
  *
- * v1 reaches the model through the gateway's `summarizeDataSnapshot` capability — sources are
- * honestly labelled "model knowledge (not web-verified)" and a single model source caps the
- * synthesis at medium confidence. A dedicated web-fetch fetcher can be added behind the same port.
+ * It reaches the model through a research-tuned FREE-TEXT call (research-llm.ts) — NOT the Ask
+ * gateway's ops-grounded structured contract, which would misframe + truncate open research.
+ * Sources are honestly labelled "model knowledge (not web-verified)" and a single model source
+ * caps synthesis at medium confidence. A web-fetch fetcher can slot behind the same port later.
  */
 
-import { LlmGateway, type LlmGatewayOptions } from "../llm/llm-gateway.js";
-import { redact, redactDeep } from "../llm/redaction.js";
-import { llmResultToSources, type SourceFetcher } from "./research-gatherer.js";
+import { buildResearchInfer, type ResearchInfer } from "./research-llm.js";
+import type { SourceFetcher } from "./research-gatherer.js";
 
 type Env = Record<string, string | undefined>;
 
-/** The research-specific arm flag (on top of the gateway's own gate). Default OFF. */
+/** The research-specific arm flag (on top of the LLM gate). Default OFF. */
 export const RESEARCH_GATHER_FLAG = "HARTOS_RESEARCH_GATHER";
 
 export function researchGatherArmed(env: Env = process.env): boolean {
@@ -34,37 +34,28 @@ export interface BuildFetcherOptions {
   topic: string;
   now: string;
   env?: Env;
-  /** Provider overrides — tests inject mocks so no real network occurs. */
-  providers?: LlmGatewayOptions["providers"];
-  /** Pre-constructed gateway (takes precedence). */
-  gateway?: LlmGateway;
+  /** Inject a fake infer in tests so no real network occurs; defaults to the gated research infer. */
+  infer?: ResearchInfer;
 }
 
 /**
- * A SourceFetcher that asks the governed gateway for grounded knowledge per sub-question. The
- * request is redacted first (no secret reaches a prompt). Only a real model answer becomes a
- * source (llmResultToSources); a deterministic stub or a thrown error yields [] — honest unknowns.
+ * A SourceFetcher that asks a real model (gated) for grounded knowledge per sub-question and turns
+ * the free-text answer into ONE cited source. The infer self-gates (provider/network/key) and
+ * returns null when no real model answered → an honest unknown, never a fabricated source.
  */
 export function buildLlmSourceFetcher(opts: BuildFetcherOptions): SourceFetcher {
-  const gateway =
-    opts.gateway ??
-    new LlmGateway({
-      ...(opts.env ? { env: opts.env } : {}),
-      ...(opts.providers ? { providers: opts.providers } : {}),
-      writeUsage: false,
-    });
-
+  const infer: ResearchInfer = opts.infer ?? buildResearchInfer(opts.env);
   return async (subQuestion, index) => {
-    const request = redact(
-      `Research sub-question: ${subQuestion}\nTopic: ${opts.topic}\n` +
-        `Answer factually and concisely from established knowledge. If you are not sure, say so rather than guessing — do not invent specifics.`,
-    );
-    const context = redactDeep({ topic: opts.topic, subQuestion });
-    try {
-      const result = await gateway.summarizeDataSnapshot(request, context);
-      return llmResultToSources(result, subQuestion, index, opts.now);
-    } catch {
-      return []; // a failed call is an honest unknown, never a fabricated source
-    }
+    const r = await infer(subQuestion, opts.topic);
+    if (!r) return []; // no real model answer ⇒ honest unknown
+    return [
+      {
+        ref: `llm:${r.model}`,
+        title: `Model knowledge (${r.model}, not web-verified)`,
+        content: r.content,
+        answers: [index],
+        asOf: opts.now,
+      },
+    ];
   };
 }
