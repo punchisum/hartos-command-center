@@ -43,10 +43,17 @@ import {
 import { summarizeEnvPresence, resolveLlmNetworkGate } from "./cloudflare-env.js";
 import { validateRequest } from "../cockpit/cockpit-state.js";
 import { deterministicOutput } from "../llm/providers/deterministic-provider.js";
-// Worker-safe Ask orchestrator (LLM Ask 2A). MUST stay Worker-safe — import ONLY this, never
-// the key-bearing `run-ask-llm.ts`/`llm-gateway.ts` (node:path/fs). With no injected askInfer
-// (the Worker default) it returns the deterministic grounding unchanged.
+// Worker-safe Ask orchestrator (LLM Ask 2A): composeAskAnswer takes inference INJECTED and
+// returns the deterministic grounding unchanged when askInfer is absent.
 import { composeAskAnswer } from "../llm/ask-llm.js";
+// Step 3 (Worker-direct Ask) — we DELIBERATELY wire the key-bearing gateway into the hosted
+// Worker via buildAskInfer. Safe under nodejs_compat: the gateway uses node:path at construction
+// (supported) and usage-logging (node:fs) stays OFF (writeUsage defaults false), so nothing fs is
+// called on the request path. The gateway SELF-GATES (HARTOS_LLM_PROVIDER=openai +
+// HARTOS_LLM_ENABLE_NETWORK=true + OPENAI_API_KEY) and is propose-only; absent the gate it is
+// deterministic, identical to before. OPENAI_API_KEY is a server-side Worker secret, never sent
+// to the browser. (Supersedes the earlier "never import the gateway" rule, by Hart's decision.)
+import { buildAskInfer } from "../llm/run-ask-llm.js";
 import { augmentGroundingWithSynthesis } from "../llm/ask-fleet-grounding.js";
 import { buildCockpitState } from "../cockpit/cockpit-read-model.js";
 import {
@@ -689,6 +696,10 @@ export default {
       proposalWriteProvider: async (proposals, sourceIntent) => persistCockpitProposals(env, proposals, { sourceIntent }),
       proposalTransitionProvider: async (input) => transitionCockpitProposal(env, input),
       threadsProvider: async () => resolveCockpitThreads(env),
+      // Step 3 — Worker-direct LLM Ask. Self-gating: a real OpenAI call happens ONLY when the
+      // gate is armed (HARTOS_LLM_PROVIDER=openai + HARTOS_LLM_ENABLE_NETWORK=true + OPENAI_API_KEY
+      // secret); otherwise deterministic. Propose-only — the LLM reasons, never executes.
+      askInfer: buildAskInfer({ env }),
     });
   },
 };

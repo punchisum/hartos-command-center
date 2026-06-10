@@ -124,7 +124,16 @@ export async function composeAskAnswer(
     return deterministicAnswer(grounding, redactedRequest, "deterministic");
   }
 
-  const safeContext = redactDeep(context ?? {});
+  // Ground the LLM in the deterministic FACTS so it synthesizes FROM them instead of
+  // reasoning blind (which laundered confidence + invented generic gaps). The grounding is
+  // the authoritative source; the model writes a narrative summary over these exact facts.
+  const groundingContext = {
+    title: groundingTitle(grounding),
+    summary: grounding.summary,
+    highlights: groundingHighlights(grounding),
+    gaps: groundingGaps(grounding),
+  };
+  const safeContext = redactDeep({ ...(context ?? {}), grounding: groundingContext });
 
   let result: LlmResult | null;
   try {

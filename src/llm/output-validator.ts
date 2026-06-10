@@ -25,6 +25,15 @@ function badString(v: unknown): boolean {
   return typeof v !== "string" || v.length === 0 || v.length > MAX_STRING_LENGTH || containsSecret(v);
 }
 
+/**
+ * Like badString but allows an EMPTY string — for advisory/optional fields
+ * (recommendedSpecialist, nextAction) where "none" is a legitimate, honest answer.
+ * A grounded model should leave these empty rather than invent a specialist/action.
+ */
+function badOptionalString(v: unknown): boolean {
+  return typeof v !== "string" || v.length > MAX_STRING_LENGTH || containsSecret(v);
+}
+
 /** Validate raw provider output. Never throws. */
 export function validateLlmOutput(raw: unknown): OutputValidation {
   if (!isPlainObject(raw)) {
@@ -37,8 +46,12 @@ export function validateLlmOutput(raw: unknown): OutputValidation {
 
   const { intent, domain, confidence, neededContext, recommendedSpecialist, riskLevel, nextAction, summary } = raw;
 
-  for (const [name, value] of Object.entries({ intent, domain, recommendedSpecialist, nextAction, summary })) {
+  // Core fields must be present + non-empty; advisory fields may be empty ("none").
+  for (const [name, value] of Object.entries({ intent, domain, summary })) {
     if (badString(value)) return { ok: false, error: `Invalid string field: ${name}` };
+  }
+  for (const [name, value] of Object.entries({ recommendedSpecialist, nextAction })) {
+    if (badOptionalString(value)) return { ok: false, error: `Invalid string field: ${name}` };
   }
 
   if (typeof confidence !== "string" || !ALLOWED_CONFIDENCE.includes(confidence as never)) {

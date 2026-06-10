@@ -28,6 +28,25 @@ function readApiKey(): string | undefined {
   return key && key.trim().length > 0 ? key.trim() : undefined;
 }
 
+/**
+ * Build the chat-completions request body. Classic chat models (gpt-3.x / gpt-4.x) accept an
+ * explicit `temperature: 0` for determinism; gpt-5.x and o-series reasoning models REJECT a
+ * non-default temperature (HTTP 400), so it is set ONLY for the models that support it. JSON
+ * output is requested for every model (the validator enforces shape; the gateway falls back).
+ */
+export function buildChatRequestBody(config: LlmGatewayConfig, req: LlmRequest): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model: config.model,
+    messages: [
+      { role: "system", content: buildSystemPrompt() },
+      { role: "user", content: buildUserPrompt(req) },
+    ],
+    response_format: { type: "json_object" },
+  };
+  if (/^(gpt-3|gpt-4)/.test(config.model)) body.temperature = 0;
+  return body;
+}
+
 export const openAiProvider: LlmProvider = {
   name: "openai",
   async generate(req: LlmRequest, config: LlmGatewayConfig): Promise<unknown> {
@@ -48,15 +67,7 @@ export const openAiProvider: LlmProvider = {
           "content-type": "application/json",
           authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({
-          model: config.model,
-          messages: [
-            { role: "system", content: buildSystemPrompt() },
-            { role: "user", content: buildUserPrompt(req) },
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0,
-        }),
+        body: JSON.stringify(buildChatRequestBody(config, req)),
       });
     } catch (err) {
       throw new OpenAiProviderError(`OpenAI request failed: ${redact(String(err))}`);

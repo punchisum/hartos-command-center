@@ -70,6 +70,8 @@ import {
   mapRowToThreadSummary,
   type CockpitThreadSummary,
 } from "../cockpit/threads/cockpit-thread-spine.js";
+import type { MemorySnapshot } from "../awareness/executive-memory.js";
+import { COCKPIT_MEMORY_RPC, coerceCockpitMemoryRows } from "../awareness/cockpit-memory-spine.js";
 
 type Env = Record<string, string | undefined>;
 
@@ -176,6 +178,11 @@ export interface ResolveHostedStateOptions {
    * path); a stubbed read-model context therefore makes NO proposal network call.
    */
   proposalsProvider?: () => Promise<ProposalQueueItem[] | null>;
+  /**
+   * Step 2b — inject the executive-memory spine read (tests). When omitted, the live
+   * anon RPC read runs ONLY if no clientFactory is injected (the real Worker path).
+   */
+  memoryProvider?: () => Promise<MemorySnapshot[] | null>;
 }
 
 /**
@@ -252,6 +259,16 @@ export async function resolveHostedCockpitState(
     proposalQueue = await resolveCockpitProposals(env, { now }).catch(() => null);
   }
 
+  // Step 2b — resolve Executive Memory snapshots from the Supabase spine (anon RPC),
+  // mirroring the proposal read. Tests inject a provider; the real Worker path does the
+  // live anon read; a stubbed read-model context (clientFactory) makes NO memory call.
+  let memorySnapshots: MemorySnapshot[] | null = null;
+  if (options.memoryProvider) {
+    memorySnapshots = await options.memoryProvider().catch(() => null);
+  } else if (!options.clientFactory) {
+    memorySnapshots = await resolveCockpitMemory(env, { now }).catch(() => null);
+  }
+
   return {
     generatedAt: now,
     mode: "hosted",
@@ -288,6 +305,9 @@ export async function resolveHostedCockpitState(
     // anon RPC). Present (even empty) when the spine read succeeds; omitted on a
     // missing/failed read so proposalsView falls back to its honest local-only note.
     ...(proposalQueue ? { proposalQueue } : {}),
+    // Step 2b — Executive Memory snapshots from the spine. Present only when the read
+    // returned ≥1; omitted otherwise so the cockpit shows the honest INSUFFICIENT_HISTORY.
+    ...(memorySnapshots && memorySnapshots.length ? { memorySnapshots } : {}),
     // Cockpit V2 mutation target resolution — individual ops cards (id · name · status) preserved
     // from get_ops_attention_cards, so a mutation instruction ("put this operation on hold") can
     // resolve to a real card. Absent when the ops read-model carried no attention cards.
@@ -344,6 +364,32 @@ export async function resolveCockpitThreads(
   try {
     const body = await client.readRpc(COCKPIT_THREADS_RPC, { p_limit: options.limit ?? 50 });
     return coerceCockpitThreadRows(body).map(mapRowToThreadSummary);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Step 2b — read the Executive Memory spine LIVE from the fitness project via the anon,
+ * read-only RPC (mirrors resolveCockpitProposals). Anon key only (service-role refused),
+ * sent as a header, never echoed. Returns the snapshots (possibly empty) on success, or
+ * null when the fitness env is absent / a service-role key is presented / the read fails —
+ * in which case the cockpit renders the honest INSUFFICIENT_HISTORY line.
+ */
+export async function resolveCockpitMemory(
+  env: Env,
+  options: { now?: string; fetchImpl?: FetchLike; limit?: number } = {},
+): Promise<MemorySnapshot[] | null> {
+  const url = env[HOSTED_READ_MODEL_ENV.fitnessUrl];
+  const key = env[HOSTED_READ_MODEL_ENV.fitnessKey];
+  if (!url || !key || isServiceRoleKey(key)) return null;
+  const client = new SupabaseReadClient(
+    { url, key, allowedTables: [], allowedRpcs: [COCKPIT_MEMORY_RPC] },
+    options.fetchImpl,
+  );
+  try {
+    const body = await client.readRpc(COCKPIT_MEMORY_RPC, { p_limit: options.limit ?? 120 });
+    return coerceCockpitMemoryRows(body);
   } catch {
     return null;
   }
