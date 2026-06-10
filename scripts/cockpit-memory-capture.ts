@@ -24,6 +24,7 @@ import { strategicAwareness } from "../src/awareness/strategic-awareness.js";
 import { captureSnapshot, MEMORY_CAPTURE_FLAG } from "../src/awareness/memory-capture.js";
 import { createCockpitMemoryDb, MEMORY_SPINE_DB_URL_ENV } from "../src/awareness/supabase-memory-db.js";
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
+import { redact } from "../src/llm/redaction.js";
 import type { DecisionRecord } from "../src/awareness/executive-memory.js";
 
 export interface MemoryCaptureCliResult {
@@ -88,7 +89,7 @@ export async function runMemoryCapture(
   try {
     state = await resolveHostedCockpitState(env, { now });
   } catch (e) {
-    lines.push(`Could not resolve live read-models: ${e instanceof Error ? e.message : String(e)}`);
+    lines.push(`Could not resolve live read-models: ${redact(e instanceof Error ? e.message : String(e))}`);
     return { exitCode: 1, lines };
   }
   if (!state) {
@@ -128,7 +129,7 @@ export async function runMemoryCapture(
     );
     return { exitCode: 0, lines };
   } catch (e) {
-    lines.push(`Capture failed (nothing persisted past the error): ${e instanceof Error ? e.message : String(e)}`);
+    lines.push(`Capture failed (nothing persisted past the error): ${redact(e instanceof Error ? e.message : String(e))}`);
     return { exitCode: 1, lines };
   } finally {
     await handle.close();
@@ -145,7 +146,7 @@ if (invokedDirectly) {
       process.exit(res.exitCode);
     })
     .catch((e) => {
-      console.error(`memory-capture: unexpected error: ${e instanceof Error ? e.message : String(e)}`);
+      console.error(`memory-capture: unexpected error: ${redact(e instanceof Error ? e.message : String(e))}`);
       process.exit(1);
     });
 }

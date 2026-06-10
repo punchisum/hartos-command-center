@@ -31,6 +31,7 @@ import { runJobRunner } from "./hartos-runner.js";
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
 import { buildPulseRunRow } from "../src/cockpit/pulse/pulse-run-spine.js";
 import { synthesizeDecisions } from "../src/cockpit/decision-synthesis.js";
+import { redact } from "../src/llm/redaction.js";
 import type { GitFacts } from "../src/wolverine/wolverine-types.js";
 import type { WolverineReport } from "../src/wolverine/wolverine-types.js";
 import type { ForecastReport } from "../src/prophet/forecast.js";
@@ -69,7 +70,7 @@ async function recordPulseRun(
     );
     return "recorded to cockpit_pulse_runs (feeds the Last-Pulse tile + forecast scoring)";
   } catch (e) {
-    return `pulse not recorded: ${e instanceof Error ? e.message : String(e)}`;
+    return `pulse not recorded: ${redact(e instanceof Error ? e.message : String(e))}`;
   } finally {
     await handle.close();
   }
@@ -165,7 +166,7 @@ if (isMain) {
       console.log("");
     })
     .catch((e) => {
-      console.error(`autopilot failed: ${e instanceof Error ? e.message : String(e)}`);
+      console.error(`autopilot failed: ${redact(e instanceof Error ? e.message : String(e))}`);
       process.exit(1);
     });
 }

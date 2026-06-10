@@ -22,6 +22,7 @@ import { createClickUpClient } from "../src/execution/clickup-client.js";
 import { createRejectDraftsDb } from "../src/execution/run-reject-drafts-db.js";
 import { createArchiveRejectedDb } from "../src/execution/run-archive-rejected-db.js";
 import { EXECUTABLE_FROM } from "../src/doctrine/execution-gate.js";
+import { redact } from "../src/llm/redaction.js";
 import type { ProposalQueueItem } from "../src/cockpit/proposals/proposal-types.js";
 
 /** The spine status the cockpit Approve button sets (Hart's Key 1). */
@@ -121,7 +122,7 @@ if (isMain) {
       console.log("");
     })
     .catch((err) => {
-      console.error(`spine-executor failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`spine-executor failed: ${redact(err instanceof Error ? err.message : String(err))}`);
       process.exit(1);
     });
 }

@@ -192,9 +192,22 @@ export async function handleCockpitRequest(
   }
 
   // ── Public routes (no auth) ──────────────────────────────────────────────
-  // /health is a safe uptime check (no secrets). /api/login is the auth entry.
+  // /health is a safe uptime check (no secrets). /api/login is the auth entry. Deploy provenance
+  // (git SHA + build time) is injected via the BUILD_SHA / BUILD_TIME vars at deploy time
+  // (wrangler deploy --var BUILD_SHA:$(git rev-parse --short HEAD) …) so you can tell WHICH code is
+  // live — the prerequisite for trustworthy rollback. Null when not supplied (no secret, additive).
   if (method === "GET" && pathname === "/health") {
-    return jsonResponse(200, { ok: true, mode: ctx.runtimeMode ?? "hosted", actionExecution: ACTION_EXECUTION }, cors);
+    return jsonResponse(
+      200,
+      {
+        ok: true,
+        mode: ctx.runtimeMode ?? "hosted",
+        actionExecution: ACTION_EXECUTION,
+        version: env["BUILD_SHA"] ?? null,
+        builtAt: env["BUILD_TIME"] ?? null,
+      },
+      cors,
+    );
   }
   if (method === "POST" && pathname === "/api/login") {
     return handleLogin(request, url, env, cors);
@@ -283,7 +296,7 @@ export async function handleCockpitRequest(
         opsStatus: dgReg.byId["ops"]?.status,
         opsReason: dgReg.byId["ops"]?.statusReason,
         vaultNotesSynced,
-        version: null as string | null,
+        version: (env["BUILD_SHA"] ?? null) as string | null,
       };
       return htmlResponse(hostedHtml(dctx, threads ?? undefined, knowledge, diagnostics, pulseRuns ?? undefined), cors);
     }

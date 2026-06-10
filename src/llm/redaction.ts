@@ -24,6 +24,10 @@ export const SECRET_PATTERNS: RegExp[] = [
   /api\.telegram\.org\/bot[A-Za-z0-9:_-]+/gi, // Telegram API URL with embedded token
   /\d{6,12}:[A-Za-z0-9_-]{30,}/g, // Telegram bot token (<bot id>:<secret>)
   /\bBearer\s+[A-Za-z0-9._\-]{16,}/gi, // Authorization headers
+  // Credentials embedded in a connection URL (postgres://user:PASSWORD@host, postgresql://, redis://,
+  // mongodb://, https://user:pass@…). A pg/DB or network error can echo the whole conn string, so
+  // redact the entire URL — the `user:pass@` shape means benign credential-free URLs never match.
+  /\b[a-z][a-z0-9+.\-]*:\/\/[^\s/@]+:[^\s/@]+@\S+/gi,
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g,
 ];
 

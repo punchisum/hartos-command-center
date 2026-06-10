@@ -17,6 +17,7 @@ import { wolverineFixProposals } from "../src/wolverine/wolverine-fix-proposal.j
 import { toQueueItem } from "../src/cockpit/proposals/proposal-queue.js";
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
 import { ADAPTER_ROUTE_KEY } from "../src/cockpit/suggestions/suggestion-to-mutation.js";
+import { redact } from "../src/llm/redaction.js";
 import type { ProposalStats } from "../src/wolverine/wolverine-types.js";
 
 const AGING_HOURS = 72;
@@ -94,7 +95,7 @@ if (invokedDirectly) {
       process.exit(res.exitCode);
     })
     .catch((e) => {
-      console.error(`wolverine-propose: unexpected error: ${e instanceof Error ? e.message : String(e)}`);
+      console.error(`wolverine-propose: unexpected error: ${redact(e instanceof Error ? e.message : String(e))}`);
       process.exit(1);
     });
 }

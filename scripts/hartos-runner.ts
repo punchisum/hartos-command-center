@@ -20,6 +20,7 @@ import { runBeezulbubHunt } from "./beezulbub-hunt.js";
 import { runResearch } from "./research-run.js";
 import { runMemoryCapture } from "./cockpit-memory-capture.js";
 import { isAgentJobKind, sanitizeJobArg, type AgentJobKind } from "../src/jobs/agent-job.js";
+import { redact } from "../src/llm/redaction.js";
 
 const COCKPIT_APPROVED_STATUS = "simulated_approved";
 
@@ -115,7 +116,7 @@ export async function runJobRunner(env: Record<string, string | undefined>, now:
       try {
         result = await executeJob(kind, arg, env, now);
       } catch (e) {
-        result = { ok: false, detail: `threw: ${e instanceof Error ? e.message : String(e)}` };
+        result = { ok: false, detail: `threw: ${redact(e instanceof Error ? e.message : String(e))}` };
       }
 
       if (result.ok) {
@@ -163,7 +164,7 @@ if (isMain) {
       console.log("");
     })
     .catch((e) => {
-      console.error(`runner failed: ${e instanceof Error ? e.message : String(e)}`);
+      console.error(`runner failed: ${redact(e instanceof Error ? e.message : String(e))}`);
       process.exit(1);
     });
 }
