@@ -26,11 +26,16 @@ import { EXECUTABLE_FROM } from "../doctrine/execution-gate.js";
 import type { MutationCommand, MutationAdapterId, DispatchResult, DispatchOptions } from "./execution-dispatch.js";
 import type { ClickUpMoveStore } from "./adapters/clickup-move-status.js";
 import type { ClickUpCommentStore } from "./adapters/clickup-comment.js";
+import type { RejectDraftsStore } from "./adapters/reject-drafts.js";
+import type { ArchiveRejectedStore } from "./adapters/archive-rejected.js";
 
-/** The live stores a host injects (from createClickUpClient: separate move + comment stores). */
+/** The live stores a host injects (ClickUp + the internal proposal-queue cleanup stores). */
 export interface ApprovedExecutorStores {
   clickUpMove?: ClickUpMoveStore;
   clickUpComment?: ClickUpCommentStore;
+  /** Internal-cleanup stores (pg-backed) — enable Wolverine FixProposals to fire via approval. */
+  rejectDrafts?: RejectDraftsStore;
+  archiveRejected?: ArchiveRejectedStore;
 }
 
 /** Injected gated dispatcher (the real `dispatchMutation` in production; a fake in tests). */
@@ -104,6 +109,17 @@ export function commandFromApprovedProposal(p: ProposalQueueItem, stores: Approv
     const commentText = str(payload, "commentText");
     if (!cardId || !cardName || !commentText) return { skip: "incomplete comment payload (need cardId/cardName/commentText)" };
     return { adapterId: "clickup-comment", proposal: proposalRef, target: { cardId, cardName, commentText }, store: stores.clickUpComment };
+  }
+
+  // Internal proposal-queue cleanups (bulk-by-status; no per-row target). These are the first
+  // adapters a Wolverine FixProposal routes to — same gate (ALLOW_EXEC_* + approval) decides.
+  if (route.adapterId === "reject-drafts") {
+    if (!stores.rejectDrafts) return { skip: "no reject-drafts store injected" };
+    return { adapterId: "reject-drafts", proposal: proposalRef, store: stores.rejectDrafts };
+  }
+  if (route.adapterId === "archive-rejected") {
+    if (!stores.archiveRejected) return { skip: "no archive-rejected store injected" };
+    return { adapterId: "archive-rejected", proposal: proposalRef, store: stores.archiveRejected };
   }
 
   return { skip: `adapter "${route.adapterId}" is not wired for approve→auto-execute yet` };

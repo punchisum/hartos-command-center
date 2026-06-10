@@ -20,6 +20,8 @@ import { listProposals, markExecuted } from "../src/cockpit/proposals/proposal-q
 import { executeApprovedProposals } from "../src/execution/approved-executor.js";
 import { dispatchMutation } from "../src/execution/execution-dispatch.js";
 import { createClickUpClient, CLICKUP_TOKEN_ENV } from "../src/execution/clickup-client.js";
+import { createRejectDraftsDb } from "../src/execution/run-reject-drafts-db.js";
+import { createArchiveRejectedDb } from "../src/execution/run-archive-rejected-db.js";
 import { EXECUTABLE_FROM } from "../src/doctrine/execution-gate.js";
 
 function parseMax(argv: string[]): number {
@@ -51,25 +53,37 @@ export async function runApprovedExecutor(opts: {
 
   const clickUp = createClickUpClient(env);
   if (!clickUp) out.push(`ClickUp not configured (set ${CLICKUP_TOKEN_ENV}); ClickUp moves/comments will skip.`);
+  // Internal-cleanup stores (pg). Null when HARTOS_SUPABASE_DB_URL is absent → those adapters skip.
+  const rejectHandle = await createRejectDraftsDb(env);
+  const archiveHandle = await createArchiveRejectedDb(env);
 
-  const summary = await executeApprovedProposals({
-    proposals: approved,
-    stores: clickUp ? { clickUpMove: clickUp.moveStore, clickUpComment: clickUp.commentStore } : {},
-    env,
-    dispatch: dispatchMutation,
-    now,
-    max: opts.max ?? 1,
-  });
+  try {
+    const summary = await executeApprovedProposals({
+      proposals: approved,
+      stores: {
+        ...(clickUp ? { clickUpMove: clickUp.moveStore, clickUpComment: clickUp.commentStore } : {}),
+        ...(rejectHandle ? { rejectDrafts: rejectHandle.store } : {}),
+        ...(archiveHandle ? { archiveRejected: archiveHandle.store } : {}),
+      },
+      env,
+      dispatch: dispatchMutation,
+      now,
+      max: opts.max ?? 1,
+    });
 
-  out.push(`Approved: ${summary.executable} · executed (wrote): ${summary.executed}`);
-  for (const r of summary.results) {
-    out.push(`  • ${r.proposalId} [${r.adapterId ?? "—"}] → ${r.outcome}: ${r.detail}`);
-    if (r.wrote) {
-      await markExecuted(cwd, { id: r.proposalId }, now.toISOString(), `dispatched ${r.adapterId}`);
-      out.push(`    proposal advanced → executed`);
+    out.push(`Approved: ${summary.executable} · executed (wrote): ${summary.executed}`);
+    for (const r of summary.results) {
+      out.push(`  • ${r.proposalId} [${r.adapterId ?? "—"}] → ${r.outcome}: ${r.detail}`);
+      if (r.wrote) {
+        await markExecuted(cwd, { id: r.proposalId }, now.toISOString(), `dispatched ${r.adapterId}`);
+        out.push(`    proposal advanced → executed`);
+      }
     }
+    return out;
+  } finally {
+    if (rejectHandle) await rejectHandle.close();
+    if (archiveHandle) await archiveHandle.close();
   }
-  return out;
 }
 
 const isMain =
