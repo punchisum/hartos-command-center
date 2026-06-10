@@ -5,6 +5,7 @@ import type { AgentContract } from "../agents/agent-contract.js";
 import type { ReadModelSummary } from "../read-models/read-model-types.js";
 import type { TypedActionProposal } from "../cockpit/proposals/proposal-types.js";
 import { assessAgentQuality, type AgentQualityVerdict } from "./officiator-quality-gate.js";
+import { simulateAgent, type SimulationReport } from "./agent-simulator.js";
 
 export interface OfficiationOutcome {
   officiated: boolean;
@@ -18,6 +19,8 @@ export interface OfficiationOutcome {
   violations: string[];
   /** The Officiator quality verdict — ADMIT/REVISE/REJECT + per-facet scorecard. */
   quality: AgentQualityVerdict;
+  /** The behavioral replay — scenarios run through the agent's real boundary gate (PASS/FAIL). */
+  simulation: SimulationReport;
 }
 
 function stubContract(): AgentContract {
@@ -117,6 +120,16 @@ export function officiateFromManifest(
         facets: [{ facet: "manifest", status: "fail", detail: "no contract in manifest" }],
         summary: "REJECT — manifest has no contract.",
       },
+      simulation: {
+        agentType: "",
+        verdict: "FAIL",
+        total: 0,
+        passed: 0,
+        scenarios: [],
+        invariantNotes: ["FAIL: no contract in manifest — nothing to replay"],
+        boundaryBites: false,
+        summary: "FAIL — manifest has no contract; no behavioral replay possible.",
+      },
     };
   }
 
@@ -127,6 +140,8 @@ export function officiateFromManifest(
   // Existing fleet = known agents WITHOUT this candidate (resolveKnownAgents([]) excludes it),
   // so the uniqueness facet can detect a duplicate type / read-model.
   const quality = assessAgentQuality(manifest, { officiated: result.officiated, violations }, resolveKnownAgents([]));
+  // Behavioral replay: run the manifest's derived scenarios through its OWN boundary gate.
+  const simulation = simulateAgent(manifest);
 
   return {
     officiated: result.officiated,
@@ -137,5 +152,6 @@ export function officiateFromManifest(
     expandedRegistry,
     violations,
     quality,
+    simulation,
   };
 }
