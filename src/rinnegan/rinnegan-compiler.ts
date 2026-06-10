@@ -13,6 +13,7 @@ import type {
   RinneganInputs,
   RinneganNote,
 } from "./rinnegan-types.js";
+import { buildBriefingPack, briefingPackToText } from "./briefing-pack.js";
 
 const STOPWORDS = new Set([
   "the", "a", "an", "is", "are", "was", "were", "do", "does", "did", "what", "how", "why", "when",
@@ -38,6 +39,12 @@ function noteKind(relPath: string, tags: string[]): ContextKind {
   if (/doctrine|vision|blueprint/.test(p) || /doctrine|vision/.test(t)) return "doctrine";
   if (/roadmap|plan/.test(p) || /plan|roadmap/.test(t)) return "plan";
   return "note";
+}
+
+/** Dossier-aware snippet: substance for a dossier (briefing pack), plain snippet otherwise. */
+function dossierSnippet(n: RinneganNote, max: number): string {
+  const pack = buildBriefingPack({ relPath: n.relPath, title: n.title, tags: n.tags, body: n.body }, { budget: max });
+  return pack.type !== "note" ? briefingPackToText(pack) : snippet(n.body, max);
 }
 
 /** Strip frontmatter + provenance callout, collapse whitespace, truncate. */
@@ -103,7 +110,9 @@ export function compileContext(inputs: RinneganInputs, opts: CompileOptions = {}
       (x): ContextItem => ({
         kind: noteKind(x.n.relPath, x.n.tags),
         title: x.n.title,
-        snippet: snippet(x.n.body, noteSnippetMax),
+        // Dossiers get their SUBSTANCE (key findings/recommendations) via the briefing pack, not a
+        // blind first-N-chars truncation; other notes keep the plain snippet.
+        snippet: dossierSnippet(x.n, noteSnippetMax),
         source: `obsidian:${x.n.relPath}`,
         freshness: x.stale ? "STALE (review overdue)" : "current",
         relevance: Math.round(x.relevance * 100) / 100,
