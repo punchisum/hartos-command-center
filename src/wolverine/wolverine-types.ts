@@ -98,6 +98,8 @@ export interface WolverineInputs {
   git?: GitFacts;
   /** Proposal-queue stats gathered by the host (from the spine). Absent ⇒ not assessed. */
   proposalStats?: ProposalStats;
+  /** Domains the cockpit flagged stale (from sourceDiagnostics.staleSources). Absent ⇒ not assessed. */
+  staleSources?: string[];
 }
 
 export interface ProposalStats {

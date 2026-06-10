@@ -12,6 +12,7 @@
 import { pathToFileURL } from "node:url";
 import { execSync } from "node:child_process";
 import { wolverineAudit } from "../src/wolverine/wolverine-audit.js";
+import { resolveHostedCockpitState } from "../src/runtime/cloudflare-live-read-models.js";
 import type { GitFacts, WolverineFinding, WolverineReport } from "../src/wolverine/wolverine-types.js";
 
 function gatherGitFacts(cwd: string): GitFacts | undefined {
@@ -69,8 +70,15 @@ export function renderReport(report: WolverineReport): string[] {
 const invokedDirectly =
   typeof process.argv[1] === "string" && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedDirectly) {
-  const cwd = process.cwd();
-  const report = wolverineAudit({ now: new Date().toISOString(), env: process.env, git: gatherGitFacts(cwd) });
-  for (const line of renderReport(report)) console.log(line);
-  console.log("");
+  void (async () => {
+    const cwd = process.cwd();
+    const now = new Date().toISOString();
+    // Reuse the cockpit's OWN freshness assessment (sourceDiagnostics.staleSources) for the
+    // stale-read-model detector. Read-only; null/empty when no read-model env is configured.
+    const state = await resolveHostedCockpitState(process.env, { now }).catch(() => null);
+    const staleSources = state?.sourceDiagnostics?.staleSources ?? [];
+    const report = wolverineAudit({ now, env: process.env, git: gatherGitFacts(cwd), staleSources });
+    for (const line of renderReport(report)) console.log(line);
+    console.log("");
+  })();
 }
