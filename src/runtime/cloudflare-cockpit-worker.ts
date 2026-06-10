@@ -54,6 +54,7 @@ import { composeAskAnswer } from "../llm/ask-llm.js";
 // deterministic, identical to before. OPENAI_API_KEY is a server-side Worker secret, never sent
 // to the browser. (Supersedes the earlier "never import the gateway" rule, by Hart's decision.)
 import { buildAskInfer } from "../llm/run-ask-llm.js";
+import { explainGate, resolveLlmConfig } from "../llm/llm-gateway.js";
 // Rinnegan — the context compiler is PURE/Worker-safe; the Worker compiles the briefing in-request
 // from the Supabase context pack + live facts + memory. (No vault fs access in the Worker.)
 import { compileContext, toBriefing } from "../rinnegan/rinnegan-compiler.js";
@@ -502,6 +503,9 @@ export async function handleCockpitRequest(
           .proposalWriteProvider(result.proposals, validation.value)
           .catch(() => ({ attempted: true, persisted: 0, failed: result.proposals.length, reason: "writer error" }));
       }
+      // Honest gate diagnostics — so "no live LLM was used" is never a silent mystery. Secret-free
+      // (explainGate returns only a reason string; resolveLlmConfig's key is never surfaced).
+      const gate = explainGate(resolveLlmConfig(env));
       return jsonResponse(
         200,
         {
@@ -509,6 +513,9 @@ export async function handleCockpitRequest(
           mode: answer.mode,
           provider: answer.provider,
           usedLlm: answer.usedLlm,
+          providerMode: gate.mode,
+          gateReason: gate.reason,
+          fallbackReason: answer.fallbackReason,
           request: validation.value,
           intent: result.intent,
           title: answer.title,

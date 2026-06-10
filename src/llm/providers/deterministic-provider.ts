@@ -27,18 +27,34 @@ const DOMAIN_RULES: DomainRule[] = [
 
 const RISK_KEYWORDS = ["deploy", "delete", "mutate", "production", "promote", "migrate", "send", "charge", "payment"];
 
-function pickDomain(text: string): DomainRule {
-  const lower = text.toLowerCase();
+/** Inspectable domain classification — exposes the score + matched keywords so it is never silent. */
+export interface DomainClassification {
+  domain: string;
+  specialist: string;
+  /** Number of keyword hits for the winning rule (0 ⇒ no domain matched). */
+  score: number;
+  matched: string[];
+}
+
+/**
+ * Classify a domain from text by keyword hits. Honest: a zero-score result returns the explicit
+ * "general"/"orchestrator" fallback (never a falsely-asserted specialist). PURE.
+ */
+export function classifyDomain(text: string): DomainClassification {
+  const lower = (text || "").toLowerCase();
   let best: DomainRule | null = null;
   let bestScore = 0;
+  let matched: string[] = [];
   for (const rule of DOMAIN_RULES) {
-    const score = rule.keywords.reduce((n, kw) => (lower.includes(kw) ? n + 1 : n), 0);
-    if (score > bestScore) {
-      bestScore = score;
+    const hits = rule.keywords.filter((kw) => lower.includes(kw));
+    if (hits.length > bestScore) {
+      bestScore = hits.length;
       best = rule;
+      matched = hits;
     }
   }
-  return best ?? { domain: "general", specialist: "orchestrator", keywords: [] };
+  if (!best || bestScore === 0) return { domain: "general", specialist: "orchestrator", score: 0, matched: [] };
+  return { domain: best.domain, specialist: best.specialist, score: bestScore, matched };
 }
 
 function clamp(text: string, max = 600): string {
@@ -47,21 +63,26 @@ function clamp(text: string, max = 600): string {
 }
 
 export function deterministicOutput(req: LlmRequest): LlmStructuredOutput {
-  const rule = pickDomain(`${req.request} ${JSON.stringify(req.context ?? {})}`);
+  // Classify over the REQUEST only — NOT the grounding context. The Ask grounding is full of
+  // fitness/ops panel data; folding it into classification mis-routed a war/economy question to
+  // "fitness". The user's question is the only honest intent signal here.
+  const cls = classifyDomain(req.request);
+  const matchedDomain = cls.score > 0;
   const lower = req.request.toLowerCase();
   const risky = RISK_KEYWORDS.some((kw) => lower.includes(kw));
   const contextKeys = req.context ? Object.keys(req.context).slice(0, 12) : [];
 
   return {
     intent: clamp(req.type, 80),
-    domain: rule.domain,
-    confidence: req.request.trim().length > 0 ? "medium" : "low",
+    domain: cls.domain,
+    confidence: req.request.trim().length === 0 ? "low" : matchedDomain ? "medium" : "low",
     neededContext: contextKeys.length > 0 ? contextKeys : ["recent_reports"],
-    recommendedSpecialist: rule.specialist,
+    recommendedSpecialist: cls.specialist,
     riskLevel: risky ? "high" : "low",
     nextAction: "review_local_reports",
     summary: clamp(
-      `Deterministic ${req.type.replace(/_/g, " ")} for a ${rule.domain} request: "${req.request}". ` +
+      `Deterministic ${req.type.replace(/_/g, " ")} for a ${matchedDomain ? cls.domain : "general"} request` +
+        `${matchedDomain ? "" : " (no domain keyword matched)"}: "${req.request}". ` +
         `No live LLM was used; this is a safe offline summary.`
     ),
   };

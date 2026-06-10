@@ -39,6 +39,8 @@ export function resolveLlmConfig(env: Env = process.env): LlmGatewayConfig {
   const apiKey = env["OPENAI_API_KEY"];
   const apiKeyPresent = typeof apiKey === "string" && apiKey.trim().length > 0;
   const model = env["HARTOS_LLM_MODEL"]?.trim() || DEFAULT_MODEL;
+  // The KEY is deliberately NOT placed in the resolved config (a security invariant the suite
+  // guards). The gateway captures it privately from env and threads it to the provider at call time.
   return { provider, model, networkEnabled, apiKeyPresent };
 }
 
@@ -51,6 +53,17 @@ export function selectProviderMode(config: LlmGatewayConfig): LlmProviderMode {
     return "openai";
   }
   return "deterministic";
+}
+
+/**
+ * Explain the gate decision in one honest, secret-free line — so "no live LLM was used" is never a
+ * silent mystery. Returns the resolved mode + the precise reason it's deterministic (or "armed").
+ */
+export function explainGate(config: LlmGatewayConfig): { mode: LlmProviderMode; reason: string } {
+  if (config.provider !== "openai") return { mode: "deterministic", reason: `provider is "${config.provider}" (set HARTOS_LLM_PROVIDER=openai)` };
+  if (!config.networkEnabled) return { mode: "deterministic", reason: "network disabled (set HARTOS_LLM_ENABLE_NETWORK=true)" };
+  if (!config.apiKeyPresent) return { mode: "deterministic", reason: "OPENAI_API_KEY not present in env" };
+  return { mode: "openai", reason: "armed" };
 }
 
 export interface LlmGatewayOptions {
@@ -69,6 +82,12 @@ export class LlmGateway {
   private readonly providers: Record<LlmProviderMode, LlmProvider>;
   private readonly writeUsage: boolean;
   private readonly reportsDir: string;
+  /**
+   * The key, captured PRIVATELY from env (NOT on the public config). Threaded to the OpenAI provider
+   * at call time so the env-injected secret reaches the fetch even when process.env is empty under
+   * Worker nodejs_compat. Never logged/serialized; the public `config` stays key-free.
+   */
+  private readonly apiKey?: string;
 
   constructor(options: LlmGatewayOptions = {}) {
     this.config = options.config ?? resolveLlmConfig(options.env);
@@ -79,6 +98,8 @@ export class LlmGateway {
     this.writeUsage = options.writeUsage === true;
     const cwd = options.cwd ?? process.cwd();
     this.reportsDir = options.reportsDir ?? path.join(cwd, DEFAULT_LLM_REPORTS_DIR);
+    const envKey = options.env?.["OPENAI_API_KEY"] ?? process.env["OPENAI_API_KEY"];
+    this.apiKey = typeof envKey === "string" && envKey.trim().length > 0 ? envKey.trim() : undefined;
   }
 
   private async run(type: LlmRequestType, request: string, context?: Record<string, unknown>): Promise<LlmResult> {
@@ -116,7 +137,9 @@ export class LlmGateway {
 
   private async runOpenAi(req: LlmRequest): Promise<LlmResult> {
     try {
-      const raw = await this.providers.openai.generate(req, this.config);
+      // Pass the private key alongside the public config (call-time only; never stored on config).
+      const callConfig: LlmGatewayConfig = this.apiKey ? { ...this.config, apiKey: this.apiKey } : this.config;
+      const raw = await this.providers.openai.generate(req, callConfig);
       const validation = validateLlmOutput(raw);
       if (validation.ok && validation.value) {
         return {

@@ -22,8 +22,14 @@ const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
 export class OpenAiProviderError extends Error {}
 
-/** Read the API key at call time only — never stored, never logged. */
-function readApiKey(): string | undefined {
+/**
+ * Read the API key at call time only — never stored, never logged. Prefers the config-threaded key
+ * (resolved from the Worker `env`) so the call works even when `process.env` is empty under
+ * nodejs_compat; falls back to `process.env` for the Node/CLI path.
+ */
+function readApiKey(config?: LlmGatewayConfig): string | undefined {
+  const fromConfig = config?.apiKey;
+  if (typeof fromConfig === "string" && fromConfig.trim().length > 0) return fromConfig.trim();
   const key = process.env["OPENAI_API_KEY"];
   return key && key.trim().length > 0 ? key.trim() : undefined;
 }
@@ -54,7 +60,7 @@ export const openAiProvider: LlmProvider = {
     if (!config.networkEnabled) {
       throw new OpenAiProviderError("Network disabled (HARTOS_LLM_ENABLE_NETWORK!=true).");
     }
-    const apiKey = readApiKey();
+    const apiKey = readApiKey(config);
     if (!apiKey) {
       throw new OpenAiProviderError("OPENAI_API_KEY is not set.");
     }

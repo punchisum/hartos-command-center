@@ -60,6 +60,12 @@ export interface AskLlmAnswer {
   /** The redacted request that was (or would have been) forwarded to infer. */
   redactedRequest: string;
   validation: string;
+  /**
+   * When the answer is deterministic, WHY the LLM wasn't used — so "no live LLM" is never silent.
+   * "disarmed" = no infer / infer returned null (gate closed or unavailable); "infer-threw" =
+   * the provider errored; "malformed-output" = the LLM replied but failed validation; "none" = LLM used.
+   */
+  fallbackReason: "disarmed" | "infer-threw" | "malformed-output" | "none";
 }
 
 const DEFAULT_TITLE = "Ask HartOS";
@@ -82,7 +88,8 @@ function groundingGaps(grounding: AskGrounding): string[] {
 function deterministicAnswer(
   grounding: AskGrounding,
   redactedRequest: string,
-  validation: string
+  validation: string,
+  fallbackReason: AskLlmAnswer["fallbackReason"] = "disarmed"
 ): AskLlmAnswer {
   return {
     mode: "deterministic",
@@ -97,6 +104,7 @@ function deterministicAnswer(
     proposeOnly: true,
     redactedRequest,
     validation,
+    fallbackReason,
   };
 }
 
@@ -121,7 +129,7 @@ export async function composeAskAnswer(
   const redactedRequest = redact(request);
 
   if (!deps.infer) {
-    return deterministicAnswer(grounding, redactedRequest, "deterministic");
+    return deterministicAnswer(grounding, redactedRequest, "deterministic", "disarmed");
   }
 
   // Ground the LLM in the deterministic FACTS so it synthesizes FROM them instead of
@@ -140,18 +148,18 @@ export async function composeAskAnswer(
     result = await deps.infer(redactedRequest, safeContext);
   } catch {
     // Infer threw (e.g. network/provider error) — honest deterministic fallback.
-    return deterministicAnswer(grounding, redactedRequest, "fallback");
+    return deterministicAnswer(grounding, redactedRequest, "fallback", "infer-threw");
   }
 
   if (result === null || result === undefined) {
     // Disarmed/unavailable — honest deterministic fallback.
-    return deterministicAnswer(grounding, redactedRequest, "fallback");
+    return deterministicAnswer(grounding, redactedRequest, "fallback", "disarmed");
   }
 
   const validation = validateLlmOutput(result.output);
   if (!validation.ok || !validation.value) {
     // Malformed LLM output — never launder it; fall back to deterministic truth.
-    return deterministicAnswer(grounding, redactedRequest, "fallback");
+    return deterministicAnswer(grounding, redactedRequest, "fallback", "malformed-output");
   }
 
   const out = validation.value;
@@ -175,10 +183,13 @@ export async function composeAskAnswer(
     if (!gaps.includes(needed)) gaps.push(needed);
   }
 
+  // Honesty: the gateway may return a VALID structured output that was produced deterministically
+  // (gate closed) or by fallback. Only a real openai-mode result counts as "LLM used" — never launder.
+  const usedRealLlm = result.provider === "openai" && result.mode === "openai";
   return {
-    mode: "llm",
+    mode: usedRealLlm ? "llm" : "deterministic",
     provider: result.provider,
-    usedLlm: true,
+    usedLlm: usedRealLlm,
     title: groundingTitle(grounding),
     summary: out.summary,
     highlights,
@@ -189,5 +200,6 @@ export async function composeAskAnswer(
     proposeOnly: true,
     redactedRequest,
     validation: result.validation,
+    fallbackReason: usedRealLlm ? "none" : result.mode === "fallback" ? "infer-threw" : "disarmed",
   };
 }

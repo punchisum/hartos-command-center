@@ -23,14 +23,20 @@ export type LlmRequestType =
   | "summarize_cockpit_state"
   | "summarize_data_snapshot";
 
-/** Resolved, non-secret view of how the gateway is configured. */
+/** Resolved view of how the gateway is configured. */
 export interface LlmGatewayConfig {
   provider: LlmProviderMode;
   model: string;
   /** Hard gate: OpenAI is never called unless this is true. */
   networkEnabled: boolean;
-  /** Whether OPENAI_API_KEY is present — NEVER the key itself. */
+  /** Whether OPENAI_API_KEY is present — the boolean view, safe to surface. */
   apiKeyPresent: boolean;
+  /**
+   * The resolved key, threaded from the Worker `env` so the provider reaches it even when
+   * `process.env` is empty (the nodejs_compat secret-binding gap that silently disarmed the LLM).
+   * NEVER log, serialize, or return this. Read by the OpenAI provider only. Omitted when absent.
+   */
+  apiKey?: string;
 }
 
 export interface LlmRequest {
