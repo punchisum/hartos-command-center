@@ -10,6 +10,7 @@
  *   5.  ACT      — run Hart-APPROVED agent jobs from the spine (the runner; per-action gates hold)
  *   5b. ACT-EXEC — GUARDRAILED autoheal: auto-approve + execute the armed autoheal CLASS only
  *                  (internal, reversible queue hygiene; triple-gated; disarmed by default)
+ *   5c. LEARN    — score whether executed proposals resolved their target (closed learning loop)
  *   6.  LOG      — persist this pulse (Last-Pulse tile + forecast-accuracy scoring)
  *   7.  REPORT   — one honest pulse summary
  *
@@ -36,8 +37,10 @@ import { runWolverinePropose } from "./wolverine-propose.js";
 import { runJobRunner } from "./hartos-runner.js";
 import { runAutoheal } from "./run-autoheal.js";
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
-import { buildPulseRunRow } from "../src/cockpit/pulse/pulse-run-spine.js";
+import { buildPulseRunRow, type PulseRun } from "../src/cockpit/pulse/pulse-run-spine.js";
 import { synthesizeDecisions } from "../src/cockpit/decision-synthesis.js";
+import { scoreForecastAccuracy, type ForecastAccuracy } from "../src/prophet/forecast-accuracy.js";
+import { classifyExecutedOutcomes, type ExecutedTarget } from "../src/learning/outcome-scoring.js";
 import { redact } from "../src/llm/redaction.js";
 import type { GitFacts } from "../src/wolverine/wolverine-types.js";
 import type { WolverineReport } from "../src/wolverine/wolverine-types.js";
@@ -78,6 +81,81 @@ async function recordPulseRun(
     return "recorded to cockpit_pulse_runs (feeds the Last-Pulse tile + forecast scoring)";
   } catch (e) {
     return `pulse not recorded: ${redact(e instanceof Error ? e.message : String(e))}`;
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * LEARN — the closed loop's measuring half. For each recently-EXECUTED proposal that targeted a
+ * finding, compare its target against the subjects still present in THIS pulse's audit and append
+ * one observation (resolved/persisted) to cockpit_decision_outcomes. Honest no-op when the spine or
+ * the (gated, not-yet-applied) outcomes table is absent; never throws (a failed learn must not fail
+ * the pulse). This is the EFFECT half executive-memory never had.
+ */
+async function recordDecisionOutcomes(
+  env: Record<string, string | undefined>,
+  audit: WolverineReport,
+): Promise<string> {
+  const handle = createCockpitProposalDb(env);
+  if (!handle) return "outcomes not recorded (proposal spine not configured)";
+  try {
+    const res = await handle.query(
+      `select id, payload from public.cockpit_proposals where status='executed' and updated_at > now() - interval '14 days' order by updated_at desc limit 100`,
+      [],
+    );
+    const rows = res.rows as Array<{ id: string; payload: unknown }>;
+    const executed: ExecutedTarget[] = [];
+    for (const r of rows) {
+      const p = (r.payload && typeof r.payload === "object" ? r.payload : {}) as Record<string, unknown>;
+      const subject = typeof p.targetId === "string" && p.targetId ? p.targetId : typeof p.targetName === "string" ? p.targetName : "";
+      if (!subject) continue; // only finding-targeting proposals carry a measurable subject
+      executed.push({ proposalId: r.id, actionType: typeof p.actionType === "string" ? p.actionType : "unknown", subject });
+    }
+    if (executed.length === 0) return "no recently-executed targeted proposals to score";
+
+    const currentSubjects = audit.repairQueue.flatMap((f) => [f.id, f.title]);
+    const scored = classifyExecutedOutcomes(executed, currentSubjects);
+    let written = 0;
+    try {
+      for (const s of scored) {
+        await handle.query(
+          `insert into public.cockpit_decision_outcomes (proposal_id, action_type, subject, outcome) values ($1,$2,$3,$4)`,
+          [s.proposalId, s.actionType, s.subject, s.outcome],
+        );
+        written += 1;
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/cockpit_decision_outcomes|does not exist|42P01/i.test(msg)) {
+        return `outcomes table not present — apply 2026061100000000_cockpit_decision_outcomes.sql (scored ${scored.length}, wrote 0)`;
+      }
+      return `outcomes partial: ${redact(msg)} (wrote ${written})`;
+    }
+    const resolved = scored.filter((s) => s.outcome === "resolved").length;
+    const persisted = scored.filter((s) => s.outcome === "persisted").length;
+    return `scored ${scored.length} executed proposal(s): ${resolved} resolved · ${persisted} persisted (wrote ${written})`;
+  } catch (e) {
+    return `outcomes not recorded: ${redact(e instanceof Error ? e.message : String(e))}`;
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Read recent pulse runs and score Prophet's track record (≥2 pulses, else insufficient_history). */
+async function readForecastAccuracy(env: Record<string, string | undefined>): Promise<ForecastAccuracy | undefined> {
+  const handle = createCockpitProposalDb(env);
+  if (!handle) return undefined;
+  try {
+    const res = await handle.query(`select at, consequence_subjects from public.cockpit_pulse_runs order by at desc limit 30`, []);
+    const rows = res.rows as Array<{ at: unknown; consequence_subjects: unknown }>;
+    const runs = rows.map((r) => ({
+      at: r.at instanceof Date ? r.at.toISOString() : String(r.at ?? ""),
+      consequenceSubjects: Array.isArray(r.consequence_subjects) ? (r.consequence_subjects as unknown[]).map(String) : [],
+    })) as unknown as PulseRun[];
+    return scoreForecastAccuracy(runs);
+  } catch {
+    return undefined;
   } finally {
     await handle.close();
   }
@@ -161,13 +239,22 @@ export async function runAutopilot(env: Record<string, string | undefined>, now:
   push(`5b ACT-EXEC ${healed[0] ?? ""}`);
   for (const l of healed.slice(1)) push(`           ${l}`);
 
+  // 5c. LEARN — the closed loop: score whether recently-executed proposals resolved their target
+  //     finding (vs persisted), and append the verdicts to cockpit_decision_outcomes. This is the
+  //     EFFECT half memory never had; efficacyByActionType later turns it into a track record.
+  const learned = await recordDecisionOutcomes(env, audit);
+  push(`5c LEARN   ${learned}`);
+
   // 6. LOG — persist this pulse (Last-Pulse tile + forecast-accuracy scoring).
   const pulseLine = `${audit.verdict} · forecast ${fcast.verdict} · ${audit.findingCount} finding(s)`;
   const recorded = await recordPulseRun(env, now, audit, fcast, pulseLine);
   push(`6 LOG      ${recorded}`);
 
-  // 7. REPORT — lead with the Chief-of-Staff decision synthesis (forecast + memory fused).
-  const decisions = synthesizeDecisions({ now, forecast: fcast, memory: memory ?? undefined }, { max: 3 });
+  // 7. REPORT — lead with the Chief-of-Staff decision synthesis (forecast + memory + the forecast
+  //    track record fused). Wiring accuracy in (it was omitted before) closes the loop: decisions
+  //    now carry Prophet's measured trust signal, like the cockpit render does.
+  const accuracy = await readForecastAccuracy(env);
+  const decisions = synthesizeDecisions({ now, forecast: fcast, memory: memory ?? undefined, accuracy }, { max: 3 });
   if (decisions.status === "ok") push(`\n${decisions.headline}`);
   push(`\nPulse complete. Approve pending work in the cockpit; the next pulse executes it.`);
   return out;

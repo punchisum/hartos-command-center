@@ -20,6 +20,8 @@ import { createCockpitMemoryDb } from "../src/awareness/supabase-memory-db.js";
 import { synthesizeDecisions } from "../src/cockpit/decision-synthesis.js";
 import { writeObsidianNote } from "../src/obsidian/obsidian-writer.js";
 import { armedAutohealAdapters } from "../src/doctrine/autoheal-gate.js";
+import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
+import { efficacyByActionType, summarizeEfficacy, type DecisionOutcome } from "../src/learning/outcome-scoring.js";
 import { buildStateReportNote, reportSlug, type StateReportSections } from "../src/reports/state-report-note.js";
 import { redact } from "../src/llm/redaction.js";
 import type { GitFacts } from "../src/wolverine/wolverine-types.js";
@@ -50,6 +52,29 @@ function gatherGitFacts(cwd: string): GitFacts | undefined {
 
 function flagArmed(env: Record<string, string | undefined>, flag: string): boolean {
   return String(env[flag] ?? "").trim().toLowerCase() === "true";
+}
+
+/**
+ * Read the learning loop's track record (cockpit_decision_outcomes) and summarize per-action-type
+ * efficacy. Honest empty string when the spine or the (gated, not-yet-applied) table is absent —
+ * the loop's VISIBLE consumer, so a report tells the truth about what actually worked.
+ */
+async function readActionEfficacy(env: Record<string, string | undefined>): Promise<string> {
+  const handle = createCockpitProposalDb(env);
+  if (!handle) return "";
+  try {
+    const res = await handle.query(
+      `select action_type, outcome from public.cockpit_decision_outcomes where observed_at > now() - interval '90 days'`,
+      [],
+    );
+    const rows = res.rows as Array<{ action_type: unknown; outcome: unknown }>;
+    const history = rows.map((r) => ({ actionType: String(r.action_type ?? "unknown"), outcome: String(r.outcome ?? "unknown") as DecisionOutcome }));
+    return summarizeEfficacy(efficacyByActionType(history));
+  } catch {
+    return ""; // table not applied yet / unreachable — stay silent, never fabricate
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function runReport(focus: string, env: Record<string, string | undefined>, now: string): Promise<ReportRunResult> {
@@ -90,6 +115,9 @@ export async function runReport(focus: string, env: Record<string, string | unde
   if (String(env.HARTOS_EXECUTION_KILL_SWITCH ?? "").trim().toLowerCase() === "on") {
     postureLines.push("KILL-SWITCH: ON (all execution disabled)");
   }
+  // The learning loop's visible consumer: how well past actions actually resolved their targets.
+  const efficacy = await readActionEfficacy(env);
+  if (efficacy) postureLines.push(efficacy);
 
   const sections: StateReportSections = {
     focus: f,
