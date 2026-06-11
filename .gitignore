@@ -32,6 +32,8 @@ agent-scaffold-dryrun/
 agent-scaffold/
 data-provision-reports/
 runtime-provision-reports/
+reports/
+build-artifacts/
 # 18D-B local-only credential templates + generated scaffold wrangler configs (NEVER commit)
 .hartos/local/
 .hartos/local/*.env
