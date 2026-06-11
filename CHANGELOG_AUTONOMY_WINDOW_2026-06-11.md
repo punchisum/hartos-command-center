@@ -133,3 +133,16 @@ PUSH NOT DONE: git push hangs on interactive Git Credential Manager auth with Ha
 3 commits (310ff30, 1bf635f, 8ce6720 + the deploy-result commit below) are LOCAL only — Hart pushes on
 return: `git push origin feat/agent-runtime-provision-18d`. Deploy is independent of push (Cloudflare token),
 so the LIVE Worker already runs this code. Rollback if needed: `npx wrangler rollback` or redeploy a prior SHA.
+
+### Phase 4 (TOTAL REVAMP) — FLIGHT BRIDGE V3 — DEPLOYED LIVE
+Hart: "not incremental — a total revamp, a cool interactive command cockpit." Ran a judged design pass
+(3 concepts: Plot Table / Flight Director / Bridge → judge picked Flight Director for boldest-yet-pin-safe,
+synthesized FLIGHT BRIDGE grafting the Plot Table big-board + GO-stamp node-flare). Built + shipped:
+- Flight Loop Strip (.floop): "LOOP NOMINAL / LOOP ACTIVE · handled N · M await your GO" — calm green quiet, amber on a due call.
+- GO/NO-GO poll cards (.poll): each pending proposal as a NASA-style flight callout (FLIGHT, this is {domain} — recommend {effect}) + blast/reversibility/why-GO/why-NO-GO matrix + GO/NO-GO buttons. Reuses the PINNED gated .pact/.pbtn delegate — GO only AUTHORIZES.
+- Big board: fleetTopologyHtml promoted to the hero of the Overview (the COP Hart faces); clickable nodes open the agent console; kept in Agents view too.
+- GO-stamp: teleprinter AUTHORIZE/NO-GO line writes in on a confirmed call; kernel CORE flares once; loop strip recounts client-side to a calm all-clear. New flightHotkeysScript(): g=GO / n=NO-GO (guarded, reuses the gated path).
+- All new class names; every pinned id/class/string + 5 data-view sections + no-JS + esc() + self-contained preserved. Suite 2494/0; contract tests green; visually verified in Chrome.
+DEPLOYED: Worker version 25690e3 (Version ID bd6f6537), /health version=25690e3 actionExecution=disabled.
+Commits LOCAL (push hangs on GCM auth while Hart away): ...8ce6720, ec4df43, 25690e3 — Hart runs
+`git push origin feat/agent-runtime-provision-18d` on return. Rollback: `npx wrangler rollback`.
