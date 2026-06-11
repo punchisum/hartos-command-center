@@ -22,6 +22,7 @@ describe("cloudflare cockpit routes", () => {
   it("declares the expected supported routes", () => {
     assert.ok(SUPPORTED_ROUTES.includes("GET /health"));
     assert.ok(SUPPORTED_ROUTES.includes("GET /api/state"));
+    assert.ok(SUPPORTED_ROUTES.includes("GET /api/liveness"));
     assert.ok(SUPPORTED_ROUTES.includes("POST /api/orchestrator/message"));
   });
 
