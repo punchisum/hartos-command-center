@@ -124,3 +124,12 @@ SHIPPED it:
 - Full suite 2494/0 green; wrangler bundle-check green.
 - Pushed 310ff30 (decision engine + Exception Feed) + 1bf635f (interactive COP map) + this changelog.
 - Deploy result recorded below.
+
+DEPLOY RESULT (Phase 3): DEPLOYED LIVE. Worker version 8ce6720, Version ID a9aff72d, builtAt
+2026-06-11T06:28:23Z. /health confirms version=8ce6720, actionExecution=disabled (read-only cockpit,
+as doctrine requires). Root returns HTTP 200. The new doctrine cockpit (Exception Feed Big Board +
+interactive COP map) is now the live cockpit at hartos-command-center.hartos.workers.dev.
+PUSH NOT DONE: git push hangs on interactive Git Credential Manager auth with Hart away (known gotcha).
+3 commits (310ff30, 1bf635f, 8ce6720 + the deploy-result commit below) are LOCAL only — Hart pushes on
+return: `git push origin feat/agent-runtime-provision-18d`. Deploy is independent of push (Cloudflare token),
+so the LIVE Worker already runs this code. Rollback if needed: `npx wrangler rollback` or redeploy a prior SHA.
