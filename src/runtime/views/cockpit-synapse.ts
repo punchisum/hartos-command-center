@@ -121,7 +121,10 @@ export const SYNAPSE_STYLE = `
   /* topbar wraps so the Ask bar takes the full row and the status pills drop below it,
      instead of the pills being pushed off the right edge. */
   .tb{flex-wrap:wrap}
-  .cmd{max-width:none;flex:1 1 100%}
+  .cmd{max-width:none;flex:1 1 100%;flex-wrap:wrap}
+  /* the opt-in privacy note flows onto its own compact line under the input instead of
+     squeezing into a tall narrow column beside it (stays visible for the listening state). */
+  #voice-status{flex-basis:100%;font-size:11px;line-height:1.35;margin-top:3px}
   .syn-field{display:none}
   .syn-hero{grid-template-columns:1fr;gap:0}
   .syn-lanes{grid-template-columns:1fr;gap:12px}
