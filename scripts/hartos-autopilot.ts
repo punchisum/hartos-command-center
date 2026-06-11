@@ -181,7 +181,12 @@ function gatherGitFacts(cwd: string): GitFacts | undefined {
 export async function runAutopilot(env: Record<string, string | undefined>, now: string): Promise<string[]> {
   const out: string[] = [];
   const push = (s = "") => out.push(s);
-  push(`HartOS Autopilot pulse — ${now}`);
+  // SENSE-ONLY mode (HARTOS_AUTOPILOT_SENSE_ONLY=true): the scheduled pulse does perception only
+  // (Wolverine/Prophet/memory/record) and DELEGATES execution to the event-triggered live runner
+  // (run-live-runner), so an approved job runs in seconds rather than waiting for the next pulse.
+  // Default (unset) keeps the all-in-one pulse for setups without the daemon.
+  const senseOnly = String(env["HARTOS_AUTOPILOT_SENSE_ONLY"] ?? "").trim().toLowerCase() === "true";
+  push(`HartOS Autopilot pulse — ${now}${senseOnly ? " (SENSE-ONLY — execution delegated to the live runner)" : ""}`);
   push("(propose-only; mutations stay behind Hart's approval + per-action gates)\n");
 
   // 1. SENSE — Wolverine audit.
@@ -226,18 +231,24 @@ export async function runAutopilot(env: Record<string, string | undefined>, now:
   push(`4 RECORD   audit note: ${note.written ? `FILED → ${note.relPath}` : note.reason}`);
 
   // 5. ACT — run Hart-approved agent jobs (the runner; approval floor + per-action gates hold).
-  const ran = await runJobRunner(env, now, 3);
-  push(`5 ACT      ${ran[0] ?? ""}`);
-  for (const l of ran.slice(1)) push(`           ${l}`);
+  //    Skipped in SENSE-ONLY mode: the event-triggered live runner owns execution there.
+  if (senseOnly) {
+    push("5 ACT      (delegated to the live runner — sense-only pulse)");
+    push("5b ACT-EXEC (delegated to the live runner — sense-only pulse)");
+  } else {
+    const ran = await runJobRunner(env, now, 3);
+    push(`5 ACT      ${ran[0] ?? ""}`);
+    for (const l of ran.slice(1)) push(`           ${l}`);
 
-  // 5b. ACT-EXEC — GUARDRAILED AUTONOMY. Auto-approve + execute ONLY the armed autoheal class
-  //     (internal, reversible queue hygiene). Triple-gated: the ALLOW_AUTOHEAL_* class flag AND
-  //     each adapter's ALLOW_EXEC_* AND the kill-switch must all hold. It never touches an
-  //     external system (no ClickUp store is injected), audits every transition, and reverts
-  //     anything it authorizes but does not write. Disarmed by default ⇒ an honest no-op.
-  const healed = await runAutoheal(env, new Date(now), 3);
-  push(`5b ACT-EXEC ${healed[0] ?? ""}`);
-  for (const l of healed.slice(1)) push(`           ${l}`);
+    // 5b. ACT-EXEC — GUARDRAILED AUTONOMY. Auto-approve + execute ONLY the armed autoheal class
+    //     (internal, reversible queue hygiene). Triple-gated: the ALLOW_AUTOHEAL_* class flag AND
+    //     each adapter's ALLOW_EXEC_* AND the kill-switch must all hold. It never touches an
+    //     external system (no ClickUp store is injected), audits every transition, and reverts
+    //     anything it authorizes but does not write. Disarmed by default ⇒ an honest no-op.
+    const healed = await runAutoheal(env, new Date(now), 3);
+    push(`5b ACT-EXEC ${healed[0] ?? ""}`);
+    for (const l of healed.slice(1)) push(`           ${l}`);
+  }
 
   // 5c. LEARN — the closed loop: score whether recently-executed proposals resolved their target
   //     finding (vs persisted), and append the verdicts to cockpit_decision_outcomes. This is the
