@@ -26,6 +26,7 @@ import { detectStaleReadModel } from "./detectors/stale-read-model.js";
 import { detectDoctrineDrift } from "./detectors/doctrine-drift.js";
 import { detectStaleObsidianNote } from "./detectors/stale-obsidian-note.js";
 import { detectCapabilityRisk } from "./detectors/capability-risk.js";
+import { detectAgentLiveness } from "./detectors/agent-liveness.js";
 
 /** The default detector set. Add detectors here as increments land. */
 export const DEFAULT_DETECTORS: WolverineDetector[] = [
@@ -36,6 +37,7 @@ export const DEFAULT_DETECTORS: WolverineDetector[] = [
   detectDoctrineDrift,
   detectStaleObsidianNote,
   detectCapabilityRisk,
+  detectAgentLiveness,
 ];
 
 function rankFindings(findings: WolverineFinding[]): WolverineFinding[] {

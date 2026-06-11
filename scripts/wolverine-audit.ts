@@ -16,6 +16,9 @@ import path from "node:path";
 import { wolverineAudit } from "../src/wolverine/wolverine-audit.js";
 import { readCapabilityScouts } from "../src/beezulbub/scout-vault-reader.js";
 import { resolveHostedCockpitState } from "../src/runtime/cloudflare-live-read-models.js";
+import { resolveMetaAgentRegistry } from "../src/agents/meta-agent-registry.js";
+import { assessFleetLiveness } from "../src/sentinel/sentinel-liveness.js";
+import { gatherLocalHeartbeats } from "../src/sentinel/sentinel-host.js";
 import type { GitFacts, VaultNoteMeta, WolverineFinding, WolverineReport } from "../src/wolverine/wolverine-types.js";
 
 /** Scan the Obsidian vault for note metadata (mtime age + review_by). Empty when unset/unreadable. */
@@ -124,7 +127,13 @@ if (invokedDirectly) {
     const vaultNotes = await gatherVaultNotes(process.env.HARTOS_OBSIDIAN_VAULT_PATH, now);
     // Beezulbub capability scouts filed in the vault → the capability-risk detector audits them.
     const capabilityScouts = await readCapabilityScouts(process.env.HARTOS_OBSIDIAN_VAULT_PATH);
-    const report = wolverineAudit({ now, env: process.env, git: gatherGitFacts(cwd), staleSources, vaultNotes, capabilityScouts });
+    // Sentinel's fleet liveness (local evidence) → the agent-liveness detector.
+    const fleetLiveness = assessFleetLiveness(
+      resolveMetaAgentRegistry({ now }),
+      gatherLocalHeartbeats(process.env),
+      now,
+    );
+    const report = wolverineAudit({ now, env: process.env, git: gatherGitFacts(cwd), staleSources, vaultNotes, capabilityScouts, fleetLiveness });
     for (const line of renderReport(report)) console.log(line);
     console.log("");
   })();

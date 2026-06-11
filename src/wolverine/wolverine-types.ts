@@ -36,6 +36,7 @@ export type WolverineConfidence = "high" | "medium" | "low";
 import type { MutationAdapterId } from "../execution/execution-dispatch.js";
 import type { ProposalTier } from "../cockpit/proposals/proposal-types.js";
 import type { CapabilityScoutSummary } from "../beezulbub/scout-summary.js";
+import type { FleetLiveness } from "../sentinel/sentinel-liveness.js";
 
 /**
  * How a finding's repair would be executed: the gated adapter it routes to, that adapter's
@@ -105,6 +106,8 @@ export interface WolverineInputs {
   vaultNotes?: VaultNoteMeta[];
   /** Beezulbub capability-scout summaries the host gathered (from the vault). Absent ⇒ not assessed. */
   capabilityScouts?: CapabilityScoutSummary[];
+  /** Sentinel's fleet liveness assessment (host-gathered evidence). Absent ⇒ liveness not assessed. */
+  fleetLiveness?: FleetLiveness;
 }
 
 export interface VaultNoteMeta {

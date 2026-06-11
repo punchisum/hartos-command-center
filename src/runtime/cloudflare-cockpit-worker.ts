@@ -68,6 +68,7 @@ import { composeKnowledgeSurface, deriveKnowledgeInputs, type KnowledgeSurface }
 import { routeCockpitCommand } from "../cockpit/command-router.js";
 import { decide, autonomyTierLabel, type ConciergeDecision } from "../cockpit/decision-engine.js";
 import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
+import { assessFleetLiveness, type AgentHeartbeat } from "../sentinel/sentinel-liveness.js";
 import { jobSpecFromRoute, buildAgentJobProposal } from "../jobs/agent-job.js";
 import {
   authenticateCockpitRequest,
@@ -124,6 +125,7 @@ export const SUPPORTED_ROUTES = [
   "GET /api/threads",
   "GET /api/freshness",
   "GET /api/read-models/status",
+  "GET /api/liveness",
   "GET /api/fleet",
   "GET /api/fleet-brain",
   "GET /api/fleet-synthesis",
@@ -312,6 +314,35 @@ export async function handleCockpitRequest(
     }
     if (pathname === "/api/reports") {
       return jsonResponse(200, { reports: ctx.reports ?? [] }, cors);
+    }
+    if (pathname === "/api/liveness") {
+      // Sentinel — fleet liveness from the evidence THIS Worker honestly has: itself (it is
+      // answering) + the read-model snapshot/diagnostics. Agents with no Worker-visible
+      // evidence stay "unknown" here; the local CLI (npm run sentinel:status) covers
+      // artifact-dir evidence. Read-only; never assumes up.
+      const reg = resolveMetaAgentRegistry({ now: nowFor(dctx) });
+      const rm = readModelStatusView(dctx.state);
+      const snapAt = ctx.generatedAt ?? null;
+      const heartbeats: AgentHeartbeat[] = [
+        { agentId: "cockpit", lastEvidenceAt: nowFor(dctx), evidenceSource: "the answering Worker" },
+      ];
+      for (const domain of ["fitness", "ops"] as const) {
+        if (rm.staleSources.includes(domain)) {
+          heartbeats.push({
+            agentId: domain,
+            lastEvidenceAt: snapAt,
+            evidenceSource: `${domain} read-model diagnostics`,
+            upstreamStale: true,
+          });
+        } else if (rm.enabledSources.includes(domain)) {
+          heartbeats.push({
+            agentId: domain,
+            lastEvidenceAt: snapAt,
+            evidenceSource: `${domain} read-model snapshot`,
+          });
+        }
+      }
+      return jsonResponse(200, assessFleetLiveness(reg, heartbeats, nowFor(dctx)), cors);
     }
     if (pathname === "/api/threads") {
       // Phase D — prefer the Supabase thread spine (so the hosted Worker shows
