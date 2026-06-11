@@ -62,7 +62,7 @@ import { synthesizeDecisions, type DecisionBrief } from "../cockpit/decision-syn
 import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { renderAgentOrgPanel, renderStatusStrip } from "./views/agent-org-view.js";
 import { computeStatusSplit } from "../cockpit/status-split.js";
-import { V3_STYLE, bootOverlayHtml, coreStatusHtml, fleetTopologyHtml, v3ClientScript } from "./views/cockpit-v3-fx.js";
+import { V3_STYLE, bootOverlayHtml, coreStatusHtml, fleetTopologyHtml, v3ClientScript, flightHotkeysScript } from "./views/cockpit-v3-fx.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -1100,35 +1100,47 @@ function diagnosticsBox(d?: HostedPageOptions["diagnostics"]): string {
 function exceptionFeed(props: ProposalsView, pulseRuns: PulseRun[] | undefined, now: string): string {
   const pending = props.available ? props.proposals.filter((p) => p.status === "pending_approval") : [];
   const m = pending.length;
-  const accent = m > 0 ? "var(--amber)" : "var(--green)";
-  const headline =
-    m > 0
-      ? `<span style="color:var(--amber)">&#9888; ${m} need${m === 1 ? "s" : ""} you</span>`
-      : `<span style="color:var(--green)">&#10003; All clear — nothing needs your decision</span>`;
+  const handled = props.available ? Math.max(0, props.total - m) : 0;
   const last = pulseRuns && pulseRuns.length ? pulseRuns[0]! : null;
   const pulseLine = last
     ? `autonomy on the loop · last pulse ${esc(String(last.verdict))} · ${esc(String(last.findingCount))} finding(s) · ${esc(relTime(last.at, now))}`
     : "autonomy on the loop · internal-reversible hygiene self-heals on the pulse (autoheal-gate)";
-  const cards = pending
+  // The FLIGHT LOOP STRIP — the Exception Feed reframed as a flight-controller status call. Calm
+  // green when the board is quiet; amber when a GO/NO-GO call is due. The ONE thing the eye lands on.
+  const call =
+    m > 0
+      ? `<span style="color:var(--amber)">&#9678; LOOP ACTIVE &#183; handled ${handled} &#183; <b id="floop-count">${m}</b> await your GO</span>`
+      : `<span style="color:var(--green)">&#10003; LOOP NOMINAL &#183; all clear — nothing needs your decision</span>`;
+  // GO/NO-GO POLL CARDS — each pending proposal as a flight callout demanding one decisive call.
+  // Pinned contract preserved: .pact[data-pid] + .pbtn[data-act="approve|reject"] (the gated delegate);
+  // GO only AUTHORIZES (→ simulated_approved) — it never fires an external/irreversible action.
+  const polls = pending
     .slice(0, 6)
     .map((p) => {
-      const actions = `<span class="pact" data-pid="${esc(p.id)}"><button class="pbtn ok" data-act="approve">Approve</button><button class="pbtn no" data-act="reject">Reject</button></span>`;
+      const reversible = p.riskLevel === "high" ? "confirm rollback first" : "reversible — reverts cleanly";
+      const whyNoGo = p.riskLevel === "high" ? "high blast — verify the target before you authorize" : "hold if the timing or target is off";
+      const actions = `<span class="pact" data-pid="${esc(p.id)}"><button class="pbtn ok go" data-act="approve">GO</button><button class="pbtn no nogo" data-act="reject">NO-GO</button></span>`;
       return (
-        `<div class="li" style="display:block;border-top:1px solid var(--line2);padding-top:7px;margin-top:7px">` +
-        `<div><b>${esc(p.title)}</b> <span class="tag">${esc(p.domain)}</span><span class="tag pend">${esc(p.riskLevel)} risk</span></div>` +
-        `<div class="muted" style="margin-top:3px">${esc(p.effect)}</div>` +
-        `<div class="muted" style="margin-top:2px">&#8635; ${esc(p.whyApprove)}</div>` +
-        `<div style="margin-top:6px">${actions}</div>` +
+        `<div class="poll" tabindex="0">` +
+        `<div class="poll-call"><span class="poll-flight">FLIGHT,</span> this is ${esc(p.domain)} — recommend: ${esc(p.effect)}</div>` +
+        `<div class="poll-title">${esc(p.title)} <span class="tag pend">${esc(p.riskLevel)} risk</span></div>` +
+        `<div class="poll-matrix">` +
+        `<div><span class="poll-k">blast radius</span>${esc(p.domain)} &#183; ${esc(p.riskLevel)} risk</div>` +
+        `<div><span class="poll-k">reversibility</span>${reversible}</div>` +
+        `<div><span class="poll-k">why GO</span>${esc(p.whyApprove)}</div>` +
+        `<div><span class="poll-k">why NO-GO</span>${whyNoGo}</div>` +
+        `</div>` +
+        `<div>${actions}</div>` +
         `</div>`
       );
     })
     .join("");
   return (
-    `<section class="box" style="border-left:3px solid ${accent}">` +
+    `<section class="box floop${m > 0 ? " live" : ""}">` +
     `<div class="blbl">Exception Feed</div>` +
-    `<div style="font-size:15px;font-weight:600;margin:2px 0 4px">${headline}</div>` +
-    `<div class="muted">&#10003; ${esc(pulseLine)}</div>` +
-    (m > 0 ? `<div style="margin-top:6px">${cards}</div>` : "") +
+    `<div class="floop-call">${call}</div>` +
+    `<div class="muted floop-sub">&#10003; ${esc(pulseLine)}</div>` +
+    (m > 0 ? `<div style="margin-top:7px">${polls}</div>` : "") +
     `</section>`
   );
 }
@@ -1240,6 +1252,10 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     "overview",
     true,
     exceptionFeed(props, opts.pulseRuns, now) +
+      // THE BIG BOARD — the COP fleet topology Hart faces (Flight Bridge). Promoted from the Agents
+      // view to the hero of the Overview: core at center, the fleet in formation, edges flowing only
+      // where an agent reported. Clickable .node[data-agent] → agent console.
+      fleetTopologyHtml(metaReg) +
       renderStatusStrip(statusSplit) +
       sec("Today's Decisions") + decisionsHero(decisionBrief) +
       sec("Executive Brief") + heroSection(sbrief, overall, sysTone, topApproval) +
@@ -1398,7 +1414,15 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     if(!id||!act){return;}
     Array.prototype.forEach.call(wrap.querySelectorAll('.pbtn'),function(b){b.disabled=true;});
     fetch('/api/proposals/transition',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id,action:act})})
-      .then(function(r){return r.json()}).then(function(d){wrap.innerHTML='<span class="muted">'+(d.ok?(act==='approve'?'approved':'rejected'):'no change')+'</span>';})
+      .then(function(r){return r.json()}).then(function(d){
+        if(d.ok){
+          // GO-stamp — a teleprinter AUTHORIZE line writes in; the kernel CORE then flares + the
+          // Flight Loop Strip recounts (window.hartosFlightAck). Approve only AUTHORIZES (gated).
+          var ts=new Date().toLocaleTimeString(),ok=act==='approve';
+          wrap.innerHTML='<span class="gostamp '+(ok?'ok':'no')+'">'+(ok?'\\u2713 AUTHORIZED':'\\u2717 NO-GO')+' \\u00b7 '+ts+' \\u00b7 '+(ok?'simulated_approved':'rejected')+'</span>';
+          if(window.hartosFlightAck){window.hartosFlightAck(act,true);}
+        } else {wrap.innerHTML='<span class="muted">no change</span>';}
+      })
       .catch(function(){wrap.innerHTML='<span class="muted">error</span>';});
   });
   Array.prototype.forEach.call(document.querySelectorAll('.card[data-agent]'),function(card){card.addEventListener('click',function(e){e.preventDefault();openDrawer(card.getAttribute('data-agent'));});});
@@ -1432,7 +1456,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   }
 })();
 </script>` +
-    v3ClientScript();
+    v3ClientScript() +
+    flightHotkeysScript();
   return shell("HartOS Command Center", body);
 }
 

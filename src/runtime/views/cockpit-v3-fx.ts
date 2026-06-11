@@ -201,6 +201,39 @@ body::after{content:"";position:fixed;inset:-50% 0 0 0;z-index:0;pointer-events:
 /* focus ring, neon */
 .cmd:focus-within{box-shadow:0 0 0 3px var(--glow), 0 0 24px rgba(34,211,238,.25)}
 
+/* ═══════════ FLIGHT BRIDGE — the loop reports, you call GO ═══════════ */
+/* Flight Loop Strip — the Exception Feed reframed as a flight-controller status call. */
+.floop{border-left:3px solid var(--green)}
+.floop.live{border-left-color:var(--amber)}
+.floop-call{font-family:var(--mono);font-size:13.5px;font-weight:700;letter-spacing:.4px;margin:3px 0 4px}
+.floop-sub{font-size:11px}
+/* GO/NO-GO poll card — a NASA-style flight callout that demands one decisive call. */
+.poll{border:1px solid var(--line);border-radius:11px;padding:11px 13px;margin-top:9px;
+  background:rgba(8,11,20,.42);transition:border-color .25s ease, box-shadow .25s ease}
+.poll:hover,.poll:focus-within{border-color:rgba(245,196,81,.5);box-shadow:0 0 0 1px rgba(245,196,81,.18)}
+.poll-call{font-family:var(--mono);font-size:11px;letter-spacing:.4px;color:var(--amber);text-transform:uppercase}
+.poll-flight{font-weight:800;letter-spacing:1px}
+.poll-title{font-weight:700;margin:4px 0 7px;font-size:13px}
+.poll-matrix{display:grid;grid-template-columns:1fr 1fr;gap:5px 16px;font-size:11.5px;color:var(--dim);margin-bottom:9px}
+.poll-k{display:block;font-size:8.5px;letter-spacing:1px;text-transform:uppercase;color:var(--faint);font-weight:800}
+.pbtn.go{background:var(--sg);color:var(--green);border-color:rgba(52,224,161,.45);font-weight:800;padding:5px 18px;letter-spacing:1px}
+.pbtn.nogo{background:var(--sr);color:var(--red);border-color:rgba(255,107,107,.35);font-weight:800;padding:5px 14px;letter-spacing:.5px}
+.pbtn.go:hover{box-shadow:0 0 14px rgba(52,224,161,.4)}
+/* GO-stamp — a teleprinter AUTHORIZE line that writes left-to-right on a successful call. */
+.gostamp{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.5px;white-space:nowrap;
+  overflow:hidden;max-width:360px;animation:v3type .5s steps(30,end) both}
+.gostamp.ok{color:var(--green)}
+.gostamp.no{color:var(--red)}
+@keyframes v3type{from{max-width:0}to{max-width:360px}}
+/* core ring-flare — the kernel acknowledges an authorization (one-shot). */
+.core .cring.flare{animation:v3flare .65s ease}
+@keyframes v3flare{0%{box-shadow:0 0 10px rgba(34,211,238,.45), inset 0 0 5px rgba(34,211,238,.5)}
+  35%{box-shadow:0 0 26px var(--v3-core), 0 0 46px rgba(34,211,238,.7), inset 0 0 7px rgba(155,232,255,.9)}
+  100%{box-shadow:0 0 10px rgba(34,211,238,.45), inset 0 0 5px rgba(34,211,238,.5)}}
+/* fleet cards read as dark consoles in the grid */
+.grid4 .card{background:linear-gradient(180deg, rgba(56,189,248,.05), transparent 42%), rgba(6,9,16,.55)}
+@media(max-width:760px){.poll-matrix{grid-template-columns:1fr}}
+
 /* ── performance + accessibility floors ── */
 @media(max-width:760px){
   body::after{animation:none}
@@ -210,7 +243,9 @@ body::after{content:"";position:fixed;inset:-50% 0 0 0;z-index:0;pointer-events:
 }
 @media(prefers-reduced-motion:reduce){
   body::after,.v3beam,.sysv::before,.sysv::after,.core .cring,.rail .mk,.brand .mk,.dot.g,.dot.a,
-  .topo .flow,.topo .node.hub circle,.topo .node.a circle,.topo .node.r circle{animation:none !important}
+  .topo .flow,.topo .node.hub circle,.topo .node.a circle,.topo .node.r circle,
+  .gostamp,.core .cring.flare{animation:none !important}
+  .gostamp{max-width:none !important}
   #boot{display:none}
   .card,.card:hover{transform:none}
 }
@@ -413,6 +448,52 @@ export function v3ClientScript(): string {
         c.style.animation='none';void c.offsetWidth;c.style.animation='';
       });
     });
+  });
+})();
+</script>`;
+}
+
+/**
+ * FLIGHT BRIDGE hotkeys + authorization acknowledgement. Additive IIFE — no new globals beyond the
+ * documented window.hartosFlightAck hook the page's existing transition delegate calls on a
+ * successful GO/NO-GO. Pressing 'g'/'n' on a focused (or the first pending) poll card synthesizes a
+ * click on its GO/NO-GO button (so it reuses the SAME gated /api/proposals/transition path — never a
+ * new write). On a successful call the kernel CORE flares once and the Flight Loop Strip recounts
+ * client-side, settling to a calm "all clear" when the board is empty. Guarded so it never fires while
+ * typing or during ⌘K, and snaps to no-motion under prefers-reduced-motion. No-ops when its elements
+ * are absent (so login/locked/detail pages are unaffected).
+ */
+export function flightHotkeysScript(): string {
+  return `<script>
+(function(){
+  var rm=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // The page's transition delegate calls this on a confirmed GO/NO-GO (ok=true).
+  window.hartosFlightAck=function(act,ok){
+    if(!ok){return;}
+    var core=document.querySelector('.core .cring');
+    if(core&&!rm){core.classList.remove('flare');void core.offsetWidth;core.classList.add('flare');setTimeout(function(){core.classList.remove('flare');},700);}
+    var remaining=0;
+    Array.prototype.forEach.call(document.querySelectorAll('.floop .pact'),function(w){if(w.querySelector('.pbtn')){remaining++;}});
+    var c=document.getElementById('floop-count');if(c){c.textContent=String(remaining);}
+    if(remaining===0){
+      var call=document.querySelector('.floop .floop-call');
+      if(call){call.innerHTML='<span style="color:var(--green)">\\u2713 LOOP NOMINAL \\u00b7 all clear \\u2014 the board is quiet</span>';}
+      var sec=document.querySelector('.floop');if(sec){sec.classList.remove('live');}
+    }
+    if(window.HARTOS_SFX){window.HARTOS_SFX('authorize');}
+  };
+  // g = GO, n = NO-GO — clear the board from the keyboard like a Flight Director.
+  document.addEventListener('keydown',function(e){
+    if(e.metaKey||e.ctrlKey||e.altKey){return;}
+    var t=document.activeElement,tag=t&&t.tagName;
+    if(tag==='INPUT'||tag==='TEXTAREA'||(t&&t.isContentEditable)){return;}
+    var k=e.key&&e.key.toLowerCase();
+    if(k!=='g'&&k!=='n'){return;}
+    var poll=(t&&t.closest)?t.closest('.poll'):null;
+    if(!poll){var b=document.querySelector('.floop .poll .pact .pbtn');poll=b?b.closest('.poll'):null;}
+    if(!poll){return;}
+    var btn=poll.querySelector(k==='g'?'.pbtn.ok':'.pbtn.no');
+    if(btn&&!btn.disabled){e.preventDefault();btn.click();}
   });
 })();
 </script>`;
