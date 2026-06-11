@@ -5,6 +5,8 @@
     "moduleResolution": "NodeNext",
     "lib": ["ES2022", "DOM"],
     "strict": true,
+    "incremental": true,
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
