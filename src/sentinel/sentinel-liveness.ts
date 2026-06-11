@@ -172,6 +172,38 @@ export function assessFleetLiveness(
   return { generatedAt: now, verdicts, counts, overall, overallReason };
 }
 
+/**
+ * Worker-safe heartbeats from the read-model diagnostics the hosted cockpit honestly has: itself
+ * (it is answering ⇒ fresh) + the fitness/ops read-models (stale carried through, else snapshot).
+ * Agents with no Worker-visible evidence stay absent ⇒ the core reports them "unknown". PURE.
+ */
+export function heartbeatsFromReadModels(
+  rm: { staleSources: string[]; enabledSources: string[] },
+  nowIso: string,
+  snapshotAt: string | null,
+): AgentHeartbeat[] {
+  const heartbeats: AgentHeartbeat[] = [
+    { agentId: "cockpit", lastEvidenceAt: nowIso, evidenceSource: "the answering Worker" },
+  ];
+  for (const domain of ["fitness", "ops"] as const) {
+    if (rm.staleSources.includes(domain)) {
+      heartbeats.push({
+        agentId: domain,
+        lastEvidenceAt: snapshotAt,
+        evidenceSource: `${domain} read-model diagnostics`,
+        upstreamStale: true,
+      });
+    } else if (rm.enabledSources.includes(domain)) {
+      heartbeats.push({
+        agentId: domain,
+        lastEvidenceAt: snapshotAt,
+        evidenceSource: `${domain} read-model snapshot`,
+      });
+    }
+  }
+  return heartbeats;
+}
+
 /** One-screen, honest text rollup (for the CLI). */
 export function describeFleetLiveness(fleet: FleetLiveness): string {
   const lines = [

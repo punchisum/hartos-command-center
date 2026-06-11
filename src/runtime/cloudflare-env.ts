@@ -51,6 +51,8 @@ export const COCKPIT_ENV_VARS: string[] = [
   // key); both are optional — absent ⇒ the Ask box stays advisory (no write).
   "HARTOS_ASK_WRITE_URL",
   "HARTOS_ASK_WRITE_TOKEN",
+  // Sentinel heartbeat — optional alert sink (e.g. a Telegram/Slack webhook). Absent ⇒ alerts log only.
+  "HARTOS_SENTINEL_ALERT_WEBHOOK",
 ];
 
 export function isSecretName(name: string): boolean {

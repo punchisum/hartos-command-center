@@ -68,7 +68,8 @@ import { composeKnowledgeSurface, deriveKnowledgeInputs, type KnowledgeSurface }
 import { routeCockpitCommand } from "../cockpit/command-router.js";
 import { decide, autonomyTierLabel, type ConciergeDecision } from "../cockpit/decision-engine.js";
 import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
-import { assessFleetLiveness, type AgentHeartbeat } from "../sentinel/sentinel-liveness.js";
+import { assessFleetLiveness, heartbeatsFromReadModels } from "../sentinel/sentinel-liveness.js";
+import { heartbeatShouldAlert, buildHeartbeatAlert, heartbeatLogLine } from "../sentinel/sentinel-heartbeat.js";
 import { jobSpecFromRoute, buildAgentJobProposal } from "../jobs/agent-job.js";
 import {
   authenticateCockpitRequest,
@@ -322,26 +323,7 @@ export async function handleCockpitRequest(
       // artifact-dir evidence. Read-only; never assumes up.
       const reg = resolveMetaAgentRegistry({ now: nowFor(dctx) });
       const rm = readModelStatusView(dctx.state);
-      const snapAt = ctx.generatedAt ?? null;
-      const heartbeats: AgentHeartbeat[] = [
-        { agentId: "cockpit", lastEvidenceAt: nowFor(dctx), evidenceSource: "the answering Worker" },
-      ];
-      for (const domain of ["fitness", "ops"] as const) {
-        if (rm.staleSources.includes(domain)) {
-          heartbeats.push({
-            agentId: domain,
-            lastEvidenceAt: snapAt,
-            evidenceSource: `${domain} read-model diagnostics`,
-            upstreamStale: true,
-          });
-        } else if (rm.enabledSources.includes(domain)) {
-          heartbeats.push({
-            agentId: domain,
-            lastEvidenceAt: snapAt,
-            evidenceSource: `${domain} read-model snapshot`,
-          });
-        }
-      }
+      const heartbeats = heartbeatsFromReadModels(rm, nowFor(dctx), ctx.generatedAt ?? null);
       return jsonResponse(200, assessFleetLiveness(reg, heartbeats, nowFor(dctx)), cors);
     }
     if (pathname === "/api/threads") {
@@ -934,13 +916,59 @@ export async function createCockpitWorkerContext(options: { cwd?: string } = {})
 }
 
 /**
+ * Sentinel HEARTBEAT — the Cloudflare cron body. Runs the SAME Worker-visible liveness as
+ * /api/liveness (the cockpit itself + the fitness/ops read-models), logs a structured line for
+ * observability, and — only on a real freshness failure (stale/down) — POSTs a fact-only alert to
+ * HARTOS_SENTINEL_ALERT_WEBHOOK when configured. Detect-only: it never restarts/redeploys anything.
+ * Read-only; never throws (the cron must not crash the Worker). "unknown" agents are not alerted.
+ */
+export async function runSentinelHeartbeat(env: CloudflareCockpitEnv): Promise<void> {
+  try {
+    const now = new Date().toISOString();
+    const reg = resolveMetaAgentRegistry({ now });
+    const state = (await resolveHostedCockpitState(env).catch(() => null)) ?? undefined;
+    const rm = readModelStatusView(state);
+    const heartbeats = heartbeatsFromReadModels(rm, now, state?.generatedAt ?? null);
+    const fleet = assessFleetLiveness(reg, heartbeats, now);
+    console.log(heartbeatLogLine(fleet));
+
+    if (heartbeatShouldAlert(fleet)) {
+      const webhook = env["HARTOS_SENTINEL_ALERT_WEBHOOK"];
+      const alert = buildHeartbeatAlert(fleet);
+      if (typeof webhook === "string" && webhook.trim().length > 0) {
+        await fetch(webhook.trim(), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(alert),
+        }).catch((err) => console.log(`[sentinel-heartbeat] alert webhook failed: ${String(err)}`));
+      } else {
+        console.warn(`[sentinel-heartbeat] ALERT (no webhook configured): ${alert.text} — ${alert.agents.join(", ")}`);
+      }
+    }
+  } catch (err) {
+    // A heartbeat must never crash the scheduled run.
+    console.log(`[sentinel-heartbeat] error: ${String(err)}`);
+  }
+}
+
+/**
  * Default export for Cloudflare. Phase 16D — serves LIVE read-model data,
  * resolved at request time from the Worker env using read-only anon keys, with
  * graceful per-domain degradation. When no read-model env is configured the
  * provider returns null and the cockpit falls back to the safe placeholder.
  * /health always works. No filesystem access at request time.
+ *
+ * `scheduled` is Sentinel's 24/7 heartbeat (cron in wrangler.cockpit.toml). It runs detached via
+ * ctx.waitUntil so the tick completes even after the handler returns.
  */
 export default {
+  async scheduled(
+    _event: { cron?: string; scheduledTime?: number },
+    env: CloudflareCockpitEnv,
+    ctx: { waitUntil(p: Promise<unknown>): void },
+  ): Promise<void> {
+    ctx.waitUntil(runSentinelHeartbeat(env));
+  },
   async fetch(request: Request, env: CloudflareCockpitEnv): Promise<Response> {
     return handleCockpitRequest(request, env, {
       runtimeMode: "hosted",
