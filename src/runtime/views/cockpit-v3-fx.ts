@@ -147,6 +147,13 @@ body::after{content:"";position:fixed;inset:-50% 0 0 0;z-index:0;pointer-events:
 .topo .node.i circle{stroke:rgba(91,107,140,.6)}
 .topo .node.hub circle{animation:v3hub 3.6s ease-in-out infinite}
 @keyframes v3hub{0%,100%{filter:drop-shadow(0 0 5px rgba(34,211,238,.4))}50%{filter:drop-shadow(0 0 13px rgba(34,211,238,.85))}}
+/* COP — clickable common-operating-picture nodes (open the agent console). Exception-bright: a/r breathe. */
+.topo .node{cursor:pointer}
+.topo .node:hover circle{stroke-width:2.4}
+.topo .node:focus{outline:none}
+.topo .node:focus circle{stroke-width:2.6;stroke:var(--primaryH)}
+.topo .node.a circle,.topo .node.r circle{animation:v3exc 2.8s ease-in-out infinite}
+@keyframes v3exc{0%,100%{opacity:1}50%{opacity:.6}}
 .topo text{fill:var(--dim);font:600 9.5px var(--mono);text-anchor:middle;letter-spacing:.4px}
 .topo .node text.ic2{font-size:12px}
 .topo .tlbl{fill:var(--faint);font:800 8.5px var(--mono);letter-spacing:1.6px;text-anchor:start}
@@ -203,7 +210,7 @@ body::after{content:"";position:fixed;inset:-50% 0 0 0;z-index:0;pointer-events:
 }
 @media(prefers-reduced-motion:reduce){
   body::after,.v3beam,.sysv::before,.sysv::after,.core .cring,.rail .mk,.brand .mk,.dot.g,.dot.a,
-  .topo .flow,.topo .node.hub circle{animation:none !important}
+  .topo .flow,.topo .node.hub circle,.topo .node.a circle,.topo .node.r circle{animation:none !important}
   #boot{display:none}
   .card,.card:hover{transform:none}
 }
@@ -328,7 +335,8 @@ export function fleetTopologyHtml(reg: MetaAgentRegistry): string {
     const icon = TOPO_ICON[a.id] ?? "●";
     const label = a.displayName.length > 16 ? `${a.id}` : a.displayName.replace(/ \(.*\)$/, "").replace(/ \/.*$/, "");
     return (
-      `<g class="node ${t}${hubNode ? " hub" : ""}">` +
+      `<g class="node ${t}${hubNode ? " hub" : ""}" data-agent="${esc(a.id)}" role="button" tabindex="0" aria-label="${esc(a.displayName)} — ${esc(a.status)}; open console">` +
+      `<title>${esc(a.displayName)} · ${esc(a.status)} — open console</title>` +
       `<circle cx="${p.x}" cy="${p.y}" r="${hubNode ? 15 : 12}"/>` +
       `<text class="ic2" x="${p.x}" y="${p.y + 4}">${icon}</text>` +
       `<text x="${p.x}" y="${p.y + (hubNode ? 30 : 26)}">${esc(label)}</text>` +
@@ -348,7 +356,7 @@ export function fleetTopologyHtml(reg: MetaAgentRegistry): string {
     edges +
     nodes +
     `</svg>` +
-    `<div class="muted" style="font-size:10.5px">Real org edges from the meta-agent registry — green live · amber partial · grey idle. Data flow is decorative; statuses are not.</div>` +
+    `<div class="muted" style="font-size:10.5px">Real org edges from the meta-agent registry — green live · amber partial · grey idle. Click a node to open its console. Data flow is decorative; statuses are not.</div>` +
     `</div>`
   );
 }

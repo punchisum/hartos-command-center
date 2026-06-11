@@ -1402,6 +1402,9 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
       .catch(function(){wrap.innerHTML='<span class="muted">error</span>';});
   });
   Array.prototype.forEach.call(document.querySelectorAll('.card[data-agent]'),function(card){card.addEventListener('click',function(e){e.preventDefault();openDrawer(card.getAttribute('data-agent'));});});
+  // COP fleet-map — clicking/Enter on a topology node opens that agent's console drawer.
+  document.addEventListener('click',function(e){var n=e.target&&e.target.closest?e.target.closest('.node[data-agent]'):null;if(n){openDrawer(n.getAttribute('data-agent'));}});
+  document.addEventListener('keydown',function(e){if(e.key!=='Enter'&&e.key!==' '){return;}var el=document.activeElement;if(el&&el.classList&&el.classList.contains('node')&&el.getAttribute('data-agent')){e.preventDefault();openDrawer(el.getAttribute('data-agent'));}});
   document.addEventListener('keydown',function(e){
     if((e.metaKey||e.ctrlKey)&&(e.key==='k'||e.key==='K')){e.preventDefault();openK();}
     else if(e.key==='Escape'){closeK();closeDrawer();}

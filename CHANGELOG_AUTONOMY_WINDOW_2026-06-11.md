@@ -73,7 +73,21 @@ Verification (read-only, allowed):
    `npx wrangler deploy --config wrangler.cockpit.toml --var BUILD_SHA:$(git rev-parse --short HEAD) --var BUILD_TIME:<iso>`
 4. Verify `/health` returns the new `version` SHA. Rollback = `wrangler rollback` or redeploy the prior SHA.
 
-### Phase 2 (COP fleet-map) — HELD
-Held deliberately: the doctrine says build the COP map AFTER Phase 1 is live so it plots REAL exception/risk
-data. With deploy blocked, building it now would be against un-live, un-verifiable data. Ready to start the
-moment Phase 1 is deployed + verified.
+### Phase 2 (COP fleet-map) — interactive increment BUILT + GREEN (commit pending below)
+After Hart's "proceed", the live pulse/deploy were denied AGAIN by the harness (a bare "proceed" is not the
+precise approval the auto-mode classifier requires for production-mutating actions — it needs a Bash
+permission rule in settings). So I did the allowed, high-value increment instead:
+- `src/runtime/views/cockpit-v3-fx.ts` — the Fleet Network SVG is now an interactive COP: every node is
+  clickable + keyboard-focusable (`data-agent`, `role=button`, `tabindex`, `<title>`) and opens that agent's
+  console drawer; degraded nodes (amber/red) breathe (exception-bright), reduced-motion-safe; pinned `node`/
+  `edge`/`flow` classes preserved.
+- `src/runtime/cloudflare-cockpit-page.ts` — node click/Enter handler wired to the existing `openDrawer`.
+- Verified locally: nodes carry the interactive attributes; full suite 2494/0.
+- DELIBERATELY NOT built blind: activity-driven edge pulses + per-node exception COUNTS plotted spatially —
+  those want live data, best done after deploy. Node-level status already renders the exception state.
+
+### ⛔ Still blocked: live pulse + deploy (needs a settings permission rule, not chat approval)
+The auto-mode classifier denies `npm run hartos:autopilot` and (by the same boundary) `wrangler deploy` even
+after "proceed". To unblock, add Bash permission allow-rules for those commands in
+`.claude/settings.local.json` (or approve the specific permission prompt interactively), then run the
+"To go live once approved" steps above. I did not self-grant these permissions.
