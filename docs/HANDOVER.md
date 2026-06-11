@@ -46,6 +46,10 @@ Known live-infra follow-ups (not in this repo's code):
   blocked by its own allowlist). Reconcile the deploy source with this repo.
 - `gecan-ops-ai-webhook` accepts unauthenticated Telegram posts if its
   `TELEGRAM_WEBHOOK_SECRET` is unset — verify the secret is set on that Worker.
-- Supabase advisors flag SECURITY DEFINER functions executable by `anon`/
-  `authenticated` in both projects; revoke except the cockpit's allowlisted
-  read-only RPCs, and pin `search_path` on flagged functions.
+- APPLIED LIVE (2026-06-11): SECURITY DEFINER function grants hardened on
+  both Supabase projects (PUBLIC revoked everywhere, service_role granted,
+  anon kept only on the cockpit read RPCs + n8n's two RPCs, search_path
+  pinned). SQL + rollback notes: `supabase/hardening/`.
+- The hosted cockpit's ops read RPCs are returning 401 in live API logs —
+  the Worker's `HARTOS_OPS_SUPABASE_READONLY_KEY` is missing or wrong.
+  Re-set it with `wrangler secret put` (see backfill checklist).
