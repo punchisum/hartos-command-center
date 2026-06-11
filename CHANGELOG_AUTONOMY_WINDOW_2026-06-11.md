@@ -146,3 +146,13 @@ synthesized FLIGHT BRIDGE grafting the Plot Table big-board + GO-stamp node-flar
 DEPLOYED: Worker version 25690e3 (Version ID bd6f6537), /health version=25690e3 actionExecution=disabled.
 Commits LOCAL (push hangs on GCM auth while Hart away): ...8ce6720, ec4df43, 25690e3 — Hart runs
 `git push origin feat/agent-runtime-provision-18d` on return. Rollback: `npx wrangler rollback`.
+
+### Phase 5 (V4 SYNAPSE) — DEPLOYED LIVE
+Hart picked concept #5 (Synapse) from a 10-mock gallery. Built the neural-constellation command home:
+Orchestrator core star + agents orbiting (toned by status), synapses fire only on live agents, decisions
+are the brightest pulsing nodes + an always-visible GO/NO-GO column (reuse gated .pact/.pbtn). New
+src/runtime/views/cockpit-synapse.ts; flag-gated V4 overview in cloudflare-cockpit-page.ts (opts.v4);
+worker passes env HARTOS_COCKPIT_V4. Default (no flag) stays V3 -> all V3 pins green. Verdict tone class
+collision (.g utility) fixed -> syn-g/a/r/i. Suite 2498/0, bundle-check green, visually verified.
+DEPLOYED: version 0540e8d (Version ID 9f9459c5), --var HARTOS_COCKPIT_V4:true so the LIVE home is Synapse.
+/health version=0540e8d actionExecution=disabled.
