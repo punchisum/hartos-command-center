@@ -55,6 +55,7 @@ import {
   renderLockedPage,
 } from "./cloudflare-cockpit-page.js";
 import { routeHosted, freshnessView, readModelStatusView, proposalsView } from "./cloudflare-cockpit-views.js";
+import { fetchLiveThreads, fetchLiveProposals } from "./cloudflare-live-cockpit-feeds.js";
 import { resolveHostedCockpitState } from "./cloudflare-live-read-models.js";
 
 export const SUPPORTED_ROUTES = [
@@ -134,7 +135,20 @@ export async function handleCockpitRequest(
       return jsonResponse(200, { reports: ctx.reports ?? [] }, cors);
     }
     if (pathname === "/api/threads") {
-      return jsonResponse(200, { threads: ctx.threads ?? [] }, cors);
+      // Local snapshot wins; otherwise serve the live read-only feed from the
+      // fitness project's cockpit RPCs; otherwise an explicit empty fallback.
+      if (ctx.threads && ctx.threads.length > 0) {
+        return jsonResponse(200, { threads: ctx.threads }, cors);
+      }
+      const live = await fetchLiveThreads(env);
+      return jsonResponse(
+        200,
+        live ?? {
+          threads: [],
+          note: "No local snapshot and no live cockpit feed configured (set HARTOS_FITNESS_SUPABASE_URL + HARTOS_FITNESS_SUPABASE_READONLY_KEY).",
+        },
+        cors
+      );
     }
     if (pathname === "/api/freshness") {
       const fr = freshnessView(dctx.state, nowFor(dctx));
@@ -148,7 +162,14 @@ export async function handleCockpitRequest(
       return jsonResponse(200, readModelStatusView(dctx.state), cors);
     }
     if (pathname === "/api/proposals") {
-      return jsonResponse(200, proposalsView(dctx.state), cors);
+      // Prefer the embedded snapshot; when it is local-only/unavailable, try
+      // the live read-only feed before falling back to the local-only note.
+      const view = proposalsView(dctx.state);
+      if (!view.available) {
+        const live = await fetchLiveProposals(env);
+        if (live) return jsonResponse(200, live, cors);
+      }
+      return jsonResponse(200, view, cors);
     }
     if (pathname === "/api/debug/status") {
       // Safe, redacted metadata ONLY — presence, never values.

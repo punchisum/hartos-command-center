@@ -53,3 +53,18 @@ Known live-infra follow-ups (not in this repo's code):
 - The hosted cockpit's ops read RPCs are returning 401 in live API logs —
   the Worker's `HARTOS_OPS_SUPABASE_READONLY_KEY` is missing or wrong.
   Re-set it with `wrangler secret put` (see backfill checklist).
+
+## 2026-06-11 — CI staging deploy + live cockpit feeds
+
+- CI now has a gated `deploy-staging` job: merged to the default branch =
+  deployed to staging (opt-in via the `ENABLE_STAGING_DEPLOY` repo variable +
+  GitHub Secrets; see docs/STAGING_DEPLOYMENT.md). Eliminates hand-deploys and
+  the repo/deploy drift found in the audit.
+- Hosted cockpit `/api/threads` and `/api/proposals` now serve LIVE read-only
+  data from the fitness project's cockpit RPCs (get_cockpit_threads /
+  get_cockpit_proposals, anon-granted, p_limit arg) when the Phase 16D fitness
+  env is configured — with graceful fallback to the local-only responses.
+  New module: src/runtime/cloudflare-live-cockpit-feeds.ts.
+- `get_fitness_bodyweight_series` added to FITNESS_ALLOWED_RPCS (granted to
+  anon in the fitness project; fixes the allowlist gap found in the deployed
+  bundle).

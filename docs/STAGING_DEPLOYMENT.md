@@ -107,3 +107,19 @@ APP_ENV=staging npm run rollback:plan
 
 Follow the generated rollback runbook.
 Do not promote to production until staging smoke passes.
+
+## CI auto-deploy (2026-06-11)
+
+Merges to `feat/cloudflare-hosted-command-center` deploy to staging
+automatically when the repo opts in:
+
+1. Set the repository variable `ENABLE_STAGING_DEPLOY=true`
+   (Settings → Secrets and variables → Actions → Variables).
+2. Add the GitHub Secrets listed in `.github/workflows/ci.yml`
+   (`deploy-staging` job) — Supabase, Telegram, Trigger, Cloudflare.
+3. Optionally protect the `staging` environment with required reviewers.
+
+The job runs `npm run launch:staging` (the same gated orchestrator used
+locally) followed by `npm run smoke:staging`, and uploads the launch report
+as a build artifact. Without the variable the job is skipped, so forks and
+feature branches never attempt a deploy. Production promotion stays manual.

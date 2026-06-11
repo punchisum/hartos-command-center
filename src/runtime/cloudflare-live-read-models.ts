@@ -72,6 +72,8 @@ export const FITNESS_ALLOWED_RPCS = [
   "get_fitness_today_nutrition",
   "get_fitness_recent_workouts",
   "get_fitness_weekly_summary",
+  // Detail series (deployed + granted to anon in the fitness project).
+  "get_fitness_bodyweight_series",
 ];
 
 function present(env: Env, name: string): boolean {
