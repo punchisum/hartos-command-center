@@ -28,6 +28,7 @@ import type { ClickUpMoveStore } from "./adapters/clickup-move-status.js";
 import type { ClickUpCommentStore } from "./adapters/clickup-comment.js";
 import type { RejectDraftsStore } from "./adapters/reject-drafts.js";
 import type { ArchiveRejectedStore } from "./adapters/archive-rejected.js";
+import type { RefreshSyncStore } from "./adapters/refresh-sync.js";
 
 /** The live stores a host injects (ClickUp + the internal proposal-queue cleanup stores). */
 export interface ApprovedExecutorStores {
@@ -36,6 +37,8 @@ export interface ApprovedExecutorStores {
   /** Internal-cleanup stores (pg-backed) — enable Wolverine FixProposals to fire via approval. */
   rejectDrafts?: RejectDraftsStore;
   archiveRejected?: ArchiveRejectedStore;
+  /** Expire past-due drafts (queue hygiene); internal + reversible, the third autoheal adapter. */
+  refreshSync?: RefreshSyncStore;
 }
 
 /** Injected gated dispatcher (the real `dispatchMutation` in production; a fake in tests). */
@@ -120,6 +123,13 @@ export function commandFromApprovedProposal(p: ProposalQueueItem, stores: Approv
   if (route.adapterId === "archive-rejected") {
     if (!stores.archiveRejected) return { skip: "no archive-rejected store injected" };
     return { adapterId: "archive-rejected", proposal: proposalRef, store: stores.archiveRejected };
+  }
+  if (route.adapterId === "refresh-sync") {
+    // Expire past-due drafts (queue hygiene). Internal + reversible; refresh-sync re-reads the
+    // live row's status itself (read-before-write), so it executes only on a true
+    // approved_for_execution row — which the autoheal/spine executor sets before dispatch.
+    if (!stores.refreshSync) return { skip: "no refresh-sync store injected" };
+    return { adapterId: "refresh-sync", proposal: { id: p.id, status: p.status, expiresAt: p.expiresAt ?? null }, store: stores.refreshSync };
   }
 
   return { skip: `adapter "${route.adapterId}" is not wired for approve→auto-execute yet` };

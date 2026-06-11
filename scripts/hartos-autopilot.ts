@@ -1,17 +1,23 @@
 /**
  * scripts/hartos-autopilot.ts — the HartOS AUTOPILOT PULSE (the organism's heartbeat).
  *
- * ONE command that runs the full autonomous cycle, propose-only + per-action-gated:
- *   1. SENSE    — Wolverine audit (env/git/vault/capability scouts) → verdict + repair queue
- *   2. REMEMBER — executive-memory capture (flag-gated; dry heartbeat otherwise)
- *   3. FORESEE  — Prophet forecast over the audit + memory + capability scouts
- *   4. RECORD   — file the Wolverine audit note to the vault (gated writer)
- *   5. ACT      — run Hart-APPROVED agent jobs from the spine (the runner; per-action gates hold)
- *   6. REPORT   — one honest pulse summary
+ * ONE command that runs the full autonomous cycle, propose-only BY DEFAULT + per-action-gated:
+ *   1.  SENSE    — Wolverine audit (env/git/vault/capability scouts) → verdict + repair queue
+ *   1b. PROPOSE  — Wolverine writes fixable findings into the spine as gated FixProposals
+ *   2.  REMEMBER — executive-memory capture (flag-gated; dry heartbeat otherwise)
+ *   3.  FORESEE  — Prophet forecast over the audit + memory + capability scouts
+ *   4.  RECORD   — file the Wolverine audit note to the vault (gated writer)
+ *   5.  ACT      — run Hart-APPROVED agent jobs from the spine (the runner; per-action gates hold)
+ *   5b. ACT-EXEC — GUARDRAILED autoheal: auto-approve + execute the armed autoheal CLASS only
+ *                  (internal, reversible queue hygiene; triple-gated; disarmed by default)
+ *   6.  LOG      — persist this pulse (Last-Pulse tile + forecast-accuracy scoring)
+ *   7.  REPORT   — one honest pulse summary
  *
  * Schedule this daily (like the memory heartbeat) and HartOS senses, remembers, foresees, records,
- * and acts on approved work autonomously — while every mutation stays behind Hart's approval +
- * the per-action env gates. The autopilot never approves anything itself.
+ * and acts on approved work autonomously. Every EXTERNAL mutation stays behind Hart's approval +
+ * the per-action env gates: the autopilot approves nothing itself EXCEPT within an explicitly-armed
+ * autoheal class (internal, reversible, triple-gated by ALLOW_AUTOHEAL_* + ALLOW_EXEC_* + the
+ * kill-switch). With no class armed (the default) it is strictly propose-only, as before.
  *
  *   node --env-file-if-exists=.env.local dist/scripts/hartos-autopilot.js
  */
@@ -28,6 +34,7 @@ import { createCockpitMemoryDb } from "../src/awareness/supabase-memory-db.js";
 import { runMemoryCapture } from "./cockpit-memory-capture.js";
 import { runWolverinePropose } from "./wolverine-propose.js";
 import { runJobRunner } from "./hartos-runner.js";
+import { runAutoheal } from "./run-autoheal.js";
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
 import { buildPulseRunRow } from "../src/cockpit/pulse/pulse-run-spine.js";
 import { synthesizeDecisions } from "../src/cockpit/decision-synthesis.js";
@@ -144,6 +151,15 @@ export async function runAutopilot(env: Record<string, string | undefined>, now:
   const ran = await runJobRunner(env, now, 3);
   push(`5 ACT      ${ran[0] ?? ""}`);
   for (const l of ran.slice(1)) push(`           ${l}`);
+
+  // 5b. ACT-EXEC — GUARDRAILED AUTONOMY. Auto-approve + execute ONLY the armed autoheal class
+  //     (internal, reversible queue hygiene). Triple-gated: the ALLOW_AUTOHEAL_* class flag AND
+  //     each adapter's ALLOW_EXEC_* AND the kill-switch must all hold. It never touches an
+  //     external system (no ClickUp store is injected), audits every transition, and reverts
+  //     anything it authorizes but does not write. Disarmed by default ⇒ an honest no-op.
+  const healed = await runAutoheal(env, new Date(now), 3);
+  push(`5b ACT-EXEC ${healed[0] ?? ""}`);
+  for (const l of healed.slice(1)) push(`           ${l}`);
 
   // 6. LOG — persist this pulse (Last-Pulse tile + forecast-accuracy scoring).
   const pulseLine = `${audit.verdict} · forecast ${fcast.verdict} · ${audit.findingCount} finding(s)`;
