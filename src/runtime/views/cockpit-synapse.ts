@@ -111,6 +111,29 @@ export const SYNAPSE_STYLE = `
 /* handled + opportunities lanes */
 .syn-lanes{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
 @media(max-width:1100px){.syn-lanes{grid-template-columns:1fr}}
+/* ── mobile: keep it simple (V3-style reflow) — a clean stacked briefing; the constellation is a
+   desktop centerpiece and drops out on the phone, where the verdict + decisions + status strip carry
+   it. Reuses the shared shell's bottom-nav (rail hides < 760px). No separate render — just reflow. ── */
+@media(max-width:760px){
+  /* shell: the off-canvas drawer (translateX 100%) would extend scrollWidth; clip horizontal
+     scroll so the phone never pans sideways (the fixed drawer still slides in over the viewport). */
+  html,body{overflow-x:hidden}
+  /* topbar wraps so the Ask bar takes the full row and the status pills drop below it,
+     instead of the pills being pushed off the right edge. */
+  .tb{flex-wrap:wrap}
+  .cmd{max-width:none;flex:1 1 100%}
+  .syn-field{display:none}
+  .syn-hero{grid-template-columns:1fr;gap:0}
+  .syn-lanes{grid-template-columns:1fr;gap:12px}
+  .syn-verdict{margin:4px 0 14px;gap:8px}
+  .syn-vbig{font-size:30px}
+  .syn-vline{font-size:12px}
+  .syn-decs .seclbl{margin-top:2px}
+  .dec{border-radius:16px;padding:15px 16px}
+  .dec .dttl{font-size:15px}
+  .dec .pact{display:flex;gap:10px;margin-top:6px}
+  .dec .pbtn.go,.dec .pbtn.nogo{flex:1;padding:13px 0;font-size:14.5px;border-radius:12px}
+}
 @media(prefers-reduced-motion:reduce){.syn-fire,.star .halo,.core-star circle.k,.core-star circle.kr,.dnode circle.d,.dnode circle.dr,.dnode.flash circle.d{animation:none!important}}
 `;
 
