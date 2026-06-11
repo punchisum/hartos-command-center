@@ -23,7 +23,7 @@ describe("bootstrap engine — gate enforcement", () => {
 
   test("gate_missing message does not contain secrets", async () => {
     const result = await runBootstrapEngine({ env: {} });
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     assert.ok(!secretPattern.test(result.summary), "Summary must not contain secrets");
   });
 

@@ -118,7 +118,7 @@ describe("runBatchDigest — local fixtures", () => {
 
   test("batch report contains no secrets", async () => {
     const result = await runBatchDigest(batchConfig);
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     assert.ok(
       !secretPattern.test(result.recommendation),
       "Recommendation must not contain secret-like values"

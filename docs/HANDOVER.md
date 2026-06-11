@@ -11,3 +11,41 @@ Next steps:
 5. Register Telegram webhook only after local and staging smoke tests pass.
 6. Decide whether Trigger.dev SDK or HTTP enqueue should be wired in Phase 5.
 7. Keep all real secrets outside the repo.
+
+## 2026-06-11 — Audit & hardening pass
+
+Full audit + hardening session (branch `claude/hartos-audit-hardening-mr2kcu`):
+
+- **Telegram webhook hardened** (`src/telegram/webhook.ts`): constant-time secret
+  comparison, fails closed in production when `TELEGRAM_WEBHOOK_SECRET` is unset,
+  rejects malformed JSON with 400. Covered by `tests/telegram-webhook-auth.test.ts`.
+- **Shared `safeEqual`** (`src/lib/safe-equal.ts`) now used by both the webhook
+  and the cockpit auth gate.
+- **LLM domain allowlist** (`src/llm/prompt-contracts.ts` `ALLOWED_DOMAINS`):
+  provider output claiming a domain outside finance|fitness|ops|factory|general
+  fails validation and falls back to the deterministic provider.
+- **Secret heuristic fixed**: the generic long-token pattern in
+  `src/beezulbub/pack-safety.ts` (and the matching test assertions) no longer
+  treats `/` as token material, so legitimate paths/commands stop failing the
+  safety scan. Specific patterns (sk-, JWT, ghp_, PEM) are unchanged.
+- **check-env covers the hosted cockpit**: new `cockpit` provider in
+  `src/runtime/env.ts` (access token + read-only read-model env vars).
+- **Fixture restored**: `tests/fixtures/beezulbub/risky-repo/.env` (fake values)
+  was being excluded by `.gitignore`; un-ignored via negation so the poison
+  filter tests run. All 1175 tests green (5 were failing before this pass).
+- **CI enabled**: `.github/workflows/ci.yml` runs typecheck, tests, verify,
+  smoke:local, launch:plan, launch:verify on every push. `npm run verify:all`
+  runs the same set locally.
+- **`.env.example`**: duplicate `ALLOW_CLOUDFLARE_SECRET_UPLOAD` removed; Phase 16
+  hosted cockpit vars documented.
+
+Known live-infra follow-ups (not in this repo's code):
+- The deployed `hartos-command-center` Worker bundle contains code newer than
+  this repo (e.g. `FITNESS_DETAIL_RPCS` with `get_fitness_bodyweight_series`,
+  absent from `FITNESS_ALLOWED_RPCS` in that bundle — that detail call is
+  blocked by its own allowlist). Reconcile the deploy source with this repo.
+- `gecan-ops-ai-webhook` accepts unauthenticated Telegram posts if its
+  `TELEGRAM_WEBHOOK_SECRET` is unset — verify the secret is set on that Worker.
+- Supabase advisors flag SECURITY DEFINER functions executable by `anon`/
+  `authenticated` in both projects; revoke except the cockpit's allowlisted
+  read-only RPCs, and pin `search_path` on flagged functions.

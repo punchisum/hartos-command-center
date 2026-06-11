@@ -133,7 +133,7 @@ describe("formatReleaseComparison", () => {
     const reportsDir = path.join(tmpDir, "format-safe");
     const comparison = await compareReleases(reportsDir);
     const formatted = formatReleaseComparison(comparison);
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     assert.ok(!secretPattern.test(formatted), "Comparison must not contain secret-like values");
   });
 });

@@ -31,7 +31,7 @@ const SECRET_PATTERNS = [
   /eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/,
   /gh[pousr]_[A-Za-z0-9_]{20,}/,
   /-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/,
-  /[A-Za-z0-9+/=_-]{40,}/,  // Generic long token
+  /[A-Za-z0-9+=_-]{40,}/,  // Generic long token
 ];
 
 /** Filenames that must never appear in a generated pack */

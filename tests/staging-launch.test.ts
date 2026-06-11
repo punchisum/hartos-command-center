@@ -262,7 +262,7 @@ describe("staging launch — report safety", () => {
       env: { ...baseGatedEnv, SUPABASE_SERVICE_ROLE_KEY: "secret-key-value" },
       reportsDir: tempDir,
     });
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     // Report steps messages should not contain long secret-like strings
     for (const step of report.steps) {
       assert.ok(

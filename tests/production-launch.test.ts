@@ -138,7 +138,7 @@ describe("production launch — report safety", () => {
       env,
       reportsDir,
     });
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     for (const step of report.steps) {
       assert.ok(!secretPattern.test(step.message), `Step ${step.id} message contains secret-like value`);
     }

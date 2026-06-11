@@ -83,7 +83,7 @@ describe("formatRollbackInstructions", () => {
 
   test("does not include secrets", () => {
     const formatted = formatRollbackInstructions(["github", "cloudflare"]);
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     assert.ok(!secretPattern.test(formatted), "Instructions must not contain secret-like values");
   });
 });

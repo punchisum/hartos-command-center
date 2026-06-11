@@ -115,7 +115,7 @@ describe("formatPackList", () => {
   test("does not contain secrets", async () => {
     const packs = await listPacks(packsDir);
     const formatted = formatPackList(packs);
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     assert.ok(!secretPattern.test(formatted), "List must not contain secrets");
   });
 });

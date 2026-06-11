@@ -72,7 +72,7 @@ describe("generateCloneCommand", () => {
 
   test("never contains secrets", () => {
     const cmd = generateCloneCommand("https://github.com/user/repo");
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     assert.ok(!secretPattern.test(cmd), "Clone command must not contain secrets");
   });
 });
@@ -162,7 +162,7 @@ describe("digestLocalRepo — URL returns manual_required error", () => {
       await digestLocalRepo({ localPath: "https://github.com/user/repo" });
     } catch (err) {
       if (err instanceof Error) {
-        const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+        const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
         assert.ok(!secretPattern.test(err.message), "Error must not contain secret-like values");
       }
     }

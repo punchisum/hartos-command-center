@@ -70,7 +70,7 @@ describe("checkBootstrap — missing env", () => {
 
   test("no secrets in plan summary or step messages", async () => {
     const plan = await checkBootstrap({ SUPABASE_SERVICE_ROLE_KEY: "secret-value-here" });
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     assert.ok(!secretPattern.test(plan.summary), "Summary must not contain secrets");
     for (const step of plan.steps) {
       assert.ok(!step.message.includes("secret-value-here"), `Step ${step.id} must not contain secret`);

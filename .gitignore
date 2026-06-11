@@ -1,4 +1,6 @@
 .env
+# Beezulbub poison-filter fixtures intentionally contain a fake committed .env
+!tests/fixtures/**/.env
 .env.local
 .env.*.local
 .env.staging.local

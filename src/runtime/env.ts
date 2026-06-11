@@ -3,7 +3,7 @@ import type { Env } from "../shared/types.js";
 const SECRET_NAME_PATTERN = /(KEY|TOKEN|SECRET|PASSWORD|SERVICE_ROLE)/i;
 const SECRET_VALUE_PATTERN = /(sk-[A-Za-z0-9_-]{8,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{32,})/g;
 
-export type ProviderName = "supabase" | "telegram" | "trigger" | "cloudflare" | "openai";
+export type ProviderName = "supabase" | "telegram" | "trigger" | "cloudflare" | "openai" | "cockpit";
 
 export interface EnvCheck {
   name: string;
@@ -54,6 +54,16 @@ export function checkProviderStatus(env: Env = getEnv()): ProviderStatus[] {
     { provider: "trigger", vars: ["TRIGGER_SECRET_KEY"] },
     { provider: "cloudflare", vars: ["CLOUDFLARE_WORKER_URL"] },
     { provider: "openai", vars: ["OPENAI_API_KEY"] },
+    {
+      provider: "cockpit",
+      vars: [
+        "HARTOS_COCKPIT_ACCESS_TOKEN",
+        "HARTOS_OPS_SUPABASE_URL",
+        "HARTOS_OPS_SUPABASE_READONLY_KEY",
+        "HARTOS_FITNESS_SUPABASE_URL",
+        "HARTOS_FITNESS_SUPABASE_READONLY_KEY",
+      ],
+    },
   ];
 
   return providers.map(({ provider, vars }) => {

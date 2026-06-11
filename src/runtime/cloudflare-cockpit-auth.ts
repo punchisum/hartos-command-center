@@ -24,6 +24,7 @@
  */
 
 import type { CloudflareCockpitEnv } from "./cloudflare-cockpit-types.js";
+import { safeEqual } from "../lib/safe-equal.js";
 
 export const ACCESS_TOKEN_ENV = "HARTOS_COCKPIT_ACCESS_TOKEN";
 export const DEV_BYPASS_ENV = "HARTOS_COCKPIT_DEV_AUTH_BYPASS";
@@ -73,16 +74,6 @@ export function devBypassEnabled(env: CloudflareCockpitEnv): boolean {
 export function authRequired(env: CloudflareCockpitEnv): boolean {
   if (devBypassEnabled(env)) return false;
   return isProduction(env) || authConfigured(env) || env[REQUIRE_AUTH_ENV] === "true";
-}
-
-/** Length-checked constant-time string comparison. */
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return result === 0;
 }
 
 export function extractBearerToken(request: Request): string | null {
