@@ -82,6 +82,7 @@ import {
   type HostedPageOptions,
 } from "./cloudflare-cockpit-page.js";
 import { routeHosted, freshnessView, readModelStatusView, proposalsView, fleetView, cockpitSuggestions } from "./cloudflare-cockpit-views.js";
+import { fetchLiveThreads, fetchLiveProposals } from "./cloudflare-live-cockpit-feeds.js";
 import { mutationCenterView } from "./views/mutation-center-view.js";
 import { fleetBriefingView } from "./views/fleet-brain-view.js";
 import { mutationDispatchView } from "./views/mutation-dispatch-view.js";
@@ -314,12 +315,25 @@ export async function handleCockpitRequest(
     }
     if (pathname === "/api/threads") {
       // Phase D — prefer the Supabase thread spine (so the hosted Worker shows
-      // threads that are no longer local-only); fall back to the local list.
+      // threads that are no longer local-only); fall back to the local list,
+      // then the live read-only feed from the fitness project's cockpit RPCs,
+      // then an explicit empty fallback.
       if (ctx.threadsProvider) {
         const threads = await ctx.threadsProvider().catch(() => null);
         if (threads) return jsonResponse(200, { threads }, cors);
       }
-      return jsonResponse(200, { threads: ctx.threads ?? [] }, cors);
+      if (ctx.threads && ctx.threads.length > 0) {
+        return jsonResponse(200, { threads: ctx.threads }, cors);
+      }
+      const liveThreads = await fetchLiveThreads(env);
+      return jsonResponse(
+        200,
+        liveThreads ?? {
+          threads: [],
+          note: "No local snapshot and no live cockpit feed configured (set HARTOS_FITNESS_SUPABASE_URL + HARTOS_FITNESS_SUPABASE_READONLY_KEY).",
+        },
+        cors
+      );
     }
     if (pathname === "/api/freshness") {
       const fr = freshnessView(dctx.state, nowFor(dctx));
@@ -371,7 +385,14 @@ export async function handleCockpitRequest(
       );
     }
     if (pathname === "/api/proposals") {
-      return jsonResponse(200, proposalsView(dctx.state, nowFor(dctx)), cors);
+      // Prefer the embedded snapshot; when it is local-only/unavailable, try
+      // the live read-only feed before falling back to the local-only note.
+      const view = proposalsView(dctx.state, nowFor(dctx));
+      if (!view.available) {
+        const liveProposals = await fetchLiveProposals(env);
+        if (liveProposals) return jsonResponse(200, liveProposals, cors);
+      }
+      return jsonResponse(200, view, cors);
     }
     if (pathname === "/api/mutation-center") {
       // Read-only Mutation Center — pending-executable proposals with tier/risk/target

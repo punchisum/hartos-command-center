@@ -9,6 +9,7 @@
 import type { LlmStructuredOutput, OutputValidation } from "./llm-types.js";
 import {
   ALLOWED_CONFIDENCE,
+  ALLOWED_DOMAINS,
   ALLOWED_RISK,
   MAX_ARRAY_ITEM_LENGTH,
   MAX_ARRAY_LENGTH,
@@ -66,6 +67,9 @@ export function validateLlmOutput(raw: unknown): OutputValidation {
     if (badOptionalString(value)) return { ok: false, error: `Invalid string field: ${name}` };
   }
 
+  if (typeof domain !== "string" || !ALLOWED_DOMAINS.includes(domain as never)) {
+    return { ok: false, error: `domain must be one of ${ALLOWED_DOMAINS.join("|")}` };
+  }
   if (typeof confidence !== "string" || !ALLOWED_CONFIDENCE.includes(confidence as never)) {
     return { ok: false, error: `confidence must be one of ${ALLOWED_CONFIDENCE.join("|")}` };
   }

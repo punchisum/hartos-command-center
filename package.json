@@ -167,7 +167,8 @@
     "cockpit:live": "npm run build && node dist/scripts/cockpit-live.js",
     "cockpit:live:smoke": "npm run build && node dist/scripts/cockpit-live.js --smoke",
     "preexecute:approved": "npm run build",
-    "execute:approved": "node --env-file-if-exists=.env.local dist/scripts/run-approved-executor.js"
+    "execute:approved": "node --env-file-if-exists=.env.local dist/scripts/run-approved-executor.js",
+    "verify:all": "npm run typecheck && npm test && node dist/scripts/verify-generated.js && node dist/scripts/smoke-local.js && node dist/scripts/launch-plan.js && node dist/scripts/launch-verify.js"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",

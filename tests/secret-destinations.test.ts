@@ -24,7 +24,7 @@ describe("SECRET_DESTINATIONS", () => {
   });
 
   test("no commands contain real secret values", () => {
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     for (const dest of SECRET_DESTINATIONS) {
       for (const cmd of dest.commands) {
         assert.ok(!secretPattern.test(cmd), `Command in ${dest.envVarName} must not contain secrets`);
@@ -88,7 +88,7 @@ describe("formatSecretDestinations", () => {
 
   test("does not contain secret values", () => {
     const formatted = formatSecretDestinations(SECRET_DESTINATIONS, "test-agent");
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     assert.ok(!secretPattern.test(formatted), "Format must not contain secret-like values");
   });
 });

@@ -103,6 +103,16 @@ export interface Env {
   CLOUDFLARE_COCKPIT_ALLOWED_ORIGIN?: string;
   CONFIRM_CLOUDFLARE_DEPLOY?: string;
   ALLOW_CLOUDFLARE_COCKPIT_DEPLOY?: string;
+  // Phase 16: hosted cockpit auth + live read models (Worker env / wrangler secrets)
+  HARTOS_COCKPIT_ACCESS_TOKEN?: string;
+  HARTOS_COCKPIT_REQUIRE_AUTH?: string;
+  HARTOS_COCKPIT_DEV_AUTH_BYPASS?: string;
+  HARTOS_OPS_SUPABASE_URL?: string;
+  HARTOS_OPS_SUPABASE_READONLY_KEY?: string;
+  HARTOS_FITNESS_SUPABASE_URL?: string;
+  HARTOS_FITNESS_SUPABASE_READONLY_KEY?: string;
+  HARTOS_FITNESS_USER_ID?: string;
+  HARTOS_FITNESS_AGENT_ID?: string;
 }
 
 export interface GeneratedCommand {

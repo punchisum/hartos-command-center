@@ -10,6 +10,12 @@ import type { LlmRequest, LlmRequestType } from "./llm-types.js";
 
 export const ALLOWED_CONFIDENCE = ["low", "medium", "high"] as const;
 export const ALLOWED_RISK = ["low", "medium", "high"] as const;
+/**
+ * The only domains a provider may claim. Anything else fails validation and the
+ * gateway falls back to the deterministic provider — a network provider cannot
+ * steer routing/risk by inventing a domain.
+ */
+export const ALLOWED_DOMAINS = ["finance", "fitness", "ops", "factory", "research", "general"] as const;
 
 export const OUTPUT_KEYS = [
   "intent",
@@ -37,7 +43,7 @@ export const MAX_ARRAY_ITEM_LENGTH = 80;
 /** A short, machine-readable description of the JSON contract. */
 export const OUTPUT_CONTRACT_DESCRIPTION = JSON.stringify({
   intent: "string",
-  domain: "string",
+  domain: "finance|fitness|ops|factory|research|general",
   confidence: "low|medium|high",
   neededContext: ["string"],
   recommendedSpecialist: "string",

@@ -1,0 +1,112 @@
+# Continuous integration for hartos-command-center.
+# Read-only checks only: no provider secrets are needed and no deploy happens here.
+# Staging/production launches stay manual and gated (see docs/PRODUCTION_RELEASE_CONTROL.md).
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Typecheck, tests, and read-only verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Verify generated repo
+        run: npm run verify
+
+      - name: Local smoke
+        run: npm run smoke:local
+
+      - name: Launch plan (read-only)
+        run: npm run launch:plan
+
+      - name: Launch verify (read-only)
+        run: npm run launch:verify
+
+  # ── Staging deploy: merged = deployed ─────────────────────────────────────
+  # Runs only on the default branch AND only when the repo opts in by setting
+  # the repository variable ENABLE_STAGING_DEPLOY=true (Settings → Secrets and
+  # variables → Actions → Variables) and adding the secrets below. Without the
+  # opt-in this job is skipped, so CI stays green on forks/branches.
+  # Production promotion is NEVER automatic (see docs/PRODUCTION_RELEASE_CONTROL.md).
+  deploy-staging:
+    name: Deploy to staging (gated)
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat/cloudflare-hosted-command-center' && vars.ENABLE_STAGING_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency: staging-deploy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Launch staging
+        env:
+          APP_ENV: staging
+          # Gates — explicit, so a missing secret fails loudly instead of half-deploying.
+          ALLOW_AUTO_PROVISION: "true"
+          CONFIRM_STAGING_PROVISION: "true"
+          ALLOW_CLOUDFLARE_DEPLOY: "true"
+          ALLOW_CLOUDFLARE_PROVISION: "true"
+          ALLOW_SUPABASE_MIGRATION_APPLY: "true"
+          ALLOW_TELEGRAM_WEBHOOK_REGISTER: "true"
+          # Provider secrets (GitHub Secrets; see .env.example for meanings).
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+          STAGING_TELEGRAM_WEBHOOK_URL: ${{ secrets.STAGING_TELEGRAM_WEBHOOK_URL }}
+          TRIGGER_SECRET_KEY: ${{ secrets.TRIGGER_SECRET_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_WORKER_NAME: ${{ secrets.CLOUDFLARE_WORKER_NAME }}
+          STAGING_CLOUDFLARE_WORKER_URL: ${{ secrets.STAGING_CLOUDFLARE_WORKER_URL }}
+        run: npm run launch:staging
+
+      - name: Staging smoke
+        env:
+          APP_ENV: staging
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_CLOUDFLARE_WORKER_URL: ${{ secrets.STAGING_CLOUDFLARE_WORKER_URL }}
+          STAGING_TELEGRAM_WEBHOOK_URL: ${{ secrets.STAGING_TELEGRAM_WEBHOOK_URL }}
+        run: npm run smoke:staging
+
+      - name: Upload launch report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-launch-report
+          path: launch-reports/
+          if-no-files-found: ignore

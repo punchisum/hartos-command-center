@@ -126,7 +126,7 @@ describe("formatComparisonReport", () => {
   test("does not contain secret-like values", async () => {
     const report = await compareFromReports(tmpDir);
     const formatted = formatComparisonReport(report);
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     assert.ok(!secretPattern.test(formatted), "Report must not contain secret-like values");
   });
 

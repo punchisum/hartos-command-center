@@ -66,6 +66,11 @@ describe("checkProviderStatus with all required env vars", () => {
     TRIGGER_SECRET_KEY: "trigger-key",
     CLOUDFLARE_WORKER_URL: "https://worker.example.com",
     OPENAI_API_KEY: "sk-test-key",
+    HARTOS_COCKPIT_ACCESS_TOKEN: "cockpit-token",
+    HARTOS_OPS_SUPABASE_URL: "https://ops.supabase.co",
+    HARTOS_OPS_SUPABASE_READONLY_KEY: "ops-readonly-key",
+    HARTOS_FITNESS_SUPABASE_URL: "https://fitness.supabase.co",
+    HARTOS_FITNESS_SUPABASE_READONLY_KEY: "fitness-readonly-key",
   };
 
   test("all providers show as configured", () => {

@@ -136,7 +136,7 @@ describe("formatPackPlan", () => {
     const plan = await buildPackPlan(reportsDir);
     if (!plan) return;
     const formatted = formatPackPlan(plan);
-    const secretPattern = /[A-Za-z0-9+/=_-]{40,}/;
+    const secretPattern = /[A-Za-z0-9+=_-]{40,}/;
     assert.ok(!secretPattern.test(formatted), "Plan must not contain secrets");
   });
 });

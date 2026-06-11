@@ -41,6 +41,14 @@ describe("llm output validator", () => {
     assert.equal(validateLlmOutput({ ...VALID, riskLevel: "nuclear" }).ok, false);
   });
 
+  it("rejects domains outside the allowlist", () => {
+    assert.equal(validateLlmOutput({ ...VALID, domain: "world_domination" }).ok, false);
+    assert.equal(validateLlmOutput({ ...VALID, domain: "Finance" }).ok, false);
+    for (const domain of ["finance", "fitness", "ops", "factory", "general"]) {
+      assert.equal(validateLlmOutput({ ...VALID, domain }).ok, true);
+    }
+  });
+
   it("rejects token-like strings in fields", () => {
     const leaked = "key is sk-" + "a".repeat(28);
     assert.equal(validateLlmOutput({ ...VALID, summary: leaked }).ok, false);
