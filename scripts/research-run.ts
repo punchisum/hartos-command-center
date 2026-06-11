@@ -16,6 +16,7 @@ import { planResearch } from "../src/research/research-planner.js";
 import { gatherSources } from "../src/research/research-gatherer.js";
 import { buildLlmSourceFetcher, researchGatherArmed, RESEARCH_GATHER_FLAG } from "../src/research/run-research-gather.js";
 import { buildWebSourceFetcher } from "../src/research/research-web.js";
+import { buildGeminiSourceFetcher } from "../src/research/research-gemini.js";
 import { synthesizeResearch, summarizeDossier } from "../src/research/research-synthesis.js";
 import { researchDossierNote } from "../src/research/research-dossier-note.js";
 import { writeObsidianNote } from "../src/obsidian/obsidian-writer.js";
@@ -38,7 +39,8 @@ export async function runResearch(question: string, env: Record<string, string |
   const plan = planResearch(question);
   const cfg = resolveLlmConfig(env);
   const armed = researchGatherArmed(env);
-  const mode = (env["HARTOS_RESEARCH_MODE"] ?? "llm").trim().toLowerCase() === "web" ? "web" : "llm";
+  const modeRaw = (env["HARTOS_RESEARCH_MODE"] ?? "llm").trim().toLowerCase();
+  const mode = modeRaw === "gemini" ? "gemini" : modeRaw === "web" ? "web" : "llm";
 
   push(`\n=== Research run (read-only, propose-only) ===`);
   push(`Question: ${plan.question}`);
@@ -50,9 +52,11 @@ export async function runResearch(question: string, env: Record<string, string |
   // Gather within the Research Agent's declared boundary (network + LLM are declared/gated there).
   // mode=web uses real web search (cited URLs → high confidence); mode=llm uses model knowledge.
   const fetcher =
-    mode === "web"
-      ? buildWebSourceFetcher({ topic: plan.question, now, env })
-      : buildLlmSourceFetcher({ topic: plan.question, now, env });
+    mode === "gemini"
+      ? buildGeminiSourceFetcher({ topic: plan.question, now, env })
+      : mode === "web"
+        ? buildWebSourceFetcher({ topic: plan.question, now, env })
+        : buildLlmSourceFetcher({ topic: plan.question, now, env });
   const gathered = await gatherSources(plan, { boundary: RESEARCH_AGENT_SPEC.boundary, fetcher, now, armed });
   push(`\nGathering:`);
   for (const n of gathered.notes) push(`  - ${n}`);
