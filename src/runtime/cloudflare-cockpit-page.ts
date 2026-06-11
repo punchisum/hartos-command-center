@@ -1089,6 +1089,50 @@ function diagnosticsBox(d?: HostedPageOptions["diagnostics"]): string {
   );
 }
 
+/**
+ * Exception Feed (Human OS Doctrine §10 — command-by-exception). The FACE of the cockpit: a calm
+ * line when nothing needs Hart, a bright list when something does. The autonomy line is honest about
+ * the loop (internal-reversible hygiene self-heals via the autoheal-gate; the pulse stamp is real).
+ * Server-rendered + fully escaped + readable with NO JS; the Approve/Reject controls reuse the
+ * existing gated /api/proposals/transition handler (.pact/.pbtn), so approving only AUTHORIZES
+ * (→ simulated_approved) — it never fires an external/irreversible action from the cockpit.
+ */
+function exceptionFeed(props: ProposalsView, pulseRuns: PulseRun[] | undefined, now: string): string {
+  const pending = props.available ? props.proposals.filter((p) => p.status === "pending_approval") : [];
+  const m = pending.length;
+  const accent = m > 0 ? "var(--amber)" : "var(--green)";
+  const headline =
+    m > 0
+      ? `<span style="color:var(--amber)">&#9888; ${m} need${m === 1 ? "s" : ""} you</span>`
+      : `<span style="color:var(--green)">&#10003; All clear — nothing needs your decision</span>`;
+  const last = pulseRuns && pulseRuns.length ? pulseRuns[0]! : null;
+  const pulseLine = last
+    ? `autonomy on the loop · last pulse ${esc(String(last.verdict))} · ${esc(String(last.findingCount))} finding(s) · ${esc(relTime(last.at, now))}`
+    : "autonomy on the loop · internal-reversible hygiene self-heals on the pulse (autoheal-gate)";
+  const cards = pending
+    .slice(0, 6)
+    .map((p) => {
+      const actions = `<span class="pact" data-pid="${esc(p.id)}"><button class="pbtn ok" data-act="approve">Approve</button><button class="pbtn no" data-act="reject">Reject</button></span>`;
+      return (
+        `<div class="li" style="display:block;border-top:1px solid var(--line2);padding-top:7px;margin-top:7px">` +
+        `<div><b>${esc(p.title)}</b> <span class="tag">${esc(p.domain)}</span><span class="tag pend">${esc(p.riskLevel)} risk</span></div>` +
+        `<div class="muted" style="margin-top:3px">${esc(p.effect)}</div>` +
+        `<div class="muted" style="margin-top:2px">&#8635; ${esc(p.whyApprove)}</div>` +
+        `<div style="margin-top:6px">${actions}</div>` +
+        `</div>`
+      );
+    })
+    .join("");
+  return (
+    `<section class="box" style="border-left:3px solid ${accent}">` +
+    `<div class="blbl">Exception Feed</div>` +
+    `<div style="font-size:15px;font-weight:600;margin:2px 0 4px">${headline}</div>` +
+    `<div class="muted">&#10003; ${esc(pulseLine)}</div>` +
+    (m > 0 ? `<div style="margin-top:6px">${cards}</div>` : "") +
+    `</section>`
+  );
+}
+
 export function renderHostedCockpitPage(state: CockpitState | undefined, opts: HostedPageOptions = {}): string {
   const now = opts.now ?? opts.generatedAt ?? state?.generatedAt ?? "";
   const brief = routeHosted(state, "Daily command brief");
@@ -1195,7 +1239,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const overview = viewBlock(
     "overview",
     true,
-    renderStatusStrip(statusSplit) +
+    exceptionFeed(props, opts.pulseRuns, now) +
+      renderStatusStrip(statusSplit) +
       sec("Today's Decisions") + decisionsHero(decisionBrief) +
       sec("Executive Brief") + heroSection(sbrief, overall, sysTone, topApproval) +
       sec("Fleet") + fleetSection +
@@ -1278,6 +1323,13 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     if(d.routing){head+='\\u25B8 '+(d.routing.selectedAgentName||d.routing.selectedAgent||'Orchestrator')+' \\u00B7 '+(d.routing.mode||'')+' \\u00B7 '+(d.routing.confidence||'')+' confidence\\n';}
     if(typeof d.usedLlm!=='undefined'){head+=(d.usedLlm?'\\u25CF live LLM ('+(d.provider||'')+')':'\\u25CB deterministic'+(d.fallbackReason&&d.fallbackReason!=='none'?' ['+d.fallbackReason+']':'')+(d.gateReason?' \\u2014 '+d.gateReason:''))+'\\n';}
     var s=head+(head?'\\n':'')+(d.title?d.title+'\\n\\n':'')+(d.summary||'');
+    if(d.concierge){var c=d.concierge;
+      s+='\\n\\n\\u2014 chief of staff \\u2014';
+      if(c.autonomy&&c.autonomy.label){s+='\\n'+c.autonomy.label+(c.autoExecutableNow?' \\u00b7 auto, no approval':(c.requiresHumanApproval?' \\u00b7 needs your approval':''));}
+      if(c.whatMatters){s+='\\nwhat matters: '+c.whatMatters;}
+      if(c.recommendedNextAction){s+='\\nnext: '+c.recommendedNextAction;}
+      if(c.risks&&c.risks.length){s+='\\nrisk: '+c.risks.join(' \\u00b7 ');}
+    }
     if(d.jobCreated){s+='\\n\\n\\u2295 gated job created: '+d.jobCreated.title+' \\u2014 '+(d.jobCreated.persisted?d.jobCreated.reason:('not persisted: '+d.jobCreated.reason));}
     else if(d.routing){
       if(d.routing.requiresLocalRunner){s+='\\n\\n\\u2699 requires a local runner \\u2014 '+(d.routing.fallback||'');}

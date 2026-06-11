@@ -66,6 +66,7 @@ import { augmentGroundingWithDecisions } from "../llm/ask-decision-grounding.js"
 import { buildCockpitState } from "../cockpit/cockpit-read-model.js";
 import { composeKnowledgeSurface, deriveKnowledgeInputs, type KnowledgeSurface } from "../cockpit/knowledge-surface.js";
 import { routeCockpitCommand } from "../cockpit/command-router.js";
+import { decide, autonomyTierLabel, type ConciergeDecision } from "../cockpit/decision-engine.js";
 import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { jobSpecFromRoute, buildAgentJobProposal } from "../jobs/agent-job.js";
 import {
@@ -633,6 +634,7 @@ export async function handleCockpitRequest(
             executable: false as const,
           })),
           persistence,
+          concierge: conciergeBlock(validation.value),
           actionExecution: ACTION_EXECUTION,
           mutationEndpoints: MUTATION_ENDPOINTS,
         },
@@ -659,6 +661,7 @@ export async function handleCockpitRequest(
         riskLevel: out.riskLevel,
         nextAction: out.nextAction,
         summary: out.summary,
+        concierge: conciergeBlock(validation.value),
         actionExecution: ACTION_EXECUTION,
         mutationEndpoints: MUTATION_ENDPOINTS,
       },
@@ -672,6 +675,42 @@ export async function handleCockpitRequest(
 /** Resolve the ISO "now" for freshness — the snapshot's generation time. */
 function nowFor(ctx: CockpitWorkerContext): string {
   return ctx.generatedAt ?? ctx.state?.generatedAt ?? "";
+}
+
+/**
+ * Human OS Doctrine §10 — the CONCIERGE block. The decision engine's verdict, serialised for the
+ * cockpit: which of the seven terminals this resolves to, the autonomy tier (Tier 0..4), whether it
+ * runs now or waits for a gate, and the concierge sections (what matters / next action / risks /
+ * opportunities / capability gaps). Pure + read-only + ADDITIVE — it changes no existing response
+ * field and executes nothing. Surfaced so every message reads like a chief-of-staff reply, not a
+ * dashboard row.
+ */
+function conciergeBlock(request: string): Record<string, unknown> {
+  const d: ConciergeDecision = decide(request);
+  return {
+    terminal: d.terminal,
+    interpretation: d.interpretation,
+    domain: d.domain,
+    autonomy: {
+      tier: d.autonomy.tier,
+      tierNumber: d.autonomy.tierNumber,
+      label: autonomyTierLabel(d.autonomy.tier),
+      floorApplied: d.autonomy.floorApplied,
+      defaultedUp: d.autonomy.defaultedUp,
+      rationale: d.autonomy.rationale,
+    },
+    proposalTier: d.proposalTier,
+    autohealGoverned: d.autohealGoverned,
+    autoExecutableNow: d.autoExecutableNow,
+    requiresHumanApproval: d.requiresHumanApproval,
+    wouldAutoRunWhenTier1Enabled: d.wouldAutoRunWhenTier1Enabled,
+    whatMatters: d.whatMatters,
+    recommendedNextAction: d.recommendedNextAction,
+    risks: d.risks,
+    opportunities: d.opportunities,
+    capabilityGaps: d.capabilityGaps,
+    proposal: d.proposal,
+  };
 }
 
 /** Routes that render read-model data; only these trigger a live resolve. */
