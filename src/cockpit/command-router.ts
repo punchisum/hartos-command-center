@@ -46,6 +46,9 @@ const MUTATION_RE = /\b(approve|reject|archive|expire|run\s+sync|sync\s+now|refr
 const CREATE_AGENT_RE = /\b(create|build|plan|spec|make)\b[^.?!]*\bagent\b/i;
 const ORG_RE = /\b(org(?:ani[sz]ation)?\s*(chart|structure)?|show\s+(me\s+)?(my\s+)?agents|which\s+agents|agents?\s+(are\s+)?(alive|live|cli|cli-only|callable)|fleet\s+(chart|structure)|command\s+structure|meta[- ]?agents?)\b/i;
 const CAPABILITIES_RE = /\b(what\s+can\s+hartos\s+do|what\s+can\s+you\s+do|capabilities?\s+(do\s+you|of\s+hartos)|what'?s\s+cli[- ]?only)\b/i;
+// "run a report" → a gated, runner-executed HartOS STATE report. Excludes a "research report"
+// (that routes to the Research agent) — checked at the call site via a research/dossier guard.
+const REPORT_RE = /\b(state|status|system|executive|weekly|hartos)\s+report\b|\b(run|generate|produce|create|give\s+me|file)\s+(me\s+)?(a\s+|an\s+|the\s+)?(hartos\s+|state\s+|status\s+|weekly\s+|executive\s+)?report\b|\bweekly\s+review\b/i;
 
 /** A keyword→agent matcher with a read-only vs action discriminator. */
 interface AgentMatcher {
@@ -96,6 +99,27 @@ export function routeCockpitCommand(request: string, reg: MetaAgentRegistry = re
   if (ORG_RE.test(lower) || CAPABILITIES_RE.test(lower)) {
     const orch = reg.byId["orchestrator"];
     return { ...base, intentClass: "organisation", selectedAgentId: "orchestrator", selectedAgentName: orch?.displayName ?? "Orchestrator", selectedMode: "organisation", reason: "asks about the agent organisation / what HartOS can do", confidence: "high", directAnswerPossible: true, needsProposal: false, needsApproval: false, requiresLocalRunner: false, capabilityStatus: "live", fallback: "" };
+  }
+
+  // 1.5) "Run a report" → a gated, runner-executed HartOS state report (the cockpit creates an
+  //      agent_job; the local runner generates + files it). Excludes a research report (→ research).
+  if (REPORT_RE.test(lower) && !/\bresearch\b|\bdossier\b/.test(lower)) {
+    const orch = reg.byId["orchestrator"];
+    return {
+      ...base,
+      intentClass: "meta_agent_invocation",
+      selectedAgentId: "orchestrator",
+      selectedAgentName: orch?.displayName ?? "HartOS Command / Orchestrator",
+      selectedMode: "report",
+      reason: "run a HartOS state report (gated agent job; the local runner generates + files it)",
+      confidence: "high",
+      directAnswerPossible: false,
+      needsProposal: true,
+      needsApproval: false,
+      requiresLocalRunner: true,
+      capabilityStatus: statusOf(orch),
+      fallback: "Becomes a gated report job; on approval the local runner generates + files it. The cockpit never executes.",
+    };
   }
 
   // 2) Named-agent / domain match → read-only vs action, honesty from the registry.

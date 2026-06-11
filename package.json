@@ -127,6 +127,8 @@
     "agent:research-trial": "node dist/scripts/research-agent-trial.js",
     "preresearch:run": "npm run build",
     "research:run": "node --env-file-if-exists=.env.local dist/scripts/research-run.js",
+    "prereport:run": "npm run build",
+    "report:run": "node --env-file-if-exists=.env.local dist/scripts/report-run.js",
     "preresearch:file-to-vault": "npm run build",
     "research:file-to-vault": "node --env-file-if-exists=.env.local dist/scripts/research-file-to-vault.js",
     "preobsidian:mocs": "npm run build",

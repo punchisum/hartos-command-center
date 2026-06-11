@@ -18,6 +18,7 @@ import { pathToFileURL } from "node:url";
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
 import { runBeezulbubHunt } from "./beezulbub-hunt.js";
 import { runResearch } from "./research-run.js";
+import { runReport } from "./report-run.js";
 import { runMemoryCapture } from "./cockpit-memory-capture.js";
 import { isAgentJobKind, sanitizeJobArg, type AgentJobKind } from "../src/jobs/agent-job.js";
 import { redact } from "../src/llm/redaction.js";
@@ -46,6 +47,12 @@ async function executeJob(kind: AgentJobKind, arg: string, env: Record<string, s
     case "research.brief": {
       const r = await runResearch(arg || "scope this request", env, now);
       return { ok: true, detail: r.lines.slice(-3).join(" | ").slice(0, 300) };
+    }
+    case "report": {
+      // Deterministic HartOS state report; files to the vault when ALLOW_OBSIDIAN_WRITE is armed
+      // (an unarmed writer is an honest skip inside runReport — the job still counts as executed).
+      const r = await runReport(arg, env, now);
+      return { ok: true, detail: r.lines.slice(-2).join(" | ").slice(0, 300) };
     }
     case "memory.capture": {
       const r = await runMemoryCapture(env, now);

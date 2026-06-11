@@ -22,6 +22,7 @@ export const AGENT_JOB_KINDS = [
   "research.brief",
   "memory.capture",
   "rinnegan.sync",
+  "report",
 ] as const;
 
 export type AgentJobKind = (typeof AGENT_JOB_KINDS)[number];
@@ -65,6 +66,15 @@ export interface AgentJobSpec {
 /** Map a routing decision to a runnable job spec; null when the route isn't runner-executable. */
 export function jobSpecFromRoute(route: RoutingDecision): AgentJobSpec | null {
   const arg = route.request.replace(/^[^,]*,\s*/, "").trim(); // strip a leading "Agent," prefix
+  // A report is mode-keyed (any agent may originate it), so handle it before the agent switch.
+  if (route.selectedMode === "report") {
+    return {
+      kind: "report",
+      arg,
+      localCommand: `npm run report:run -- "${arg || "HartOS state report"}"`,
+      gates: ["ALLOW_OBSIDIAN_WRITE (to file the report to the vault)"],
+    };
+  }
   switch (route.selectedAgentId) {
     case "beezulbub":
       if (route.selectedMode !== "hunt") return null;
