@@ -29,10 +29,12 @@ export const COCKPIT_ENV_VARS: string[] = [
   "HARTOS_COCKPIT_REQUIRE_AUTH",
   "HARTOS_COCKPIT_DEV_AUTH_BYPASS",
   "APP_ENV",
-  // LLM gateway (network gated)
+  // LLM gateway (network gated) — Gemini primary, OpenAI fallback
   "HARTOS_LLM_PROVIDER",
   "HARTOS_LLM_MODEL",
+  "HARTOS_GEMINI_MODEL",
   "HARTOS_LLM_ENABLE_NETWORK",
+  "GEMINI_API_KEY",
   "OPENAI_API_KEY",
   // Read-only Supabase read models
   "HARTOS_OPS_SUPABASE_URL",

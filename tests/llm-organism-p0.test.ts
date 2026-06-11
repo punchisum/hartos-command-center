@@ -57,7 +57,7 @@ describe("P0-A classifyDomain — honest, request-only", () => {
 
 describe("P0-B explainGate — the gate is never a silent mystery", () => {
   it("gives the EXACT, actionable reason for each disarmed branch + armed", () => {
-    assert.equal(explainGate(cfg({ provider: "deterministic" })).reason, 'provider is "deterministic" (set HARTOS_LLM_PROVIDER=openai)');
+    assert.equal(explainGate(cfg({ provider: "deterministic" })).reason, 'provider is "deterministic" (set HARTOS_LLM_PROVIDER=gemini or openai)');
     assert.equal(explainGate(cfg({ networkEnabled: false })).reason, "network disabled (set HARTOS_LLM_ENABLE_NETWORK=true)");
     assert.equal(explainGate(cfg({ apiKeyPresent: false })).reason, "OPENAI_API_KEY not present in env");
     const armed = explainGate(cfg());

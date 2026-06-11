@@ -10,7 +10,7 @@
  * cockpit and CLIs work fully offline.
  */
 
-export type LlmProviderMode = "deterministic" | "openai";
+export type LlmProviderMode = "deterministic" | "openai" | "gemini";
 export type LlmConfidence = "low" | "medium" | "high";
 export type LlmRiskLevel = "low" | "medium" | "high";
 
@@ -25,18 +25,30 @@ export type LlmRequestType =
 
 /** Resolved view of how the gateway is configured. */
 export interface LlmGatewayConfig {
+  /** The PRIMARY provider (the one tried first). gemini → openai → deterministic is the chain. */
   provider: LlmProviderMode;
+  /** The primary provider's model (Gemini's when provider=gemini, else OpenAI's). */
   model: string;
-  /** Hard gate: OpenAI is never called unless this is true. */
+  /** Hard gate: no network provider is ever called unless this is true. */
   networkEnabled: boolean;
-  /** Whether OPENAI_API_KEY is present — the boolean view, safe to surface. */
+  /** Whether the PRIMARY provider's key is present — the boolean view, safe to surface. */
   apiKeyPresent: boolean;
+  /** Whether OPENAI_API_KEY is present (used as the OpenAI-fallback eligibility + research path). */
+  openaiKeyPresent?: boolean;
+  /** Whether GEMINI_API_KEY is present (primary-eligibility when provider=gemini). */
+  geminiKeyPresent?: boolean;
+  /** The OpenAI model (default DEFAULT_MODEL); used when OpenAI runs as primary or fallback. */
+  openaiModel?: string;
+  /** The Gemini model (default DEFAULT_GEMINI_MODEL); used when Gemini runs. */
+  geminiModel?: string;
   /**
-   * The resolved key, threaded from the Worker `env` so the provider reaches it even when
+   * The resolved OpenAI key, threaded from the Worker `env` so the provider reaches it even when
    * `process.env` is empty (the nodejs_compat secret-binding gap that silently disarmed the LLM).
    * NEVER log, serialize, or return this. Read by the OpenAI provider only. Omitted when absent.
    */
   apiKey?: string;
+  /** The resolved Gemini key, threaded the same way. NEVER log/serialize. Read by the Gemini provider only. */
+  geminiApiKey?: string;
 }
 
 export interface LlmRequest {
@@ -60,7 +72,7 @@ export interface LlmStructuredOutput {
 }
 
 /** How the result was actually produced. */
-export type LlmMode = "deterministic" | "openai" | "fallback";
+export type LlmMode = "deterministic" | "openai" | "gemini" | "fallback";
 
 export interface LlmResult {
   output: LlmStructuredOutput;

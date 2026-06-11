@@ -77,9 +77,11 @@ const WEB_RESEARCH_PREAMBLE =
 /** A web-search inference fn (Responses API + web_search tool). Gated; null on any miss/error. */
 export function buildWebResearchInfer(env: Env = process.env): WebInfer {
   const cfg = resolveLlmConfig(env);
-  const model = env["HARTOS_RESEARCH_WEB_MODEL"]?.trim() || cfg.model;
+  // Web search is an OpenAI Responses-API feature, so it runs on the OpenAI key + model regardless
+  // of which provider is PRIMARY for general reasoning (Gemini primary ⇒ OpenAI still powers research).
+  const model = env["HARTOS_RESEARCH_WEB_MODEL"]?.trim() || cfg.openaiModel || cfg.model;
   return async (subQuestion, topic) => {
-    if (cfg.provider !== "openai" || !cfg.networkEnabled || !cfg.apiKeyPresent) return null;
+    if (!cfg.networkEnabled || !cfg.openaiKeyPresent) return null;
     const apiKey = (env["OPENAI_API_KEY"] ?? "").trim();
     if (!apiKey) return null;
 

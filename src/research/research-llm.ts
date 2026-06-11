@@ -41,13 +41,16 @@ const RESEARCH_SYSTEM_PROMPT = [
  */
 export function buildResearchInfer(env: Env = process.env): ResearchInfer {
   const cfg = resolveLlmConfig(env);
+  // The model-knowledge research path is an OpenAI chat call; it runs on the OpenAI key + model
+  // regardless of which provider is PRIMARY for general reasoning.
+  const model = cfg.openaiModel ?? cfg.model;
   return async (subQuestion, topic) => {
-    if (cfg.provider !== "openai" || !cfg.networkEnabled || !cfg.apiKeyPresent) return null;
+    if (!cfg.networkEnabled || !cfg.openaiKeyPresent) return null;
     const apiKey = (env["OPENAI_API_KEY"] ?? "").trim();
     if (!apiKey) return null;
 
     const body: Record<string, unknown> = {
-      model: cfg.model,
+      model,
       messages: [
         { role: "system", content: RESEARCH_SYSTEM_PROMPT },
         { role: "user", content: redact(`Topic: ${topic}\nResearch sub-question: ${subQuestion}\n\nWrite a thorough, specific answer.`) },
