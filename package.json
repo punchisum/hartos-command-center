@@ -129,6 +129,8 @@
     "research:run": "node --env-file-if-exists=.env.local dist/scripts/research-run.js",
     "prereport:run": "npm run build",
     "report:run": "node --env-file-if-exists=.env.local dist/scripts/report-run.js",
+    "preorchestrate:run": "npm run build",
+    "orchestrate:run": "node --env-file-if-exists=.env.local dist/scripts/auto-orchestrate.js",
     "preresearch:file-to-vault": "npm run build",
     "research:file-to-vault": "node --env-file-if-exists=.env.local dist/scripts/research-file-to-vault.js",
     "preobsidian:mocs": "npm run build",
