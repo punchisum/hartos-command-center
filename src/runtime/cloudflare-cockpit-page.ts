@@ -62,6 +62,7 @@ import { synthesizeDecisions, type DecisionBrief } from "../cockpit/decision-syn
 import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { renderAgentOrgPanel, renderStatusStrip } from "./views/agent-org-view.js";
 import { computeStatusSplit } from "../cockpit/status-split.js";
+import { V3_STYLE, bootOverlayHtml, coreStatusHtml, fleetTopologyHtml, v3ClientScript } from "./views/cockpit-v3-fx.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
@@ -382,12 +383,14 @@ a{color:var(--primary)}
 // ─── Shared shell + small helpers ─────────────────────────────────────────────
 
 function shell(title: string, bodyHtml: string): string {
+  // V3_STYLE rides after STYLE so the JARVIS skin/motion layer wins the cascade on every
+  // surface (cockpit, agent detail, login, locked) without touching the structural rules.
   return (
     "<!doctype html>" +
     `<html lang="en"><head><meta charset="utf-8">` +
     `<meta name="viewport" content="width=device-width, initial-scale=1">` +
     `<meta name="robots" content="noindex, nofollow">` +
-    `<title>${esc(title)}</title><style>${STYLE}</style></head>` +
+    `<title>${esc(title)}</title><style>${STYLE}${V3_STYLE}</style></head>` +
     `<body>${bodyHtml}</body></html>`
   );
 }
@@ -1177,6 +1180,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     voiceInputButtonHtml() +
     `<button class="send" id="ask" type="submit" title="Ask HartOS" style="width:26px;height:26px;border:none;border-radius:7px;background:var(--primary);color:#fff;cursor:pointer">&#10148;</button></form>` +
     `<div class="grow"></div>` +
+    coreStatusHtml(sysTone, overall) +
     `<span class="pill ${sysTone}"><span class="dot ${sysTone}"></span>${esc(overall.toUpperCase())}</span>` +
     `<span class="tstamp${stampTone}" title="data as of ${esc(dataAt || "unknown")}">⟳ ${esc(relTime(dataAt, renderAt))}</span>` +
     `</div>` +
@@ -1204,7 +1208,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   const agentsView = viewBlock(
     "agents",
     false,
-    renderStatusStrip(statusSplit) + renderAgentOrgPanel(metaReg),
+    // V3 — the fleet as a living network (real registry edges/statuses), above the org panel.
+    renderStatusStrip(statusSplit) + fleetTopologyHtml(metaReg) + renderAgentOrgPanel(metaReg),
   );
   const intelligenceView = viewBlock(
     "intelligence",
@@ -1232,8 +1237,17 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
       `</div>`,
   );
 
+  // V3 boot sequence — honest per-agent statuses from the live registry (never fabricated),
+  // shown once per session, skippable, reduced-motion-safe, CSS-auto-dismissed without JS.
+  const bootLines = ["orchestrator", "fitness", "ops", "research", "factory", "wolverine", "prophet", "beezulbub"]
+    .map((id) => metaReg.byId[id])
+    .filter((a): a is NonNullable<typeof a> => Boolean(a))
+    .map((a) => ({ label: a.displayName, status: a.status }));
+
   const body =
     `<a class="skip" href="#main">Skip to content</a>` +
+    bootOverlayHtml(bootLines) +
+    `<div class="v3beam" aria-hidden="true"></div>` +
     `<div class="app2">${railV2(pending)}<main id="main" tabindex="-1">` +
     topbar +
     overview + agentsView + intelligenceView + approvalsView + technicalView +
@@ -1362,7 +1376,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
     askNav.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();openK();}});
   }
 })();
-</script>`;
+</script>` +
+    v3ClientScript();
   return shell("HartOS Command Center", body);
 }
 
