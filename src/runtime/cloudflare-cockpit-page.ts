@@ -63,9 +63,12 @@ import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { renderAgentOrgPanel, renderStatusStrip } from "./views/agent-org-view.js";
 import { computeStatusSplit } from "../cockpit/status-split.js";
 import { V3_STYLE, bootOverlayHtml, coreStatusHtml, fleetTopologyHtml, v3ClientScript, flightHotkeysScript } from "./views/cockpit-v3-fx.js";
+import { SYNAPSE_STYLE, synapseConstellation, synapseClientScript, type SynapseDecision } from "./views/cockpit-synapse.js";
 
 export interface HostedPageOptions {
   runtimeMode?: string;
+  /** Cockpit V4 "Synapse" — render the neural-constellation command home (flag-gated; Worker passes env). */
+  v4?: boolean;
   generatedAt?: string | null;
   /** ISO now used for freshness; defaults to the snapshot generatedAt. */
   now?: string;
@@ -390,7 +393,7 @@ function shell(title: string, bodyHtml: string): string {
     `<html lang="en"><head><meta charset="utf-8">` +
     `<meta name="viewport" content="width=device-width, initial-scale=1">` +
     `<meta name="robots" content="noindex, nofollow">` +
-    `<title>${esc(title)}</title><style>${STYLE}${V3_STYLE}</style></head>` +
+    `<title>${esc(title)}</title><style>${STYLE}${V3_STYLE}${SYNAPSE_STYLE}</style></head>` +
     `<body>${bodyHtml}</body></html>`
   );
 }
@@ -1248,9 +1251,61 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
 
   // ── Views (UI v2 IA: Overview · Agent Organisation · Intelligence · Approvals · Technical) ──
   // Overview = CEO cockpit (command clarity). Technical = diagnostics. Every box still renders.
+  // ── Cockpit V4 "SYNAPSE" home (flag-gated): the neural-constellation command surface ──
+  // Decisions are the brightest nodes (primary); agents are stars (implementation detail). Reuses the
+  // same data + the gated .pact/.pbtn delegate + the .node[data-agent] drawer. Default (no flag) = V3.
+  const synDecisions: SynapseDecision[] = (props.available ? props.proposals.filter((p) => p.status === "pending_approval") : [])
+    .slice(0, 6)
+    .map((p) => ({ pid: p.id, title: p.title, domain: p.domain }));
+  const sBand = statusSplit.systemBand;
+  const sTone: Tone = sBand === "green" ? "g" : sBand === "amber" ? "a" : sBand === "red" ? "r" : "i";
+  const sWord = sBand === "green" ? "GREEN" : sBand === "amber" ? "AMBER" : sBand === "red" ? "RED" : "STANDBY";
+  const handledN = props.available ? Math.max(0, props.total - props.pending) : 0;
+  const pendN = props.available ? props.pending : 0;
+  const lastPulse = opts.pulseRuns && opts.pulseRuns.length ? opts.pulseRuns[0]! : null;
+  const decPanels = synDecisions.length
+    ? synDecisions
+        .map((d) => {
+          const p = props.proposals.find((x) => x.id === d.pid)!;
+          return (
+            `<div class="dec" id="dec-${esc(d.pid)}" tabindex="0">` +
+            `<div class="dcall">▸ FLIGHT, this is ${esc(d.domain)} — recommend</div>` +
+            `<div class="dttl">${esc(p.title)}</div>` +
+            `<div class="dwhy">${esc(p.effect)}<br><b>✓ GO:</b> ${esc(p.whyApprove)}</div>` +
+            `<span class="pact" data-pid="${esc(p.id)}"><button class="pbtn go" data-act="approve">GO</button><button class="pbtn nogo" data-act="reject">NO-GO</button></span>` +
+            `</div>`
+          );
+        })
+        .join("")
+    : `<div class="syn-empty">✓ LOOP NOMINAL — the constellation is calm. Nothing needs your decision.</div>`;
+  const oppLane =
+    sbrief.status === "ok" && sbrief.opportunities.length
+      ? sbrief.opportunities.slice(0, 3).map((o) => `<div class="li"><span><b>${esc(o.opportunity)}</b><br><span class="muted">${esc(o.suggestedAction)}</span></span></div>`).join("")
+      : `<div class="muted">No opportunities above threshold.</div>`;
+  const handledLane =
+    (lastPulse ? `<div class="li">✓ ran the ${esc(relTime(lastPulse.at, renderAt))} pulse — ${esc(String(lastPulse.verdict))}</div>` : `<div class="muted">No pulse recorded yet.</div>`) +
+    (props.available && props.staleExpired > 0 ? `<div class="li">✓ ${props.staleExpired} past-expiry proposal(s) flagged for cleanup</div>` : "") +
+    (props.available && props.duplicates > 0 ? `<div class="li">✓ ${props.duplicates} duplicate(s) detected</div>` : "");
+  const synapseHome =
+    `<div class="syn-wrap">` +
+    `<div class="syn-verdict"><span class="syn-vbig syn-${sTone}">${esc(sWord)}</span>` +
+    `<span class="syn-vline">system ${sBand === "green" ? "nominal" : esc(sBand)} · <b>${pendN}</b> need you · <b>${handledN}</b> handled · data ${esc(relTime(dataAt, renderAt))}</span></div>` +
+    `<div class="syn-hero">` +
+    synapseConstellation(metaReg, synDecisions) +
+    `<div class="syn-decs"><div class="seclbl">Decisions <span class="n">${pendN} await your GO</span><span class="ln"></span></div>` +
+    decPanels +
+    `</div></div>` +
+    `<div class="syn-lanes">` +
+    box("What HartOS handled", handledLane) +
+    box("Opportunities", oppLane) +
+    `</div>` +
+    renderStatusStrip(statusSplit) +
+    `</div>`;
+
   const overview = viewBlock(
     "overview",
     true,
+    opts.v4 ? synapseHome : (
     exceptionFeed(props, opts.pulseRuns, now) +
       // THE BIG BOARD — the COP fleet topology Hart faces (Flight Bridge). Promoted from the Agents
       // view to the hero of the Overview: core at center, the fleet in formation, edges flowing only
@@ -1264,7 +1319,7 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
       sec("Autopilot Pulse") + lastPulseBox(opts.pulseRuns, renderAt) +
       sec("Approval Queue") + approvalSummaryBox(props) +
       sec("Today's Focus") + focusSection(suggestions) +
-      sec("Strategic Awareness") + awarenessSection(sbrief),
+      sec("Strategic Awareness") + awarenessSection(sbrief)),
   );
   const agentsView = viewBlock(
     "agents",
@@ -1457,7 +1512,8 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
 })();
 </script>` +
     v3ClientScript() +
-    flightHotkeysScript();
+    flightHotkeysScript() +
+    synapseClientScript();
   return shell("HartOS Command Center", body);
 }
 

@@ -299,7 +299,7 @@ export async function handleCockpitRequest(
         vaultNotesSynced,
         version: (env["BUILD_SHA"] ?? null) as string | null,
       };
-      return htmlResponse(hostedHtml(dctx, threads ?? undefined, knowledge, diagnostics, pulseRuns ?? undefined), cors);
+      return htmlResponse(hostedHtml(dctx, threads ?? undefined, knowledge, diagnostics, pulseRuns ?? undefined, env["HARTOS_COCKPIT_V4"] === "true"), cors);
     }
     if (pathname === "/api/state") {
       return jsonResponse(200, dctx.state ?? { hosted: true, note: "snapshot not embedded" }, cors);
@@ -801,9 +801,11 @@ function hostedHtml(
   knowledge?: KnowledgeSurface,
   diagnostics?: HostedPageOptions["diagnostics"],
   pulseRuns?: PulseRun[],
+  v4?: boolean,
 ): string {
   return renderHostedCockpitPage(ctx.state, {
     runtimeMode: ctx.runtimeMode ?? "hosted",
+    ...(v4 ? { v4: true } : {}),
     generatedAt: ctx.generatedAt ?? ctx.state?.generatedAt ?? null,
     now: nowFor(ctx),
     // Real wall-clock render time so the topbar shows the TRUE data age, not a perpetual "just now".
