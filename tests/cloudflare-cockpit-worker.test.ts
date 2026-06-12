@@ -47,6 +47,30 @@ describe("cloudflare cockpit worker", () => {
     assert.ok(Array.isArray(data.cards));
   });
 
+  it("GET /api/v5 RESOLVES the live state — proposals from state appear (regression: /api/v5 must be a LIVE_DATA_ROUTE)", async () => {
+    // Root cause of the "decorative cockpit": /api/v5 (the 6s poll) was NOT in LIVE_DATA_ROUTES, so
+    // ensureLiveState skipped it → the poll returned a null-state payload → empty proposals + synthesis.
+    const proposal = {
+      id: "p-regression-test",
+      domain: "research",
+      title: "Run research.brief: regression",
+      status: "pending_approval",
+      riskLevel: "low",
+      description: "",
+      payload: { actionType: "agent_job", proposedPayload: { jobKind: "research.brief", jobArg: "x" } },
+    };
+    const live = { proposalQueue: [proposal], generatedAt: "2026-06-12T00:00:00.000Z", readModels: { summaries: [] } };
+    // state:undefined mimics the real per-request flow (the Worker resolves state via ensureLiveState).
+    const ctx2 = { ...ctx, state: undefined, liveStateProvider: (async () => live) as unknown as CockpitWorkerContext["liveStateProvider"] };
+    const res = await handleCockpitRequest(new Request(`${base}/api/v5`), {}, ctx2);
+    assert.equal(res.status, 200);
+    const data = (await res.json()) as { proposals: { realId: string }[] };
+    assert.ok(
+      data.proposals.some((p) => p.realId === "p-regression-test"),
+      "a proposal from the live state must appear in /api/v5 — else the poll wipes the cockpit every 6s",
+    );
+  });
+
   it("rejects unsupported methods with 405", async () => {
     for (const method of ["DELETE", "PUT", "PATCH"]) {
       const res = await handleCockpitRequest(new Request(`${base}/`, { method }), {}, ctx);

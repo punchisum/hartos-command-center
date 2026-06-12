@@ -803,6 +803,7 @@ function conciergeBlock(request: string): Record<string, unknown> {
 const LIVE_DATA_ROUTES = new Set<string>([
   "/",
   "/index.html",
+  "/api/v5", // the v5 cockpit's 6s poll — MUST resolve live state, else proposals + synthesis go empty
   "/api/state",
   "/api/freshness",
   "/api/read-models/status",
