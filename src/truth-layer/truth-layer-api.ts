@@ -72,3 +72,15 @@ export function assembleTruthReport(
   const fleet = assessFleetLiveness(registry, heartbeats, now);
   return computeFleetVerdict(fleet, { now, version: meta.version, builtAt: meta.builtAt, armedFlags: meta.armedFlags });
 }
+
+/**
+ * The share of ASSESSED capabilities with fresh evidence (0-100), derived from real liveness
+ * counts — not asserted catalog status. Honestly 0 (never a flattering 100) when nothing could
+ * be assessed. This is the truth-layer basis for the v5 cockpit's fleet-health figure, replacing
+ * the count of registry entries hand-marked "live".
+ */
+export function fleetHealthPercent(fleet: FleetLiveness): number {
+  const { up, assessed } = fleet.counts;
+  if (assessed <= 0) return 0;
+  return Math.round((up / assessed) * 100);
+}

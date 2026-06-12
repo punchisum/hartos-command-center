@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { computeFleetVerdict, assembleTruthReport } from "../src/truth-layer/truth-layer-api.js";
+import {
+  computeFleetVerdict,
+  assembleTruthReport,
+  fleetHealthPercent,
+} from "../src/truth-layer/truth-layer-api.js";
 import type { FleetLiveness } from "../src/sentinel/sentinel-liveness.js";
 import { resolveMetaAgentRegistry } from "../src/agents/meta-agent-registry.js";
 
@@ -63,4 +67,24 @@ test("assembleTruthReport marks the answering Worker up and stays ok when nothin
   assert.ok(cockpit, "cockpit verdict present");
   assert.equal(cockpit.state, "up"); // the Worker is answering ⇒ fresh self-evidence
   assert.equal(report.ok, true); // other agents are 'unknown' (AMBER), not down ⇒ still ok
+});
+
+function fleetWithCounts(c: FleetLiveness["counts"]): FleetLiveness {
+  return {
+    generatedAt: "2026-06-12T10:00:00.000Z",
+    verdicts: [],
+    counts: c,
+    overall: c.down > 0 ? "RED" : c.stale > 0 || c.unknown > 0 ? "AMBER" : "GREEN",
+    overallReason: "fixture",
+  };
+}
+
+test("fleetHealthPercent is the share of assessed capabilities with fresh evidence", () => {
+  const pct = fleetHealthPercent(fleetWithCounts({ up: 2, stale: 1, down: 0, unknown: 1, assessed: 4 }));
+  assert.equal(pct, 50);
+});
+
+test("fleetHealthPercent is 0 when nothing is assessed (honest, never a default 100)", () => {
+  const pct = fleetHealthPercent(fleetWithCounts({ up: 0, stale: 0, down: 0, unknown: 0, assessed: 0 }));
+  assert.equal(pct, 0);
 });
