@@ -154,7 +154,17 @@ export type ProposalQueueStatus =
   | "execution_failed"
   | "runtime_provisioned"
   | "rejected"
-  | "expired";
+  | "expired"
+  // Phase 4 (rollback) — undoing an executed mutation. A rollback proposal links to its original
+  // executed proposal (in the payload) and rides the SAME two-key path: the cockpit may set
+  // rollback_pending_approval / rollback_approved (Hart's Key 1 to undo); the Node executor ONLY
+  // advances rollback_executing → rollback_executed | rollback_failed. No new status CHECK exists
+  // (status is free text), so these need no migration — the payload carries the original link.
+  | "rollback_pending_approval"
+  | "rollback_approved"
+  | "rollback_executing"
+  | "rollback_executed"
+  | "rollback_failed";
 
 /** Status transitions writable ONLY by the Node execution host, never by the cockpit/Worker. */
 export const EXECUTOR_ONLY_STATUSES: readonly ProposalQueueStatus[] = [
@@ -162,6 +172,10 @@ export const EXECUTOR_ONLY_STATUSES: readonly ProposalQueueStatus[] = [
   "executed",
   "execution_failed",
   "runtime_provisioned",
+  // Rollback execution states — executor-only, exactly like their forward counterparts.
+  "rollback_executing",
+  "rollback_executed",
+  "rollback_failed",
 ];
 
 export interface ProposalAuditEvent {
