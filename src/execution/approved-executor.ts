@@ -24,6 +24,7 @@ import type { ProposalQueueItem } from "../cockpit/proposals/proposal-types.js";
 import { ADAPTER_ROUTE_KEY } from "../cockpit/suggestions/suggestion-to-mutation.js";
 import { EXECUTABLE_FROM } from "../doctrine/execution-gate.js";
 import type { MutationCommand, MutationAdapterId, DispatchResult, DispatchOptions } from "./execution-dispatch.js";
+import type { VerificationResult } from "./execution-verification.js";
 import type { ClickUpMoveStore } from "./adapters/clickup-move-status.js";
 import type { ClickUpCommentStore } from "./adapters/clickup-comment.js";
 import type { RejectDraftsStore } from "./adapters/reject-drafts.js";
@@ -66,6 +67,11 @@ export interface ExecuteOneResult {
   /** True only when a real write actually executed (the dispatch delta was non-null). */
   wrote: boolean;
   detail: string;
+  /**
+   * P3 post-execution verification verdict from dispatch, surfaced so the host can persist it as an
+   * `execution_verification` audit row. Null when nothing wrote or the adapter has no re-verify path.
+   */
+  verification: VerificationResult | null;
 }
 
 export interface ExecuteApprovedSummary {
@@ -153,7 +159,7 @@ export async function executeApprovedProposals(input: ExecuteApprovedInput): Pro
     if (executed >= max) break;
     const built = commandFromApprovedProposal(p, input.stores);
     if ("skip" in built) {
-      results.push({ proposalId: p.id, adapterId: null, outcome: "skipped", wrote: false, detail: built.skip });
+      results.push({ proposalId: p.id, adapterId: null, outcome: "skipped", wrote: false, detail: built.skip, verification: null });
       continue;
     }
     try {
@@ -165,10 +171,11 @@ export async function executeApprovedProposals(input: ExecuteApprovedInput): Pro
         outcome: wrote ? "executed" : "no_write",
         wrote,
         detail: res.result.outcome?.summary ?? (wrote ? "executed" : "no write (gate refused / noop / not armed)"),
+        verification: res.verification, // P3: surface the landed verdict for host-side persistence.
       });
       if (wrote) executed += 1;
     } catch (err) {
-      results.push({ proposalId: p.id, adapterId: built.adapterId, outcome: "error", wrote: false, detail: (err as Error).message });
+      results.push({ proposalId: p.id, adapterId: built.adapterId, outcome: "error", wrote: false, detail: (err as Error).message, verification: null });
     }
   }
 

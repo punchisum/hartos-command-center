@@ -187,4 +187,29 @@ describe("round-trip: suggestionToMutationProposal output → commandFromApprove
     assert.equal(out.results[0]!.outcome, "executed");
     assert.equal(calls, 1, "dispatch was actually reached (no pre-dispatch skip)");
   });
+
+  it("threads the dispatch verification onto the per-proposal result (so the host can persist it)", async () => {
+    const verification = { landed: true, detail: 'card reached "on hold"' };
+    const dispatch = async (): Promise<DispatchResult> => ({
+      adapterId: "clickup-move-status",
+      result: { adapterId: "clickup-move-status", precondition: { allowed: true, denials: [] } as never, executed: true, outcome: { ran: true, reversible: true, before: {}, after: {}, summary: "moved" } as never },
+      delta: { kind: "state_delta" } as never,
+      verification,
+    });
+    const out = await executeApprovedProposals({ proposals: [moveProposal()], stores: { clickUpMove: fakeClickUp }, env: {}, dispatch, now: NOW });
+    assert.equal(out.results[0]!.outcome, "executed");
+    assert.deepEqual(out.results[0]!.verification, verification, "the landed verdict must reach the host executor");
+  });
+
+  it("a no-verify-path write leaves result.verification null (honest, not a false landed)", async () => {
+    const dispatch = async (): Promise<DispatchResult> => ({
+      adapterId: "reject-drafts",
+      result: { adapterId: "reject-drafts", precondition: { allowed: true, denials: [] } as never, executed: true, outcome: { ran: true, reversible: true, before: {}, after: {}, summary: "rejected" } as never },
+      delta: { kind: "state_delta" } as never,
+      verification: null,
+    });
+    const out = await executeApprovedProposals({ proposals: [moveProposal({ proposedPayload: { [ADAPTER_ROUTE_KEY]: { adapterId: "reject-drafts", tier: "T0" } } })], stores: { rejectDrafts: fakeClickUp }, env: {}, dispatch, now: NOW });
+    assert.equal(out.results[0]!.outcome, "executed");
+    assert.equal(out.results[0]!.verification, null);
+  });
 });
