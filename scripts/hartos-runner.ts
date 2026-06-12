@@ -126,6 +126,20 @@ export async function runJobRunner(env: Record<string, string | undefined>, now:
       }
       const kind: AgentJobKind = rawKind;
 
+      // CLAIM-BEFORE-RUN (CAS): flip the row → 'executing' while the job actually runs, so the
+      // cockpit shows a live "Running" instead of a job silently sitting at approved for minutes.
+      // The compare-and-set also keeps the old race guarantee: only the first claimant runs (the
+      // autopilot ACT step and a manual runner can read the same simulated_approved rows).
+      const claim = await handle.query(
+        `update public.cockpit_proposals set status='executing', updated_at=now() where id=$1 and status=$2`,
+        [row.id, COCKPIT_APPROVED_STATUS],
+      );
+      if ((claim.rowCount ?? 0) !== 1) {
+        skipped += 1;
+        out.push(`  • ${row.id} [${kind}] → already claimed by another runner — skipped (no double audit)`);
+        continue;
+      }
+
       let result: { ok: boolean; detail: string };
       try {
         result = await executeJob(kind, arg, env, now);
@@ -134,27 +148,21 @@ export async function runJobRunner(env: Record<string, string | undefined>, now:
       }
 
       if (result.ok) {
-        // Idempotent compare-and-set: only advance the row if it is STILL cockpit-approved. The
-        // autopilot ACT step and a manual runner can read the same simulated_approved rows; the
-        // guard ensures only the first claimant advances + audits (no double-advance, no double
-        // audit row). Crash-safe + re-runnable: a failure before this leaves the row approved.
-        const upd = await handle.query(
-          `update public.cockpit_proposals set status='executed', updated_at=now() where id=$1 and status=$2`,
+        await handle.query(
+          `update public.cockpit_proposals set status='executed', updated_at=now() where id=$1 and status='executing'`,
+          [row.id],
+        );
+        executed += 1;
+        await auditOutcome(row.id, "executed");
+        out.push(`  • ${row.id} [${kind}] → executed: ${result.detail}`);
+        out.push("    spine advanced → executed (+ audit row)");
+      } else {
+        // Honest skip (disarmed gate / policy / error) — revert 'executing' → cockpit-approved so
+        // the row stays re-runnable, and record the skip so it is visible, not silently absent.
+        await handle.query(
+          `update public.cockpit_proposals set status=$2, updated_at=now() where id=$1 and status='executing'`,
           [row.id, COCKPIT_APPROVED_STATUS],
         );
-        if ((upd.rowCount ?? 0) === 1) {
-          executed += 1;
-          await auditOutcome(row.id, "executed");
-          out.push(`  • ${row.id} [${kind}] → executed: ${result.detail}`);
-          out.push("    spine advanced → executed (+ audit row)");
-        } else {
-          // Lost the race to a concurrent runner — do NOT re-audit; the winner already did.
-          skipped += 1;
-          out.push(`  • ${row.id} [${kind}] → already claimed by another runner — skipped (no double audit)`);
-        }
-      } else {
-        // Honest skip (disarmed gate / policy) — the row stays cockpit-approved + re-runnable, and
-        // the skip is recorded so it is visible, not silently absent.
         skipped += 1;
         out.push(`  • ${row.id} [${kind}] → skipped: ${result.detail}`);
         await auditOutcome(row.id, "skipped");

@@ -14,6 +14,7 @@
 import { pathToFileURL } from "node:url";
 import { runLiveRunnerLoop, resolvePollMs } from "../src/jobs/live-runner.js";
 import { runJobRunner } from "./hartos-runner.js";
+import { runSpineExecutor } from "./run-spine-executor.js";
 import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
 import { runFailedJobAlertPass } from "../src/telegram/run-failed-job-alert.js";
 import { runLivenessAlertPass } from "../src/telegram/run-liveness-alert.js";
@@ -70,6 +71,22 @@ if (isMain) {
   const runCycle = async (now: string): Promise<string[]> => {
     const lines = await runJobRunner(process.env, now, 3);
     cycle += 1;
+
+    // MUTATION proposals (Wolverine fixes, ClickUp ops) — Hart's "daemon runs everything" decision:
+    // a cockpit Approve on a mutation no longer dead-ends at simulated_approved. Every 3rd cycle
+    // (~15s) the gated spine executor runs them; each adapter still requires its own ALLOW_EXEC_*
+    // flag (disarmed ⇒ honest no_write, row stays approved + re-runnable). Error-isolated.
+    if (cycle % 3 === 0) {
+      try {
+        const mut = await runSpineExecutor(process.env, new Date(now), 3);
+        const didWork = mut.some((l) => l.includes("→") || l.includes("executed (wrote)"));
+        if (didWork && !mut[0]?.startsWith("No cockpit-approved")) {
+          for (const l of mut) console.log(`[live-runner] mutation · ${l}`);
+        }
+      } catch (e) {
+        console.error(`[live-runner] mutation executor failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
 
     if (cycle % ALERT_EVERY === 0) {
       try {
