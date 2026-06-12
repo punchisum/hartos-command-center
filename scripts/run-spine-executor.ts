@@ -16,6 +16,7 @@
 
 import { pathToFileURL } from "node:url";
 import { executeApprovedProposals } from "../src/execution/approved-executor.js";
+import { recordExecutionVerification } from "../src/execution/execution-verification-audit.js";
 import { dispatchMutation } from "../src/execution/execution-dispatch.js";
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
 import { createClickUpClient } from "../src/execution/clickup-client.js";
@@ -99,6 +100,10 @@ export async function runSpineExecutor(
             `insert into public.cockpit_proposal_audit (proposal_id, event, to_status) values ($1, 'executed', 'executed')`,
             [r.proposalId],
           );
+          // P3: persist whether the write actually LANDED (independent fresh re-read verdict).
+          if (await recordExecutionVerification(handle, r.proposalId, r.verification)) {
+            out.push(`    post-exec verify → ${r.verification!.landed ? "landed" : "UNVERIFIED"} (+ durable audit row)`);
+          }
           out.push("    spine advanced → executed (+ durable audit row)");
         } else {
           out.push("    already advanced by a concurrent run — not re-audited");

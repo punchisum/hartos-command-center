@@ -138,4 +138,23 @@ describe("autoheal executor core", () => {
     assert.equal(statuses.filter((s) => s === "simulated_approved").length, 2);
     assert.equal(statuses.filter((s) => s === "approved_for_execution").length, 0, "nothing left stuck");
   });
+
+  it("a write that carried a verification verdict also records an execution_verification audit row", async () => {
+    const { db, audits } = makeFakeDb({
+      p_reject: { status: "simulated_approved", payload: row("reject-drafts", "2026-06-10T10:00:00Z") },
+    });
+    // A dispatch that both wrote AND returned a landed verdict (in prod only external adapters carry
+    // one today, but the wiring must persist whatever verdict dispatch returns).
+    const dispatch: DispatchFn = async (command): Promise<DispatchResult> => ({
+      adapterId: command.adapterId,
+      result: { adapterId: command.adapterId, precondition: { allowed: true, denials: [] }, executed: true, outcome: { ran: true, reversible: true, before: {}, after: {}, summary: "wrote (fake)" } },
+      delta: { source: command.adapterId } as unknown as DispatchResult["delta"],
+      verification: { landed: true, detail: "verified landed (fake)" },
+    });
+    const summary = await runAutohealCore({ db, stores, env: ARMED, now, dispatch });
+    assert.equal(summary.executed, 1);
+    const events = audits.filter((a) => a.id === "p_reject").map((a) => a.event);
+    assert.ok(events.includes("executed"), "the executed audit row is still written");
+    assert.ok(events.includes("execution_verification"), "the landed verdict is persisted as its own audit row");
+  });
 });

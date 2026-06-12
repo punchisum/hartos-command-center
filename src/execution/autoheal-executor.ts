@@ -21,6 +21,7 @@
  */
 
 import { executeApprovedProposals, type ApprovedExecutorStores, type DispatchFn } from "./approved-executor.js";
+import { recordExecutionVerification } from "./execution-verification-audit.js";
 import { armedAutohealAdapters } from "../doctrine/autoheal-gate.js";
 import { EXECUTABLE_FROM } from "../doctrine/execution-gate.js";
 import { ADAPTER_ROUTE_KEY } from "../cockpit/suggestions/suggestion-to-mutation.js";
@@ -164,6 +165,10 @@ export async function runAutohealCore(input: RunAutohealInput): Promise<Autoheal
           `insert into public.cockpit_proposal_audit (proposal_id, event, to_status) values ($1, 'executed', 'executed')`,
           [r.proposalId],
         );
+        // P3: the same claimant that recorded the write also records whether it LANDED (if verified).
+        if (await recordExecutionVerification(db, r.proposalId, r.verification)) {
+          lines.push(`    post-exec verify → ${r.verification!.landed ? "landed" : "UNVERIFIED"} (+ durable audit row)`);
+        }
         lines.push("    spine advanced → executed (+ durable audit row)");
       }
     } else if (await revert(db, r.proposalId)) {
