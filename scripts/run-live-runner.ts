@@ -15,6 +15,10 @@ import { pathToFileURL } from "node:url";
 import { runLiveRunnerLoop, resolvePollMs } from "../src/jobs/live-runner.js";
 import { runJobRunner } from "./hartos-runner.js";
 import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
+import { runFailedJobAlertPass } from "../src/telegram/run-failed-job-alert.js";
+import { runLivenessAlertPass } from "../src/telegram/run-liveness-alert.js";
+import { EMPTY_ALERT_STATE, type AlertBusState } from "../src/telegram/alert-bus.js";
+import type { FleetLiveness } from "../src/sentinel/sentinel-liveness.js";
 import { redact } from "../src/llm/redaction.js";
 
 const isMain = typeof process.argv[1] === "string" && import.meta.url === pathToFileURL(process.argv[1]).href;
@@ -41,18 +45,48 @@ if (isMain) {
       `${pollMs / 1000}s. Only Hart-approved jobs run; per-action gates hold. Ctrl-C to stop.\n`,
   );
 
-  // Outbound approval notifier — pings Hart on Telegram about pending proposals (armed by
-  // ALLOW_TELEGRAM_NOTIFY + TELEGRAM_BOT_TOKEN + HARTOS_TELEGRAM_NOTIFY_CHAT_ID; honest no-op otherwise).
-  // `notifiedIds` is threaded across cycles so a still-pending proposal is announced once, not every poll.
+  // Outbound Telegram ALERT BUS — pings Hart about approvals + problems (armed by ALLOW_TELEGRAM_NOTIFY
+  // + TELEGRAM_BOT_TOKEN + HARTOS_TELEGRAM_NOTIFY_CHAT_ID; every pass is an honest no-op otherwise).
+  // State is threaded across cycles so a still-true condition is announced once, not every poll.
+  // Perception passes run on a SUB-CADENCE (not every 5s poll) to keep the daemon light.
   let notifiedIds = new Set<string>();
+  let failJobState: AlertBusState = EMPTY_ALERT_STATE;
+  let livenessState: AlertBusState = EMPTY_ALERT_STATE;
+  let prevFleet: FleetLiveness | null = null;
+  let cycle = 0;
+  const ALERT_EVERY = 6; //   ~30s at the 5s poll: approvals + execution failures (light DB reads)
+  const LIVENESS_EVERY = 36; // ~3min: fleet liveness (local artifact gather + pure assess)
+
   const runCycle = async (now: string): Promise<string[]> => {
     const lines = await runJobRunner(process.env, now, 3);
-    try {
-      const r = await runApprovalNotifyPass(process.env, notifiedIds);
-      notifiedIds = r.notified;
-      if (r.sent) console.log(`[live-runner] telegram · pinged Hart about ${r.count} pending proposal(s)`);
-    } catch (e) {
-      console.error(`[live-runner] telegram notify failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+    cycle += 1;
+
+    if (cycle % ALERT_EVERY === 0) {
+      try {
+        const r = await runApprovalNotifyPass(process.env, notifiedIds);
+        notifiedIds = r.notified;
+        if (r.sent) console.log(`[live-runner] telegram · pinged Hart about ${r.count} pending proposal(s)`);
+      } catch (e) {
+        console.error(`[live-runner] telegram approval notify failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+      try {
+        const f = await runFailedJobAlertPass(process.env, now, failJobState);
+        failJobState = f.state;
+        if (f.sent) console.log(`[live-runner] telegram · alerted Hart about ${f.sent} execution failure(s)`);
+      } catch (e) {
+        console.error(`[live-runner] telegram failure alert failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
+
+    if (cycle % LIVENESS_EVERY === 0) {
+      try {
+        const l = await runLivenessAlertPass(process.env, now, prevFleet, livenessState);
+        livenessState = l.state;
+        prevFleet = l.fleet;
+        if (l.sent) console.log(`[live-runner] telegram · alerted Hart about ${l.sent} liveness transition(s)`);
+      } catch (e) {
+        console.error(`[live-runner] telegram liveness alert failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
     }
     return lines;
   };

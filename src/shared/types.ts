@@ -14,9 +14,11 @@ export interface Env {
   ENABLE_DEBUG_EVENTS?: string;
   ALLOW_LIVE_SMOKE_MUTATION?: string;
   ALLOW_TELEGRAM_TEST_SEND?: string;
-  // HartOS → Hart outbound approval notifications (the daemon pings Hart when proposals await him).
-  ALLOW_TELEGRAM_NOTIFY?: string;          // "true" arms the outbound approval notifier (default OFF)
-  HARTOS_TELEGRAM_NOTIFY_CHAT_ID?: string; // the chat HartOS pings for approval digests
+  // HartOS → Hart outbound alert bus (approvals + problem alerts; the daemon/Worker ping Hart).
+  ALLOW_TELEGRAM_NOTIFY?: string;          // "true" arms the whole bus (master gate; default OFF)
+  HARTOS_TELEGRAM_NOTIFY_CHAT_ID?: string; // the chat HartOS pings (approvals + alerts)
+  HARTOS_TELEGRAM_ALERTS_CHAT_ID?: string; // optional split channel for problem-alerts; falls back to NOTIFY_CHAT_ID
+  HARTOS_LLM_ALERT_ON_FALLBACK?: string;   // opt-in: alert when all LLM providers exhaust → deterministic (default OFF)
   APP_ENV?: string;
   // Phase 5: deployment gates
   ALLOW_SUPABASE_MIGRATION_APPLY?: string;

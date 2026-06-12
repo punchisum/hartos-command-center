@@ -18,10 +18,16 @@
 
 import type { TelegramSender } from "../shared/types.js";
 
-/** The gate + credential env keys (all three required to arm; absent ⇒ honest skip). */
-export const TELEGRAM_NOTIFY_FLAG = "ALLOW_TELEGRAM_NOTIFY";
-export const TELEGRAM_BOT_TOKEN_ENV = "TELEGRAM_BOT_TOKEN";
-export const TELEGRAM_NOTIFY_CHAT_ENV = "HARTOS_TELEGRAM_NOTIFY_CHAT_ID";
+// The fail-closed gate + credential env keys now live in alert-bus.ts so the WHOLE bus shares one
+// armed/disarmed decision; re-exported here so existing imports (run-approval-notify, tests) keep
+// working unchanged. The approval digest is now just one consumer of the bus.
+export {
+  TELEGRAM_NOTIFY_FLAG,
+  TELEGRAM_BOT_TOKEN_ENV,
+  TELEGRAM_NOTIFY_CHAT_ENV,
+  telegramNotifyConfig,
+  type NotifyConfig,
+} from "./alert-bus.js";
 
 /** The minimal proposal shape the digest needs — the columns the spine already carries. */
 export interface PendingProposalLite {
@@ -29,22 +35,6 @@ export interface PendingProposalLite {
   title: string;
   riskLevel?: string;
   domain?: string;
-}
-
-/** Whether the outbound notifier is armed, and the resolved chat id. Never throws; never logs secrets. */
-export interface NotifyConfig {
-  ok: boolean;
-  chatId?: string;
-  reason?: string;
-}
-
-/** Resolve the notifier config from env — fail-closed: any missing piece ⇒ `ok:false` with a reason. */
-export function telegramNotifyConfig(env: Record<string, string | undefined>): NotifyConfig {
-  if (env[TELEGRAM_NOTIFY_FLAG] !== "true") return { ok: false, reason: `disarmed (${TELEGRAM_NOTIFY_FLAG} != true)` };
-  if (!env[TELEGRAM_BOT_TOKEN_ENV] || env[TELEGRAM_BOT_TOKEN_ENV]!.trim().length === 0) return { ok: false, reason: `missing ${TELEGRAM_BOT_TOKEN_ENV}` };
-  const chatId = env[TELEGRAM_NOTIFY_CHAT_ENV];
-  if (!chatId || chatId.trim().length === 0) return { ok: false, reason: `missing ${TELEGRAM_NOTIFY_CHAT_ENV}` };
-  return { ok: true, chatId: chatId.trim() };
 }
 
 /** A small risk glyph so the digest reads at a glance (high → red, medium → amber, else green). */
