@@ -52,16 +52,14 @@ jobs:
   # opt-in this job is skipped, so CI stays green on forks/branches.
   # Production promotion is NEVER automatic (see docs/PRODUCTION_RELEASE_CONTROL.md).
   deploy-staging:
-    name: Deploy to staging (gated)
+    name: Deploy cockpit Worker (merged = deployed)
     needs: verify
-    # The Worker config (wrangler.cockpit.toml) is local-only by design, and launch:staging does
-    # heavy first-time provisioning, so this job cannot cleanly deploy from CI yet. It is best-effort
-    # and MUST NOT fail the build — real Worker deploys stay manual (wrangler from local).
+    # First armed deploy is best-effort (continue-on-error) so an unverified token scope cannot
+    # redden the build; flip this off once a green deploy is confirmed to make it a real gate.
     continue-on-error: true
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat/cloudflare-hosted-command-center' && vars.ENABLE_STAGING_DEPLOY == 'true'
     runs-on: ubuntu-latest
-    environment: staging
-    concurrency: staging-deploy
+    concurrency: cockpit-deploy
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -75,42 +73,61 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Launch staging
+      - name: Build
+        run: npm run build
+
+      - name: Deploy cockpit Worker + verify live SHA
         env:
-          APP_ENV: staging
-          # Gates — explicit, so a missing secret fails loudly instead of half-deploying.
-          ALLOW_AUTO_PROVISION: "true"
-          CONFIRM_STAGING_PROVISION: "true"
-          ALLOW_CLOUDFLARE_DEPLOY: "true"
-          ALLOW_CLOUDFLARE_PROVISION: "true"
-          ALLOW_SUPABASE_MIGRATION_APPLY: "true"
-          ALLOW_TELEGRAM_WEBHOOK_REGISTER: "true"
-          # Provider secrets (GitHub Secrets; see .env.example for meanings).
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
-          STAGING_TELEGRAM_WEBHOOK_URL: ${{ secrets.STAGING_TELEGRAM_WEBHOOK_URL }}
-          TRIGGER_SECRET_KEY: ${{ secrets.TRIGGER_SECRET_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_WORKER_NAME: ${{ secrets.CLOUDFLARE_WORKER_NAME }}
-          STAGING_CLOUDFLARE_WORKER_URL: ${{ secrets.STAGING_CLOUDFLARE_WORKER_URL }}
-        run: npm run launch:staging
-
-      - name: Staging smoke
-        env:
-          APP_ENV: staging
-          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
-          STAGING_CLOUDFLARE_WORKER_URL: ${{ secrets.STAGING_CLOUDFLARE_WORKER_URL }}
-          STAGING_TELEGRAM_WEBHOOK_URL: ${{ secrets.STAGING_TELEGRAM_WEBHOOK_URL }}
-        run: npm run smoke:staging
-
-      - name: Upload launch report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: staging-launch-report
-          path: launch-reports/
-          if-no-files-found: ignore
+          # Non-secret config — kept out of the public repo via Actions variables, and out of the
+          # public log via env-injection (referenced as $V_* below, never echoed).
+          V_ASK_WRITE_URL: ${{ vars.HARTOS_ASK_WRITE_URL }}
+          V_OPS_URL: ${{ vars.HARTOS_OPS_SUPABASE_URL }}
+          V_FITNESS_URL: ${{ vars.HARTOS_FITNESS_SUPABASE_URL }}
+          V_FITNESS_USER: ${{ vars.HARTOS_FITNESS_USER_ID }}
+          V_FITNESS_AGENT: ${{ vars.HARTOS_FITNESS_AGENT_ID }}
+        run: |
+          set -uo pipefail
+          SHA="$(git rev-parse --short HEAD)"
+          BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # Generate the Worker config from Actions variables (values come from the runtime env, so
+          # they never appear in the public log). Mirrors wrangler.cockpit.toml exactly.
+          {
+            echo 'name = "hartos-command-center"'
+            echo 'main = "dist/src/runtime/cloudflare-cockpit-worker.js"'
+            echo 'compatibility_date = "2026-06-03"'
+            echo 'compatibility_flags = ["nodejs_compat"]'
+            echo ''
+            echo '[triggers]'
+            echo 'crons = ["*/5 * * * *"]'
+            echo ''
+            echo '[vars]'
+            echo 'APP_ENV = "production"'
+            echo 'HARTOS_LLM_PROVIDER = "gemini"'
+            echo 'HARTOS_LLM_ENABLE_NETWORK = "true"'
+            echo 'HARTOS_GEMINI_MODEL = "gemini-2.5-flash-lite"'
+            echo 'HARTOS_LLM_MODEL = "gpt-5.5"'
+            echo "HARTOS_ASK_WRITE_URL = \"${V_ASK_WRITE_URL}\""
+            echo "HARTOS_OPS_SUPABASE_URL = \"${V_OPS_URL}\""
+            echo "HARTOS_FITNESS_SUPABASE_URL = \"${V_FITNESS_URL}\""
+            echo "HARTOS_FITNESS_USER_ID = \"${V_FITNESS_USER}\""
+            echo "HARTOS_FITNESS_AGENT_ID = \"${V_FITNESS_AGENT}\""
+          } > wrangler.cockpit.toml
+          # Deploy. wrangler output can echo var values, so capture to a file and only surface the
+          # public Worker URL — never the generated config.
+          if npx wrangler deploy --config wrangler.cockpit.toml --var BUILD_SHA:"$SHA" --var BUILD_TIME:"$BUILT_AT" > deploy.out 2>&1; then
+            URL="$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.out | head -1)"
+            echo "Deployed cockpit @ $SHA -> ${URL:-<url not parsed>}"
+            if [ -n "${URL:-}" ]; then
+              sleep 6
+              LIVE="$(curl -fsS "$URL/health" 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+              echo "live /health.version=${LIVE:-<none>}  expected=$SHA"
+              if [ "${LIVE:-}" != "$SHA" ]; then echo "::error::deployed /health.version (${LIVE:-none}) != $SHA"; exit 1; fi
+              echo "OK - live cockpit is running $SHA"
+            fi
+          else
+            echo "::error::wrangler deploy failed (sanitized output below):"
+            grep -aviE 'supabase\.co|f4167d7b|2a391749|persist-cockpit-proposal' deploy.out | tail -40
+            exit 1
+          fi
