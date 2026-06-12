@@ -35,6 +35,8 @@ export interface CockpitProposalRow {
   created_at: string;
   updated_at: string;
   expires_at: string | null;
+  /** The agent-job kind (payload→proposedPayload→jobKind), surfaced so Live Ops can label work. */
+  job_kind: string | null;
 }
 
 /** Coerce the RPC's `unknown` JSON body into well-formed rows (skips junk). */
@@ -57,6 +59,7 @@ export function coerceCockpitProposalRows(body: unknown): CockpitProposalRow[] {
       created_at: typeof o.created_at === "string" ? o.created_at : "",
       updated_at: typeof o.updated_at === "string" ? o.updated_at : "",
       expires_at: typeof o.expires_at === "string" ? o.expires_at : null,
+      job_kind: typeof o.job_kind === "string" && o.job_kind.length > 0 ? o.job_kind : null,
     });
   }
   return rows;
@@ -76,7 +79,8 @@ export function mapRowToProposalQueueItem(row: CockpitProposalRow): ProposalQueu
     title: row.title,
     description: "",
     sourceIntent: row.source_intent ?? "",
-    proposedPayload: {},
+    // Carry the job kind so the hosted Live Ops view can label agent_job work honestly.
+    proposedPayload: row.job_kind ? { jobKind: row.job_kind } : {},
     expectedEffect: "",
     riskLevel: row.risk_level as ProposalRisk,
     requiredApproval: "Hart",

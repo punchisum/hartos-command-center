@@ -40,6 +40,8 @@ export interface V5Proposal {
   tier: string;
   color: string;
   status: string;
+  /** Plain-English lifecycle label — raw spine names never reach Hart's eyes. */
+  statusLabel: string;
   risk: string;
   /** Plain-English "what would happen" for the detail panel. */
   desc: string;
@@ -179,10 +181,13 @@ footer{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:14px 26px;
 .tchip:hover{border-color:rgba(165,116,255,0.40);color:#ECE4F8}
 .tin{display:flex;align-items:center;gap:11px;height:46px;padding:0 16px;background:#0A0518;border:1px solid rgba(165,116,255,0.40);border-radius:12px}
 .tin input{flex:1;background:none;border:none;outline:none;color:#ECE4F8;font-family:'JetBrains Mono';font-size:13.5px}
-.peek{position:absolute;left:18px;right:18px;bottom:92px;height:50px;z-index:30;display:flex;align-items:center;gap:13px;padding:0 18px;background:#0A0619;border:1px solid rgba(165,116,255,0.40);border-radius:14px;box-shadow:0 0 38px -14px #22E8FF;cursor:pointer;transform:translateY(120%);transition:transform .26s ease}
-.peek.show{transform:translateY(0)}
-.peek .lbl{font-family:'JetBrains Mono';font-size:12px;letter-spacing:.12em;color:#22E8FF}
-.peek .mid{flex:1;font-family:'JetBrains Mono';font-size:13px;color:#9C8CBC;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* console bubble — a floating orb that NEVER covers content (was a full-width bar that blocked
+   the Synapses Authorize/Reject buttons). Pinned bottom-right; click to resume the console. */
+.peek{position:absolute;right:26px;bottom:96px;width:58px;height:58px;z-index:30;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0E0826,#0A0619);border:1.5px solid rgba(34,232,255,.5);border-radius:50%;box-shadow:0 0 30px -8px #22E8FF;cursor:pointer;transform:scale(0);transition:transform .26s cubic-bezier(.3,.85,.3,1)}
+.peek.show{transform:scale(1)}
+.peek:hover{box-shadow:0 0 40px -6px #22E8FF}
+.peek i{font-size:24px;color:#22E8FF}
+.peek .pulse{position:absolute;top:6px;right:6px}
 .pulse{width:9px;height:9px;border-radius:50%;background:#22E8FF;box-shadow:0 0 11px #22E8FF;animation:bp 1.6s ease-in-out infinite}
 .qcard{background:#0A0619;border:1px solid rgba(140,100,230,0.18);border-radius:14px;padding:13px 15px;margin-bottom:11px}
 .qtop{display:flex;align-items:center;gap:9px;font-size:12px}
@@ -208,8 +213,30 @@ footer{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:14px 26px;
 .ac{width:38px;height:38px;border-radius:50%;border:2px solid;display:flex;align-items:center;justify-content:center;font-family:'Orbitron';font-weight:700;font-size:12px;background:#0A0518}
 .spill{font-size:11px;padding:3px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.06em;border:1px solid;text-align:center}
 *{cursor:default}a,.nv,.tx,.tk,.qcard,.arow,.kdk{cursor:pointer}
+/* the BIG Authorize / Reject — these classes were referenced but never styled, so the buttons
+   rendered as raw white browser defaults ("fking ugly, doesnt match the theme"). */
+.big-btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;flex:1;padding:15px 20px;border:none;border-radius:14px;font-family:'Orbitron';font-weight:700;font-size:14px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;transition:all .16s ease-out}
+.big-btn i{font-size:18px}
+.b-ok{color:#04140c;background:linear-gradient(135deg,#34F5A8,#19c98a);box-shadow:0 0 30px -8px #34F5A8}
+.b-ok:hover{box-shadow:0 0 42px -6px #34F5A8;transform:translateY(-1px)}
+.b-no{color:#FF5470;background:rgba(255,84,112,.08);border:1.5px solid rgba(255,84,112,.45);flex:0 0 auto;padding:15px 26px}
+.b-no:hover{background:rgba(255,84,112,.16)}
+.why{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:#9C8CBC;line-height:1.5;background:rgba(169,116,255,.06);border:1px solid rgba(169,116,255,.22);border-radius:12px;padding:12px 14px}
+.why i{color:#A974FF;font-size:16px;margin-top:1px}
+.qcard.sel{border-color:rgba(34,232,255,.45);box-shadow:0 0 24px -12px #22E8FF}
+/* heartbeat — tapping a neuron pulses the whole connectome like a heart */
+.hbeat{animation:hbeat 1.15s cubic-bezier(.3,.65,.4,1) 1;transform-origin:center}
+@keyframes hbeat{0%{transform:scale(1)}14%{transform:scale(1.05)}30%{transform:scale(.99)}45%{transform:scale(1.035)}70%{transform:scale(1)}100%{transform:scale(1)}}
+/* themed scrollbars — the white default bars were blocking the words */
+html{color-scheme:dark}
+*{scrollbar-width:thin;scrollbar-color:rgba(140,100,230,.38) transparent}
+*::-webkit-scrollbar{width:9px;height:9px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:rgba(140,100,230,.34);border-radius:99px;border:2.5px solid #0A0619}
+*::-webkit-scrollbar-thumb:hover{background:rgba(165,116,255,.6)}
+*::-webkit-scrollbar-corner{background:transparent}
 @media(max-width:1024px){.stage{flex-direction:column}.spine{width:100%;flex-direction:row;justify-content:space-around;overflow-x:auto}.spine-f{margin:0}.page{flex-direction:column}.sidecol{width:100%!important}}
-@media(prefers-reduced-motion:reduce){.run-pulse{animation:none}}`;
+@media(prefers-reduced-motion:reduce){.run-pulse{animation:none}.hbeat{animation:none}}`;
 
 function connectomeScript(): string {
   // Compact data-driven connectome: positions from the canonical layout, colored by real status,
@@ -323,8 +350,22 @@ export function buildCockpitV5Data(
 
   const PROP_COLOR = (risk: string): string =>
     risk === "high" ? "#FF5470" : risk === "medium" ? "#FF2D9E" : "#34F5A8";
+  const STATUS_LABEL: Record<string, string> = {
+    pending_approval: "awaiting your approval",
+    draft: "draft",
+    simulated_approved: "approved — queued",
+    approved_for_execution: "approved — queued",
+    executing: "running",
+    executed: "done",
+    execution_failed: "failed",
+    rejected: "rejected",
+    expired: "expired",
+  };
+  // Synapses = the approval board: ONLY items Hart can act on. Unapprovable draft twins
+  // (e.g. the research_plan shadow a console research creates) confused the board with
+  // dead-end "only pending_approval can be authorized" cards — they are hidden by design.
   const pending = (proposalQueue ?? [])
-    .filter((p) => p.status === "pending_approval" || p.status === "draft")
+    .filter((p) => p.status === "pending_approval")
     .slice(0, 16)
     .map((p): V5Proposal => ({
       realId: p.id,
@@ -334,6 +375,7 @@ export function buildCockpitV5Data(
       tier: (p.riskLevel ?? "low") === "low" ? "Tier 1" : "Tier 2",
       color: PROP_COLOR(p.riskLevel ?? "low"),
       status: typeof p.status === "string" ? p.status : "pending_approval",
+      statusLabel: STATUS_LABEL[typeof p.status === "string" ? p.status : "pending_approval"] ?? "queued",
       risk: typeof p.riskLevel === "string" ? p.riskLevel : "low",
       desc: typeof p.description === "string" && p.description ? p.description : (typeof p.title === "string" ? p.title : p.id),
     }));
@@ -387,7 +429,7 @@ export function renderCockpitV5(data: CockpitV5Data): string {
 <div class="input"><i class="ti ti-prompt" style="color:#22E8FF"></i><input id="ask" placeholder="transmit directive to the fleet…" autocomplete="off"></div>
 <div class="tx" id="tx">TRANSMIT <i class="ti ti-bolt"></i></div></footer>
 <aside class="drawer" id="drawer"></aside>
-<div class="peek" id="peek"><span class="pulse"></span><span class="lbl">NEURAL CONSOLE</span><span class="mid" id="peekmid">tap to resume the console</span><i class="ti ti-chevron-up"></i></div>
+<div class="peek" id="peek" title="resume the neural console"><span class="pulse"></span><i class="ti ti-terminal-2"></i></div>
 <div class="scrim" id="scrim"><div class="term"><div class="thd"><div class="tdots"><i style="background:#FF5470"></i><i style="background:#FFC24B"></i><i style="background:#34F5A8"></i></div><span class="mono">HARTOS NEURAL CONSOLE</span><span class="dot" style="background:#34F5A8;margin-left:6px;box-shadow:0 0 8px #34F5A8"></span><span style="margin-left:auto;font-size:11px;color:#695B89" class="mono">esc to collapse</span><i class="ti ti-x" id="cclose" style="cursor:pointer;color:#9C8CBC;margin-left:14px"></i></div><div class="tbody" id="tbody"></div><div class="tfoot"><div class="tchips" id="tchips"></div><div class="tin"><span style="color:#22E8FF" class="mono">&gt;</span><input id="cin" placeholder="talk to HartOS, or type a command…" autocomplete="off"><span class="dot" id="cbusy" style="background:#22E8FF;opacity:0"></span></div></div></div></div></div>
 <script>
 window.HV=${json};
@@ -416,7 +458,7 @@ function ops(){
     var pulse=k.stage==='running'?'<span class="run-pulse"></span>':'';
     return '<div class="tk"><div class="ic" style="border-color:'+k.color+';color:'+k.color+'">'+el(k.stage==='running'?'ti-loader-2':k.stage==='done'?'ti-check':k.stage==='failed'?'ti-x':'ti-clock')+'</div>'+
       '<div><div class="ti2">'+h(k.title)+'</div><div class="sub"><span class="verb">'+h(k.agent)+' · '+h(k.verb)+'</span></div></div>'+
-      '<div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">'+pulse+'<span class="stg '+h(k.stage)+'">'+h(k.stage)+'</span></div>'+
+      '<div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">'+pulse+'<span class="stg '+h(k.stage)+'">'+h(k.stageLabel||k.stage)+'</span></div>'+
       '<div class="age">'+h(k.ageLabel)+'</div></div>';
   }).join('');
   if(!t.available)cards='<div class="empty">'+ (t.note||'Live Operations unavailable.') +'</div>';
@@ -435,11 +477,13 @@ function synapses(){
   if(!ps.length)return '<div class="cap"><h2>Synapses</h2><span class="sub">authorize / sever · the human-approval floor</span></div><div class="panel" style="flex:1;display:flex;align-items:center;justify-content:center"><div class="empty">No proposals awaiting authorization. Ask HartOS to do something (or let Wolverine propose a fix), then authorize it here.</div></div>';
   if(selSyn>=ps.length)selSyn=0;
   var sel=ps[selSyn];
-  var queue=ps.map(function(p,i){return '<div class="qcard'+(i===selSyn?' sel':'')+'" data-syn="'+i+'"><div class="qtop"><span class="mono" style="color:'+p.color+'">'+h(p.id)+'</span><span style="color:#9C8CBC">'+h(p.origin)+'</span><span class="qtier" style="color:'+p.color+';border-color:'+p.color+'66">'+h(p.tier)+'</span></div><div style="font-size:15px;font-weight:600;margin:8px 0 6px">'+h(p.title)+'</div><div style="display:flex;gap:14px;font-size:12px;color:#9C8CBC"><span>'+h(p.risk)+' risk</span><span>'+h(p.status)+'</span></div></div>';}).join('');
+  var queue=ps.map(function(p,i){return '<div class="qcard'+(i===selSyn?' sel':'')+'" data-syn="'+i+'"><div class="qtop"><span class="mono" style="color:'+p.color+'">'+h(p.id)+'</span><span style="color:#9C8CBC">'+h(p.origin)+'</span><span class="qtier" style="color:'+p.color+';border-color:'+p.color+'66">'+h(p.tier)+'</span></div><div style="font-size:15px;font-weight:600;margin:8px 0 6px">'+h(p.title)+'</div><div style="display:flex;gap:14px;font-size:12px;color:#9C8CBC"><span>'+h(p.risk)+' risk</span><span>'+h(p.statusLabel||p.status)+'</span></div></div>';}).join('');
   var canAct=sel.status==='pending_approval';
   var actions=canAct
     ?'<div class="acts" style="display:flex;gap:12px;margin-top:auto;padding-top:16px"><button class="big-btn b-ok" data-act="approve" data-rid="'+h(sel.realId)+'">'+el('ti-plug-connected')+' Authorize</button><button class="big-btn b-no" data-act="reject" data-rid="'+h(sel.realId)+'">Reject</button></div>'
-    :'<div class="why" style="margin-top:auto">'+el('ti-info-circle')+' This proposal is <b style="color:#ECE4F8">&nbsp;'+h(sel.status)+'</b> — only <span class="mono">pending_approval</span> items can be authorized here.</div>';
+    :(sel.status==='simulated_approved'||sel.status==='approved_for_execution'
+      ?'<div class="why" style="margin-top:auto;border-color:rgba(52,245,168,.35);background:rgba(52,245,168,.06)">'+el('ti-circle-check')+' <b style="color:#34F5A8">Approved — queued.</b>&nbsp;The daemon picks it up within seconds; watch it run in <span data-goto="ops" style="color:#22E8FF;cursor:pointer">Live Ops →</span></div>'
+      :'<div class="why" style="margin-top:auto">'+el('ti-info-circle')+' This item is <b style="color:#ECE4F8">&nbsp;'+h(sel.statusLabel||sel.status)+'</b> — nothing for you to action here.</div>');
   var detail='<div class="dwrap" style="width:560px;flex:0 0 auto;display:flex;flex-direction:column;min-height:0;overflow:auto"><div class="qtop"><span class="mono" style="color:'+sel.color+'">'+h(sel.id)+'</span><span style="color:#9C8CBC">from '+h(sel.origin)+'</span><span class="qtier" style="color:'+sel.color+';border-color:'+sel.color+'66">'+h(sel.tier)+'</span></div>'+
     '<div class="orb" style="font-size:20px;margin:12px 0 10px">'+h(sel.title)+'</div>'+
     '<div class="muted" style="font-size:14px;line-height:1.55">'+h(sel.desc)+'</div>'+
@@ -454,7 +498,7 @@ function audit(){
   var posture=(sysProps.length===0&&missing.length===0)?'CLEAN':'ATTENTION';var pc=posture==='CLEAN'?'#34F5A8':'#FFC24B';
   var detectors=[['secrets','ti-key',missing.length===0?'clean':missing.length+' missing'],['config drift','ti-adjustments','swept'],['dead code','ti-code','swept'],['coverage','ti-shield-check','swept'],['dependencies','ti-package','swept'],['liveness','ti-radar-2','swept']];
   var dgrid=detectors.map(function(d){return '<div class="detc" style="background:#0A0619;border:1px solid rgba(140,100,230,0.18);border-radius:14px;padding:14px"><div style="display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px">'+el(d[1])+' '+d[0]+'</div><div class="orb" style="font-size:16px;margin:8px 0 2px;color:'+(d[2].indexOf('missing')>=0?'#FFC24B':'#34F5A8')+'">'+h(d[2])+'</div><div class="muted" style="font-size:11px">via wolverine:audit (local)</div></div>';}).join('');
-  var fixes=sysProps.map(function(p){return '<div class="qcard" data-syn="'+(D.proposals.indexOf(p))+'"><div style="font-size:14px;font-weight:600">'+h(p.title)+'</div><div class="muted" style="font-size:12px;margin-top:4px">'+h(p.status)+' · '+h(p.risk)+' risk · tap to authorize</div></div>';}).join('')||'<div class="muted" style="font-size:13px">No fix proposals pending. Wolverine findings surface here once proposed (npm run wolverine:propose).</div>';
+  var fixes=sysProps.map(function(p){return '<div class="qcard" data-syn="'+(D.proposals.indexOf(p))+'"><div style="font-size:14px;font-weight:600">'+h(p.title)+'</div><div class="muted" style="font-size:12px;margin-top:4px">'+h(p.statusLabel||p.status)+' · '+h(p.risk)+' risk · tap to authorize</div></div>';}).join('')||'<div class="muted" style="font-size:13px">No fix proposals pending. Wolverine findings surface here once proposed (npm run wolverine:propose).</div>';
   var miss=missing.map(function(e){return '<div style="display:flex;gap:9px;align-items:center;padding:6px 0;font-size:13px"><span class="dot" style="background:#FF5470"></span><span class="mono" style="color:#9C8CBC">'+h(e.name)+'</span></div>';}).join('')||'<div class="muted" style="font-size:13px">All required secrets present.</div>';
   return '<div class="cap"><h2>Audit</h2><span class="sub">Wolverine immune system · live posture</span></div>'+
     '<div style="display:flex;gap:18px;flex:1;min-height:0"><div class="col" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:16px">'+
@@ -466,7 +510,7 @@ function tech(){
   var d=D.diagnostics||{env:[]};
   var envrows=(d.env||[]).map(function(e){return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(140,100,230,.08);font-size:13px"><span class="dot" style="background:'+(e.present?'#34F5A8':(e.secret?'#FF5470':'#695B89'))+'"></span><span class="mono" style="flex:1;color:#9C8CBC">'+h(e.name)+'</span><span style="font-size:12px;color:'+(e.present?'#34F5A8':'#695B89')+'">'+(e.present?'set':(e.secret?'MISSING':'unset'))+'</span></div>';}).join('');
   var missing=(d.env||[]).filter(function(e){return !e.present&&e.secret;}).length;
-  var items=(D.proposals||[]).map(function(p){return '<div class="tk" style="grid-template-columns:1fr 120px 70px"><div><div class="ti2">'+h(p.title)+'</div><div class="sub"><span class="verb">'+h(p.origin)+' · '+h(p.id)+'</span></div></div><span class="stg queued">'+h(p.status)+'</span><span class="age">'+h(p.tier)+'</span></div>';}).join('')||'<div class="empty">No open items. Wolverine findings surface here as proposals once Hart runs <span class="mono">wolverine:propose</span> (the audit itself is read-only).</div>';
+  var items=(D.proposals||[]).map(function(p){return '<div class="tk" style="grid-template-columns:1fr 120px 70px"><div><div class="ti2">'+h(p.title)+'</div><div class="sub"><span class="verb">'+h(p.origin)+' · '+h(p.id)+'</span></div></div><span class="stg queued">'+h(p.statusLabel||p.status)+'</span><span class="age">'+h(p.tier)+'</span></div>';}).join('')||'<div class="empty">No open items. Wolverine findings surface here as proposals once Hart runs <span class="mono">wolverine:propose</span> (the audit itself is read-only).</div>';
   return '<div class="cap"><h2>Technical</h2><span class="sub">what needs fixing · live diagnostics</span></div>'+
   '<div style="display:flex;gap:18px;flex:1;min-height:0"><div class="col" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:16px">'+
   '<div class="panel" style="padding:16px 18px;flex:0 0 auto"><div class="phd">'+el('ti-cpu')+' system</div><div class="dgrid" style="grid-template-columns:1fr 1fr">'+
@@ -517,13 +561,18 @@ function openDrawer(id){var a=null;for(var i=0;i<D.agents.length;i++){if(D.agent
 // gated Authorize/Reject → POST /api/proposals/transition
 function synAct(action,rid,btn){if(!rid)return;var lbl=btn.innerHTML;btn.innerHTML='…';btn.style.opacity='.6';
   fetch('/api/proposals/transition',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:rid,action:action})}).then(function(r){return r.json();}).then(function(j){
-    if(j.ok){for(var i=0;i<D.proposals.length;i++){if(D.proposals[i].realId===rid){D.proposals[i].status=(action==='approve'?'simulated_approved':'rejected');}}go('synapses');}
+    if(j.ok){for(var i=0;i<D.proposals.length;i++){if(D.proposals[i].realId===rid){D.proposals[i].status=(action==='approve'?'simulated_approved':'rejected');D.proposals[i].statusLabel=(action==='approve'?'approved — queued':'rejected');}}go('synapses');}
     else{btn.innerHTML=lbl;btn.style.opacity='1';alert((action==='approve'?'Authorize':'Reject')+' did not apply: '+(j.reason||'unknown')+(j.status?(' (status '+j.status+')'):''));}
   }).catch(function(){btn.innerHTML=lbl;btn.style.opacity='1';alert('Transition request failed — are you signed in to the cockpit?');});}
 document.getElementById('page').addEventListener('click',function(e){var t=e.target;while(t&&t!==this){if(t.getAttribute){
   if(t.getAttribute('data-act')){synAct(t.getAttribute('data-act'),t.getAttribute('data-rid'),t);return;}
   var ds=t.getAttribute('data-syn');if(ds!==null&&ds!==undefined){selSyn=parseInt(ds,10)||0;go('synapses');return;}
-  if(t.getAttribute('data-id')){openDrawer(t.getAttribute('data-id'));return;}
+  if(t.getAttribute('data-goto')){var gp=t.getAttribute('data-goto');location.hash=gp;go(gp);return;}
+  if(t.getAttribute('data-id')){
+    // heartbeat: a neuron tap pulses the WHOLE connectome before the drawer opens
+    var sv=document.querySelector('.cwrap svg');if(sv){sv.classList.remove('hbeat');void sv.getBoundingClientRect();sv.classList.add('hbeat');}
+    openDrawer(t.getAttribute('data-id'));return;
+  }
 }t=t.parentNode;}});
 
 // ── neural console (collapsible, replies via /api/ask) ──
@@ -531,16 +580,46 @@ var scrim=document.getElementById('scrim'),tbody=document.getElementById('tbody'
 var booted=false;
 function tline(html){var d=document.createElement('div');d.innerHTML=html;tbody.appendChild(d);tbody.scrollTop=tbody.scrollHeight;return d;}
 function openConsole(prefill){scrim.classList.add('open');peek.classList.remove('show');
-  if(!booted){booted=true;tline('<div class="tr"><span class="ok">HartOS neural console online.</span> Ask anything, or use a slash command. Answers come from the live fleet (propose-only).</div>');
-    var chips=['/fleet','/synapses','/audit','/ask Prophet','/ops status'];document.getElementById('tchips').innerHTML=chips.map(function(c){return '<span class="tchip">'+c+'</span>';}).join('');
+  if(!booted){booted=true;tline('<div class="tr"><span class="ok">HartOS neural console online.</span> Ask anything, or use a slash command (<span class="mono" style="color:#22E8FF">/help</span> lists them). Answers come from the live fleet (propose-only).</div>');
+    var chips=['/research ','/prophet','/ops status','/synapses','/help'];document.getElementById('tchips').innerHTML=chips.map(function(c){return '<span class="tchip">'+c+'</span>';}).join('');
     var cs=document.querySelectorAll('.tchip');for(var i=0;i<cs.length;i++)cs[i].addEventListener('click',function(){cin.value=this.textContent;cin.focus();});}
   setTimeout(function(){cin.focus();if(prefill){cin.value=prefill;}},120);}
-function closeConsole(){scrim.classList.remove('open');peek.classList.add('show');document.getElementById('peekmid').textContent=lastReply||'tap to resume the console';}
+function closeConsole(){scrim.classList.remove('open');peek.classList.add('show');}
 var lastReply='';
+// ── REAL slash commands: structured answers from the live data blob, not keyword-matched mush ──
+function cmdProphet(){var I=D.intelligence||{};if(!I.available)return '<span style="color:#FFC24B">Prophet has no synthesis right now.</span> '+h(I.note||'');
+  var out='<b style="color:#A974FF">Prophet — cross-fleet synthesis</b> · confidence <b>'+h(I.confidence)+'</b>\\n'+h(I.note||'')+'\\n';
+  (I.risks||[]).slice(0,5).forEach(function(r,i){out+='\\n'+(i+1)+'. ['+h(r.severity)+'] <b>'+h(r.subject)+'</b> — '+h(r.why);});
+  return out||'No correlated risks.';}
+function cmdOps(){var o=null;for(var i=0;i<D.agents.length;i++){if(D.agents[i].id==='ops'){o=D.agents[i];break;}}
+  var c=(D.tasks&&D.tasks.counts)||{running:0,queued:0,done:0,failed:0};
+  var out='<b style="color:#34F5A8">Ops</b> · '+(o?h(o.metric)+' — '+h(o.statusReason||o.role):'not in the roster')+'\\n';
+  out+='\\nTasks: <b style="color:#22E8FF">'+c.running+' running</b> · <b style="color:#FFC24B">'+c.queued+' queued</b> · <b style="color:#34F5A8">'+c.done+' done</b> · <b style="color:#FF5470">'+c.failed+' failed</b>';
+  var pend=(D.proposals||[]).length;out+='\\nAwaiting your approval: <b>'+pend+'</b> proposal(s)'+(pend?' — <span data-goto="synapses" style="color:#22E8FF;cursor:pointer">open Synapses →</span>':'');
+  return out;}
+function cmdFleet(){var up=0,down=0,lines='';D.agents.forEach(function(a){if(a.status==='down')down++;else up++;lines+='\\n• <b style="color:'+a.color+'">'+h(a.name)+'</b> — '+h(a.metric);});
+  return '<b style="color:#22E8FF">Fleet</b> · '+up+' up, '+down+' down'+lines;}
+function cmdHelp(){return '<b>Commands</b>\\n'+
+  '\\n<span class="mono" style="color:#22E8FF">/research &lt;topic&gt;</span> — fire a research proposal (you approve, the daemon runs it)'+
+  '\\n<span class="mono" style="color:#22E8FF">/prophet</span> — Prophet\\u2019s live cross-fleet synthesis + top risks'+
+  '\\n<span class="mono" style="color:#22E8FF">/ops status</span> — live ops + task counts'+
+  '\\n<span class="mono" style="color:#22E8FF">/fleet status</span> — every agent, one line each'+
+  '\\n<span class="mono" style="color:#22E8FF">/overview /fleet /ops /intel /synapses /audit /tech</span> — open a page'+
+  '\\nAnything else: free text → the live LLM, grounded in fleet facts.';}
 function consoleSend(){var v=cin.value.trim();if(!v)return;cin.value='';
-  // slash commands route the cockpit; everything else goes to /api/ask
   var sl=v.toLowerCase();
-  if(sl==='/fleet'||sl==='/synapses'||sl==='/audit'||sl==='/overview'||sl==='/ops'){var pg=sl.replace('/','').replace('ops','ops');if(PAGES[pg]){tline('<div class="tu"><span class="tp">&gt;</span>'+h(v)+'</div>');tline('<div class="tr">opening <span class="ok">'+h(pg)+'</span> …</div>');location.hash=pg;go(pg);setTimeout(closeConsole,400);return;}}
+  // page navigation
+  var NAV={'/overview':'overview','/fleet':'fleet','/ops':'ops','/live ops':'ops','/intel':'intel','/intelligence':'intel','/synapses':'synapses','/audit':'audit','/tech':'tech','/technical':'tech'};
+  if(NAV[sl]){tline('<div class="tu"><span class="tp">&gt;</span>'+h(v)+'</div>');tline('<div class="tr">opening <span class="ok">'+h(NAV[sl])+'</span> …</div>');location.hash=NAV[sl];go(NAV[sl]);setTimeout(closeConsole,400);return;}
+  // structured local commands (answer from the live data blob — instant + honest)
+  var local=null;
+  if(sl==='/help'||sl==='help')local=cmdHelp();
+  else if(sl==='/prophet'||sl==='/ask prophet')local=cmdProphet();
+  else if(sl==='/ops status'||sl==='/status ops')local=cmdOps();
+  else if(sl==='/fleet status'||sl==='/status')local=cmdFleet();
+  if(local!==null){tline('<div class="tu"><span class="tp">&gt;</span>'+h(v)+'</div>');tline('<div class="tr">'+local+'</div>');return;}
+  // /research <topic> → fire the proposal through the normal Ask path
+  if(sl.indexOf('/research')===0){var topic=v.slice(9).trim();if(!topic){tline('<div class="tu"><span class="tp">&gt;</span>'+h(v)+'</div>');tline('<div class="tr" style="color:#FFC24B">Usage: /research &lt;topic&gt;</div>');return;}v='Research on '+topic;}
   tline('<div class="tu"><span class="tp">&gt;</span>'+h(v)+'</div>');
   var ph=tline('<div class="tr"><span class="tcur">▌</span> consulting the fleet…</div>');cbusy.style.opacity='1';
   fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({request:v})}).then(function(r){return r.json();}).then(function(j){
@@ -550,7 +629,7 @@ function consoleSend(){var v=cin.value.trim();if(!v)return;cin.value='';
       if(j.jobCreated.persisted){extra+='<div style="margin-top:9px;padding:9px 12px;border:1px solid rgba(52,245,168,.4);border-radius:10px;background:rgba(52,245,168,.07)"><span style="color:#34F5A8;font-weight:600">✓ Proposal created</span> · '+h(j.jobCreated.title)+'<div data-goto="synapses" style="margin-top:5px;color:#22E8FF;cursor:pointer;font-size:13px">Approve it in Synapses →</div></div>';}
       else{extra+='<div style="margin-top:9px;color:#FFC24B;font-size:12.5px">⚠ could not queue the proposal: '+h(j.jobCreated.reason||'unknown')+'</div>';}
     }
-    if(j.usedLlm===false){extra+='<div style="color:#695B89;margin-top:6px;font-size:12px">⌁ deterministic answer (LLM gate off)</div>';}
+    if(j.usedLlm===false){extra+='<div style="color:#695B89;margin-top:6px;font-size:12px">⌁ deterministic answer'+(j.fallbackReason&&j.fallbackReason!=='none'?' ('+h(j.fallbackReason)+')':'')+(j.gateReason?' · gate: '+h(j.gateReason):'')+'</div>';}
     ph.innerHTML='<div class="tr">'+h(ans)+extra+'</div>';
     tbody.scrollTop=tbody.scrollHeight;cbusy.style.opacity='0';
   }).catch(function(){ph.innerHTML='<div class="tr" style="color:#FF5470">request failed — are you signed in to the cockpit?</div>';cbusy.style.opacity='0';});}

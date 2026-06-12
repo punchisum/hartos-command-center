@@ -21,10 +21,11 @@ describe("buildTasksView", () => {
     assert.match(v.note ?? "", /unavailable/i);
   });
 
-  it("maps agent_job rows to tasks with the right stage + agent + verb", () => {
+  it("maps agent_job rows to tasks with the right stage + plain-English label + agent + verb", () => {
     const v = buildTasksView(
       [
-        job("a", "research.brief", "simulated_approved", 1, "research coaching apps"),
+        job("a", "research.brief", "executing", 1, "research coaching apps"),
+        job("a2", "research.brief", "simulated_approved", 1, "queued research"),
         job("b", "claude.execute", "pending_approval", 3, "build crypto agent"),
         job("c", "wolverine.audit", "executed", 30),
         job("d", "beezulbub.hunt", "failed", 5),
@@ -33,13 +34,28 @@ describe("buildTasksView", () => {
     );
     assert.equal(v.available, true);
     const a = v.tasks.find((t) => t.id === "a")!;
-    assert.equal(a.stage, "running");
+    assert.equal(a.stage, "running"); // ONLY a genuinely-executing job is "running" — honest lifecycle
+    assert.equal(a.stageLabel, "running");
     assert.equal(a.agent, "Beezulbub");
     assert.equal(a.verb, "researching");
+    const a2 = v.tasks.find((t) => t.id === "a2")!;
+    assert.equal(a2.stage, "queued"); // approved-but-unclaimed is queued, not fake-running
+    assert.equal(a2.stageLabel, "approved — queued");
     assert.equal(v.tasks.find((t) => t.id === "b")!.stage, "queued");
+    assert.equal(v.tasks.find((t) => t.id === "b")!.stageLabel, "awaiting your approval");
     assert.equal(v.tasks.find((t) => t.id === "b")!.agent, "Factory");
     assert.equal(v.tasks.find((t) => t.id === "c")!.stage, "done");
     assert.equal(v.tasks.find((t) => t.id === "d")!.stage, "failed");
+  });
+
+  it("accepts the HOSTED row shape (top-level actionType/proposedPayload, no payload)", () => {
+    const v = buildTasksView(
+      [{ id: "hosted", title: "Run research", status: "executing", updatedAt: ago(1), actionType: "agent_job", proposedPayload: { jobKind: "research.brief" } }],
+      NOW,
+    );
+    assert.equal(v.tasks.length, 1, "hosted rows must produce tasks — the old payload-only read left Live Ops empty");
+    assert.equal(v.tasks[0]!.stage, "running");
+    assert.equal(v.tasks[0]!.agent, "Beezulbub");
   });
 
   it("ignores non-agent_job rows", () => {
@@ -54,7 +70,7 @@ describe("buildTasksView", () => {
     const v = buildTasksView(
       [
         job("done", "report", "executed", 10),
-        job("run", "research.brief", "simulated_approved", 2),
+        job("run", "research.brief", "executing", 2),
         job("rej", "report", "rejected", 1),
         job("q", "claude.execute", "pending_approval", 4),
       ],

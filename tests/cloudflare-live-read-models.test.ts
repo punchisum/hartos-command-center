@@ -345,7 +345,7 @@ describe("hosted proposal spine — live read (Phase D)", () => {
       mapRowToProposalQueueItem({
         id: "p9", domain: "system", action_type: "review_plan", title: "Review the spine",
         risk_level: "low", status: "draft", source_intent: "", spec_id: null,
-        created_at: NOW, updated_at: NOW, expires_at: null,
+        created_at: NOW, updated_at: NOW, expires_at: null, job_kind: null,
       }),
     ];
     const state = await resolveHostedCockpitState(fullEnv(), {

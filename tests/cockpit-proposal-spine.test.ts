@@ -54,7 +54,7 @@ describe("cockpit proposal spine — pure helpers (Phase D)", () => {
     const row: CockpitProposalRow = {
       id: "p2", domain: "fitness", action_type: "fitness_adjustment_plan", title: "Deload week",
       risk_level: "low", status: "draft", source_intent: "fitness", spec_id: "spec-x",
-      created_at: NOW, updated_at: NOW, expires_at: null,
+      created_at: NOW, updated_at: NOW, expires_at: null, job_kind: null,
     };
     const item = mapRowToProposalQueueItem(row);
     assert.equal(item.id, "p2");

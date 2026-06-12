@@ -21,6 +21,8 @@ export interface TaskRow {
   verb: string;
   title: string;
   stage: TaskStage;
+  /** Plain-English lifecycle label — never a raw spine status (no "simulated_approved"). */
+  stageLabel: string;
   /** "2m" / "1h" — age since last update. */
   ageLabel: string;
   updatedAt: string | null;
@@ -34,13 +36,20 @@ export interface TasksView {
   note?: string;
 }
 
-/** The minimal proposal-row shape this view needs (a subset of ProposalQueueItem). */
+/**
+ * The minimal proposal-row shape this view needs. TWO shapes exist in the wild and BOTH must work:
+ * local rows nest under `payload` (the spine's jsonb), while hosted rows (mapRowToProposalQueueItem)
+ * carry `actionType`/`proposedPayload` at the TOP level — the old payload-only read made the hosted
+ * Live Ops page permanently empty.
+ */
 export interface TaskSourceRow {
   id: string;
   title?: string;
   status?: string;
   domain?: string;
   updatedAt?: string | null;
+  actionType?: unknown;
+  proposedPayload?: { jobKind?: unknown; jobArg?: unknown };
   payload?: {
     actionType?: unknown;
     proposedPayload?: { jobKind?: unknown; jobArg?: unknown };
@@ -58,23 +67,28 @@ const KIND_META: Record<string, [string, string, string]> = {
   report: ["Command", "#FFC24B", "reporting"],
 };
 
-function stageOf(status: string): TaskStage {
+/** Stage + the plain-English label Hart actually reads — raw spine names never reach the UI. */
+function stageOf(status: string): { stage: TaskStage; label: string } {
   switch (status) {
     case "draft":
     case "pending_approval":
-      return "queued";
+      return { stage: "queued", label: "awaiting your approval" };
     case "simulated_approved":
     case "approved_for_execution":
-      return "running";
+      return { stage: "queued", label: "approved — queued" };
+    case "executing":
+      return { stage: "running", label: "running" };
     case "executed":
-      return "done";
+      return { stage: "done", label: "done" };
     case "failed":
-      return "failed";
+    case "execution_failed":
+      return { stage: "failed", label: "failed" };
     case "rejected":
+      return { stage: "dismissed", label: "rejected" };
     case "expired":
-      return "dismissed";
+      return { stage: "dismissed", label: "expired" };
     default:
-      return "queued";
+      return { stage: "queued", label: "queued" };
   }
 }
 
@@ -107,9 +121,13 @@ export function buildTasksView(rows: TaskSourceRow[] | undefined, nowIso: string
   }
   const tasks: TaskRow[] = [];
   for (const r of rows) {
-    if (r.payload?.actionType !== "agent_job") continue;
-    const kind = typeof r.payload?.proposedPayload?.jobKind === "string" ? (r.payload.proposedPayload.jobKind as string) : "report";
+    // Accept BOTH row shapes: nested payload (local spine rows) and top-level (hosted RPC rows).
+    const actionType = r.payload?.actionType ?? r.actionType;
+    if (actionType !== "agent_job") continue;
+    const rawKind = r.payload?.proposedPayload?.jobKind ?? r.proposedPayload?.jobKind;
+    const kind = typeof rawKind === "string" && rawKind ? rawKind : "report";
     const [agent, color, verb] = KIND_META[kind] ?? ["Command", "#9C8CBC", "running"];
+    const st = stageOf(typeof r.status === "string" ? r.status : "");
     tasks.push({
       id: r.id,
       agent,
@@ -117,7 +135,8 @@ export function buildTasksView(rows: TaskSourceRow[] | undefined, nowIso: string
       kind,
       verb,
       title: typeof r.title === "string" && r.title ? r.title : kind,
-      stage: stageOf(typeof r.status === "string" ? r.status : ""),
+      stage: st.stage,
+      stageLabel: st.label,
       ageLabel: ageLabel(r.updatedAt ?? null, nowIso),
       updatedAt: r.updatedAt ?? null,
     });

@@ -23,7 +23,8 @@ const AGENTS: V5SourceAgent[] = [
 ];
 
 const PROPS: V5SourceProposal[] = [
-  { id: "prop-system-agent_job-run-research-brief-xyz", title: "Run research.brief: coaching apps", status: "simulated_approved", domain: "research", updatedAt: NOW, riskLevel: "low", payload: { actionType: "agent_job", proposedPayload: { jobKind: "research.brief" } } },
+  // executing = the daemon's hands are genuinely on it (the new claim-before-run lifecycle).
+  { id: "prop-system-agent_job-run-research-brief-xyz", title: "Run research.brief: coaching apps", status: "executing", domain: "research", updatedAt: NOW, riskLevel: "low", payload: { actionType: "agent_job", proposedPayload: { jobKind: "research.brief" } } },
   { id: "prop-build-x", title: "Build crypto agent", status: "pending_approval", domain: "factory", updatedAt: NOW, riskLevel: "medium", payload: { actionType: "agent_job", proposedPayload: { jobKind: "claude.execute" } } },
 ];
 
@@ -39,7 +40,7 @@ describe("buildCockpitV5Data", () => {
 
   it("a running task makes its agent fire", () => {
     const d = buildCockpitV5Data(AGENTS, PROPS, { now: NOW, buildSha: null });
-    // research.brief is simulated_approved ⇒ Beezulbub running; but Beezulbub isn't in AGENTS here,
+    // research.brief is executing ⇒ Beezulbub running; but Beezulbub isn't in AGENTS here,
     // so check Factory (claude.execute is queued, not running ⇒ not firing).
     assert.equal(d.agents.find((a) => a.id === "factory")!.status, "healthy");
     assert.equal(d.agents.find((a) => a.id === "sentinel")!.status, "down");
