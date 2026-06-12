@@ -9,14 +9,15 @@ import { summarizeEnvPresence, envPresent, isSecretName, COCKPIT_ENV_VARS, resol
 
 describe("cloudflare cockpit env", () => {
   it("summarizes presence without exposing values", () => {
-    const env = { CLOUDFLARE_API_TOKEN: "secretvalue-should-not-appear", CLOUDFLARE_ACCOUNT_ID: "" };
-    const summary = summarizeEnvPresence(env);
+    const env = { GEMINI_API_KEY: "secretvalue-should-not-appear", OPENAI_API_KEY: "" };
+    // Explicit names so the behavior test is independent of the default runtime list.
+    const summary = summarizeEnvPresence(env, ["GEMINI_API_KEY", "OPENAI_API_KEY"]);
     const serialized = JSON.stringify(summary);
     assert.ok(!serialized.includes("secretvalue-should-not-appear"));
-    const tok = summary.find((e) => e.name === "CLOUDFLARE_API_TOKEN");
+    const tok = summary.find((e) => e.name === "GEMINI_API_KEY");
     assert.equal(tok?.present, true);
     assert.equal(tok?.secret, true);
-    const acct = summary.find((e) => e.name === "CLOUDFLARE_ACCOUNT_ID");
+    const acct = summary.find((e) => e.name === "OPENAI_API_KEY");
     assert.equal(acct?.present, false, "empty string is not present");
   });
 
@@ -26,9 +27,14 @@ describe("cloudflare cockpit env", () => {
     assert.equal(isSecretName("CLOUDFLARE_PROJECT_NAME"), false);
   });
 
-  it("knows the cockpit env vars", () => {
-    assert.ok(COCKPIT_ENV_VARS.includes("ALLOW_CLOUDFLARE_COCKPIT_DEPLOY"));
-    assert.ok(COCKPIT_ENV_VARS.includes("CONFIRM_CLOUDFLARE_DEPLOY"));
+  it("lists the RUNTIME env vars, not deploy-time provisioning creds", () => {
+    // The running Worker needs these:
+    assert.ok(COCKPIT_ENV_VARS.includes("GEMINI_API_KEY"));
+    assert.ok(COCKPIT_ENV_VARS.includes("HARTOS_FITNESS_SUPABASE_URL"));
+    assert.ok(COCKPIT_ENV_VARS.includes("HARTOS_LLM_ENABLE_NETWORK"));
+    // It does NOT need (and must not falsely flag as "required missing") deploy-time creds:
+    assert.ok(!COCKPIT_ENV_VARS.includes("CLOUDFLARE_API_TOKEN"));
+    assert.ok(!COCKPIT_ENV_VARS.includes("ALLOW_CLOUDFLARE_COCKPIT_DEPLOY"));
   });
 
   it("envPresent only true for non-empty strings", () => {

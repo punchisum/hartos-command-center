@@ -545,9 +545,17 @@ function consoleSend(){var v=cin.value.trim();if(!v)return;cin.value='';
   var ph=tline('<div class="tr"><span class="tcur">▌</span> consulting the fleet…</div>');cbusy.style.opacity='1';
   fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({request:v})}).then(function(r){return r.json();}).then(function(j){
     var ans=(j.summary||j.answer||j.message||'(no answer returned)');lastReply=ans.slice(0,90);
-    ph.innerHTML='<div class="tr">'+h(ans)+(j.usedLlm===false?'<div style="color:#695B89;margin-top:6px;font-size:12px">⌁ deterministic answer (LLM gate off)</div>':'')+'</div>';
+    var extra='';
+    if(j.jobCreated){
+      if(j.jobCreated.persisted){extra+='<div style="margin-top:9px;padding:9px 12px;border:1px solid rgba(52,245,168,.4);border-radius:10px;background:rgba(52,245,168,.07)"><span style="color:#34F5A8;font-weight:600">✓ Proposal created</span> · '+h(j.jobCreated.title)+'<div data-goto="synapses" style="margin-top:5px;color:#22E8FF;cursor:pointer;font-size:13px">Approve it in Synapses →</div></div>';}
+      else{extra+='<div style="margin-top:9px;color:#FFC24B;font-size:12.5px">⚠ could not queue the proposal: '+h(j.jobCreated.reason||'unknown')+'</div>';}
+    }
+    if(j.usedLlm===false){extra+='<div style="color:#695B89;margin-top:6px;font-size:12px">⌁ deterministic answer (LLM gate off)</div>';}
+    ph.innerHTML='<div class="tr">'+h(ans)+extra+'</div>';
     tbody.scrollTop=tbody.scrollHeight;cbusy.style.opacity='0';
   }).catch(function(){ph.innerHTML='<div class="tr" style="color:#FF5470">request failed — are you signed in to the cockpit?</div>';cbusy.style.opacity='0';});}
+// a "Approve it in Synapses →" link inside a console reply jumps to the board
+tbody.addEventListener('click',function(e){var t=e.target;while(t&&t!==tbody){if(t.getAttribute&&t.getAttribute('data-goto')){var pg=t.getAttribute('data-goto');location.hash=pg;go(pg);closeConsole();return;}t=t.parentNode;}});
 document.getElementById('opencon').addEventListener('click',function(){openConsole();});
 document.getElementById('cclose').addEventListener('click',closeConsole);
 document.getElementById('peek').addEventListener('click',function(){openConsole();});

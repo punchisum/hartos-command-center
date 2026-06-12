@@ -103,14 +103,14 @@ describe("cloudflare cockpit worker", () => {
   });
 
   it("never exposes env VALUES — debug/status reports presence only", async () => {
-    const env = { CLOUDFLARE_API_TOKEN: "tok-present-value-xyz", CLOUDFLARE_ACCOUNT_ID: "acct-123" };
+    const env = { GEMINI_API_KEY: "tok-present-value-xyz", OPENAI_API_KEY: "acct-123" };
     const res = await handleCockpitRequest(new Request(`${base}/api/debug/status`), env, ctx);
     assert.equal(res.status, 200);
     const text = await res.text();
     assert.ok(!text.includes("tok-present-value-xyz"), "must not leak the token value");
-    assert.ok(!text.includes("acct-123"), "must not leak the account id value");
+    assert.ok(!text.includes("acct-123"), "must not leak the second secret value");
     const data = JSON.parse(text) as { envPresence: { name: string; present: boolean }[]; actionExecution: string };
-    const tokenEntry = data.envPresence.find((e) => e.name === "CLOUDFLARE_API_TOKEN");
+    const tokenEntry = data.envPresence.find((e) => e.name === "GEMINI_API_KEY");
     assert.equal(tokenEntry?.present, true);
     assert.equal(data.actionExecution, "disabled");
   });

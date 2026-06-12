@@ -12,18 +12,11 @@ const SECRET_NAME_PATTERN = /(KEY|TOKEN|SECRET|PASSWORD|SERVICE_ROLE)/i;
 
 /** The server-side env the hosted cockpit is aware of. Names only — no values. */
 export const COCKPIT_ENV_VARS: string[] = [
-  // Cloudflare deploy target
-  "CLOUDFLARE_API_TOKEN",
-  "CLOUDFLARE_ACCOUNT_ID",
-  "CLOUDFLARE_PROJECT_NAME",
-  "CLOUDFLARE_WORKER_NAME",
+  // Runtime self-reference (the cockpit's own URL). Deploy-target creds + deploy/provision gates
+  // (CLOUDFLARE_API_TOKEN, *_ACCOUNT_ID, ALLOW_*_DEPLOY, …) are intentionally NOT listed here: they
+  // are deploy-time secrets used from Hart's machine, never by the RUNNING Worker — listing them made
+  // the Technical page falsely report "1 required missing" for a token the Worker doesn't need.
   "CLOUDFLARE_COCKPIT_URL",
-  "CLOUDFLARE_ZONE_ID",
-  "CLOUDFLARE_ROUTE",
-  // Deploy gates
-  "ALLOW_AUTO_PROVISION",
-  "CONFIRM_CLOUDFLARE_DEPLOY",
-  "ALLOW_CLOUDFLARE_COCKPIT_DEPLOY",
   // Hosted access gate (Phase 16) — fail-closed auth
   "HARTOS_COCKPIT_ACCESS_TOKEN",
   "HARTOS_COCKPIT_REQUIRE_AUTH",
