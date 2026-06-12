@@ -46,6 +46,14 @@ export interface V5Event {
   color: string;
 }
 
+export interface V5Diagnostics {
+  providerMode: string;
+  model: string;
+  llmNetwork: boolean;
+  writePathConfigured: boolean;
+  env: { name: string; present: boolean; secret: boolean }[];
+}
+
 export interface CockpitV5Data {
   now: string;
   buildSha: string | null;
@@ -57,14 +65,15 @@ export interface CockpitV5Data {
   tasks: TasksView;
   proposals: V5Proposal[];
   events: V5Event[];
+  diagnostics: V5Diagnostics;
 }
 
 const esc = (s: unknown): string =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-/** Canonical Neural-Deck polar layout (angle°, radius) per agent id — from the v5 design. */
+/** Canonical Neural-Deck polar layout (angle°, radius) keyed by the REAL registry agent ids. */
 const LAYOUT: Record<string, [number, number]> = {
-  command: [-90, 330], sentinel: [-54, 300], cto: [-18, 352], factory: [18, 302], fitness: [54, 346],
+  orchestrator: [-90, 330], sentinel: [-54, 300], research: [-18, 352], factory: [18, 302], fitness: [54, 346],
   ops: [90, 300], beezulbub: [126, 350], prophet: [162, 300], wolverine: [198, 352], rinnegan: [234, 305],
 };
 
@@ -113,8 +122,8 @@ footer{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:14px 26px;
 .ev{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid rgba(140,100,230,.10);font-size:13.5px}.ev:last-child{border-bottom:none}
 .spk{width:5px;height:18px;border-radius:2px;flex:0 0 auto;box-shadow:0 0 8px currentColor}
 .evt{font-size:11px;color:#695B89}.evw{font-family:'JetBrains Mono';font-size:12px;flex:0 0 96px}.evx{color:#9C8CBC;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cwrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
-.cwrap svg{max-height:100%;width:auto}
+.cwrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.cwrap svg{width:100%;height:100%}
 .page{overflow:hidden}.col{min-height:0}
 .sidecol{overflow:auto}
 /* EEG */
@@ -192,9 +201,9 @@ function connectomeScript(): string {
   // Compact data-driven connectome: positions from the canonical layout, colored by real status,
   // firing agents get a halo + brighter axon. Pure SVG built in the browser from injected data.
   return `function conn(agents){
-    const cx=450,cy=540,core=92,W=900,H=1180,d2r=Math.PI/180;
+    const cx=450,cy=540,core=92,W=900,H=1010,d2r=Math.PI/180;
     const col={firing:'#fff',healthy:'#34F5A8',watch:'#FFC24B',idle:'#A974FF',down:'#FF5470'};
-    const L={command:[-90,330],sentinel:[-54,300],cto:[-18,352],factory:[18,302],fitness:[54,346],ops:[90,300],beezulbub:[126,350],prophet:[162,300],wolverine:[198,352],rinnegan:[234,305]};
+    const L={orchestrator:[-90,330],sentinel:[-54,300],research:[-18,352],factory:[18,302],fitness:[54,346],ops:[90,300],beezulbub:[126,350],prophet:[162,300],wolverine:[198,352],rinnegan:[234,305]};
     let ax='',nd='';
     for(const a of agents){const p=L[a.id]||[0,300];const ang=p[0]*d2r,r=p[1];
       const x=cx+Math.cos(ang)*r,y=cy+Math.sin(ang)*r;const c=a.color||'#A974FF';const fire=a.status==='firing';const dn=a.status==='down';
@@ -210,7 +219,7 @@ function connectomeScript(): string {
       nd+='<text x="'+lx.toFixed(1)+'" y="'+(y-22).toFixed(1)+'" text-anchor="'+side+'" font-family="JetBrains Mono" font-size="12" fill="'+c+'" opacity="0.85">'+h(a.metric)+'</text>';
       nd+='<circle class="hit" data-id="'+h(a.id)+'" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="46" fill="#fff"/>';
     }
-    return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Fleet connectome"><defs>'+
+    return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Fleet connectome"><defs>'+
       '<filter id="gl" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'+
       '<filter id="glbig" x="-120%" y="-120%" width="340%" height="340%"><feGaussianBlur stdDeviation="14"/></filter>'+
       '<radialGradient id="cg" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#22E8FF" stop-opacity="0.5"/><stop offset="45%" stop-color="#FF2D9E" stop-opacity="0.18"/><stop offset="100%" stop-color="#FF2D9E" stop-opacity="0"/></radialGradient></defs>'+
@@ -227,11 +236,11 @@ function connectomeScript(): string {
 
 /** Canonical Neural-Deck color per agent id. */
 const AGENT_COLOR: Record<string, string> = {
-  command: "#22E8FF", sentinel: "#FFC24B", cto: "#A974FF", factory: "#FF2D9E", fitness: "#34F5A8",
+  orchestrator: "#22E8FF", sentinel: "#FFC24B", research: "#A974FF", factory: "#FF2D9E", fitness: "#34F5A8",
   ops: "#34F5A8", beezulbub: "#22E8FF", prophet: "#A974FF", wolverine: "#34F5A8", rinnegan: "#22E8FF",
 };
 const INITIALS: Record<string, string> = {
-  command: "CM", sentinel: "SN", cto: "CT", factory: "FC", fitness: "FT",
+  orchestrator: "CM", sentinel: "SN", research: "RS", factory: "FC", fitness: "FT",
   ops: "OP", beezulbub: "BZ", prophet: "PR", wolverine: "WV", rinnegan: "RN",
 };
 
@@ -269,7 +278,7 @@ function mapStatus(s: string, firing: boolean): V5Agent["status"] {
 export function buildCockpitV5Data(
   agents: V5SourceAgent[],
   proposalQueue: V5SourceProposal[] | undefined,
-  opts: { now: string; buildSha: string | null },
+  opts: { now: string; buildSha: string | null; diagnostics?: V5Diagnostics },
 ): CockpitV5Data {
   const tasks = buildTasksView(proposalQueue, opts.now);
   const firingAgents = new Set(
@@ -329,6 +338,7 @@ export function buildCockpitV5Data(
     tasks,
     proposals: pending,
     events,
+    diagnostics: opts.diagnostics ?? { providerMode: "unknown", model: "—", llmNetwork: false, writePathConfigured: false, env: [] },
   };
 }
 
@@ -350,6 +360,7 @@ export function renderCockpitV5(data: CockpitV5Data): string {
 <div class="nv" data-p="ops"><i class="ti ti-activity-heartbeat"></i><span>live ops</span></div>
 <div class="nv" data-p="synapses"><i class="ti ti-plug-connected"></i><span>synapses</span></div>
 <div class="nv" data-p="audit"><i class="ti ti-shield-half"></i><span>audit</span></div>
+<div class="nv" data-p="tech"><i class="ti ti-bug"></i><span>technical</span></div>
 <div class="spine-f"><span class="dot" style="background:#34F5A8;box-shadow:0 0 10px #34F5A8"></span><span class="mono" id="uppct">100%</span></div></div>
 <div class="page" id="page"></div></div>
 <footer><div class="kdk" id="opencon"><i class="ti ti-terminal-2" style="font-size:18px;color:#22E8FF"></i> neural console <span class="kbd">\`</span></div>
@@ -371,7 +382,7 @@ function overview(){
   var ev=D.events.map(function(e){return '<div class="ev"><span class="spk" style="background:'+e.color+';color:'+e.color+'"></span><span class="evt">'+h(e.time)+'</span><span class="evw" style="color:'+e.color+'">'+h(e.agent)+'</span><span class="evx">'+h(e.text)+'</span></div>';}).join('')||'<div class="muted">No recent signal — the loop is quiet.</div>';
   var syn=D.proposals.slice(0,4).map(function(p){return '<div class="qcard" style="padding:11px 13px;margin-bottom:10px"><div class="qtop"><span class="mono" style="color:'+p.color+'">'+h(p.id)+'</span><span style="color:#9C8CBC">'+h(p.origin)+'</span><span class="qtier" style="color:'+p.color+';border-color:'+p.color+'66">'+h(p.tier)+'</span></div><div style="font-size:14px;margin:7px 0 0">'+h(p.title)+'</div></div>';}).join('')||'<div class="muted">No pending synapses — the queue is clear.</div>';
   return '<div class="cap"><h2>Neural map</h2><span class="sub">fleet connectome · '+D.agents.length+' neurons · cognitive loop live</span><span class="r"><span class="lg"><span class="dot" style="background:#fff;box-shadow:0 0 8px #fff"></span>firing</span><span class="lg"><span class="dot" style="background:#34F5A8"></span>healthy</span><span class="lg"><span class="dot" style="background:#A974FF"></span>idle</span></span></div>'+
-  '<div style="display:flex;gap:18px;flex:1;min-height:0" class="ov"><div class="col" style="flex:1;display:flex;flex-direction:column;gap:16px"><div class="panel" style="flex:1;display:flex;flex-direction:column;padding:16px 18px"><div class="cwrap">'+conn(D.agents)+'</div></div>'+
+  '<div style="display:flex;gap:18px;flex:1;min-height:0" class="ov"><div class="col" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:16px"><div class="panel" style="flex:1;min-height:0;display:flex;flex-direction:column;padding:16px 18px"><div class="cwrap">'+conn(D.agents)+'</div></div>'+
   '<div class="kpis" style="grid-template-columns:repeat(3,1fr)">'+vit('tasks in flight',D.signalPerMin,'#22E8FF','')+vit('cortical load',D.corticalLoad,'#A974FF','%')+vit('fleet · live/down',D.verify,'#34F5A8','')+'</div></div>'+
   '<div class="col sidecol" style="width:452px;display:flex;flex-direction:column;gap:16px">'+
   '<div class="panel" style="padding:14px 16px;flex:0 0 auto"><div class="phd">'+el('ti-wave-sine')+' neural activity<span class="ct">EEG · live</span></div><div class="eegbox"><svg class="eeg" viewBox="0 0 414 68" width="100%" height="68" preserveAspectRatio="none"><line x1="0" y1="34" x2="414" y2="34" stroke="#22E8FF" stroke-width="0.5" opacity="0.18"/><path class="live" d="'+eegPath(D.signalPerMin)+'" fill="none" stroke="#22E8FF" stroke-width="1.6"/></svg></div><div class="eeg-r"><span class="big">'+D.signalPerMin+'</span><span class="s">signal events · phase-locked to the loop</span></div></div>'+
@@ -405,7 +416,23 @@ function synapses(){
 function audit(){
   return '<div class="cap"><h2>Audit</h2><span class="sub">Wolverine immune system</span></div><div class="panel" style="flex:1;padding:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px"><div style="width:96px;height:96px;border-radius:24px;border:2px solid #34F5A8;display:flex;align-items:center;justify-content:center;font-size:48px;color:#34F5A8;background:rgba(52,245,168,.06);box-shadow:0 0 40px -10px #34F5A8">'+el('ti-shield-check')+'</div><div class="orb" style="font-size:22px;color:#34F5A8;letter-spacing:.1em">IMMUNE · CLEAN</div><div class="muted">6 detectors sweeping · hands gated · full audit board lands in the next v5 slice</div></div>';
 }
-var PAGES={overview:overview,fleet:fleet,ops:ops,synapses:synapses,audit:audit};
+function tech(){
+  var d=D.diagnostics||{env:[]};
+  var envrows=(d.env||[]).map(function(e){return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(140,100,230,.08);font-size:13px"><span class="dot" style="background:'+(e.present?'#34F5A8':(e.secret?'#FF5470':'#695B89'))+'"></span><span class="mono" style="flex:1;color:#9C8CBC">'+h(e.name)+'</span><span style="font-size:12px;color:'+(e.present?'#34F5A8':'#695B89')+'">'+(e.present?'set':(e.secret?'MISSING':'unset'))+'</span></div>';}).join('');
+  var missing=(d.env||[]).filter(function(e){return !e.present&&e.secret;}).length;
+  var items=(D.proposals||[]).map(function(p){return '<div class="tk" style="grid-template-columns:1fr 120px 70px"><div><div class="ti2">'+h(p.title)+'</div><div class="sub"><span class="verb">'+h(p.origin)+' · '+h(p.id)+'</span></div></div><span class="stg queued">'+h(p.status)+'</span><span class="age">'+h(p.tier)+'</span></div>';}).join('')||'<div class="empty">No open items. Wolverine findings surface here as proposals once Hart runs <span class="mono">wolverine:propose</span> (the audit itself is read-only).</div>';
+  return '<div class="cap"><h2>Technical</h2><span class="sub">what needs fixing · live diagnostics</span></div>'+
+  '<div style="display:flex;gap:18px;flex:1;min-height:0"><div class="col" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:16px">'+
+  '<div class="panel" style="padding:16px 18px;flex:0 0 auto"><div class="phd">'+el('ti-cpu')+' system</div><div class="dgrid" style="grid-template-columns:1fr 1fr">'+
+  '<div class="dcell"><div class="l">LLM provider</div><div class="n" style="font-size:16px;color:#22E8FF">'+h(d.providerMode)+'</div></div>'+
+  '<div class="dcell"><div class="l">model</div><div class="n" style="font-size:14px">'+h(d.model)+'</div></div>'+
+  '<div class="dcell"><div class="l">network gate</div><div class="n" style="font-size:15px;color:'+(d.llmNetwork?'#34F5A8':'#FFC24B')+'">'+(d.llmNetwork?'armed':'off')+'</div></div>'+
+  '<div class="dcell"><div class="l">write path</div><div class="n" style="font-size:15px;color:'+(d.writePathConfigured?'#34F5A8':'#FF5470')+'">'+(d.writePathConfigured?'configured':'advisory')+'</div></div></div>'+
+  '<div class="muted" style="margin-top:11px;font-size:12px">build '+h(D.buildSha||'—')+'</div></div>'+
+  '<div class="panel" style="flex:1;min-height:0;padding:16px 18px;display:flex;flex-direction:column"><div class="phd">'+el('ti-key')+' environment<span class="ct">'+missing+' required missing</span></div><div style="margin-top:8px;overflow:auto">'+envrows+'</div></div></div>'+
+  '<div class="col sidecol" style="width:480px;min-height:0"><div class="panel" style="padding:16px 18px;height:100%;display:flex;flex-direction:column"><div class="phd">'+el('ti-alert-triangle')+' needs attention<span class="ct">open items</span></div><div style="margin-top:12px;overflow:auto">'+items+'</div></div></div></div>';
+}
+var PAGES={overview:overview,fleet:fleet,ops:ops,synapses:synapses,audit:audit,tech:tech};
 function go(name){P.innerHTML=(PAGES[name]||overview)();var ns=document.querySelectorAll('.nv');for(var i=0;i<ns.length;i++)ns[i].classList.toggle('on',ns[i].getAttribute('data-p')===name);}
 var navs=document.querySelectorAll('.nv');for(var i=0;i<navs.length;i++)navs[i].addEventListener('click',function(){var n=this.getAttribute('data-p');location.hash=n;go(n);});
 window.addEventListener('hashchange',function(){var h=(location.hash||'').replace('#','');if(PAGES[h])go(h);});
@@ -446,8 +473,8 @@ function consoleSend(){var v=cin.value.trim();if(!v)return;cin.value='';
   if(sl==='/fleet'||sl==='/synapses'||sl==='/audit'||sl==='/overview'||sl==='/ops'){var pg=sl.replace('/','').replace('ops','ops');if(PAGES[pg]){tline('<div class="tu"><span class="tp">&gt;</span>'+h(v)+'</div>');tline('<div class="tr">opening <span class="ok">'+h(pg)+'</span> …</div>');location.hash=pg;go(pg);setTimeout(closeConsole,400);return;}}
   tline('<div class="tu"><span class="tp">&gt;</span>'+h(v)+'</div>');
   var ph=tline('<div class="tr"><span class="tcur">▌</span> consulting the fleet…</div>');cbusy.style.opacity='1';
-  fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:v})}).then(function(r){return r.json();}).then(function(j){
-    var ans=(j.summary||j.answer||'(no answer returned)');lastReply=ans.slice(0,90);
+  fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({request:v})}).then(function(r){return r.json();}).then(function(j){
+    var ans=(j.summary||j.answer||j.message||'(no answer returned)');lastReply=ans.slice(0,90);
     ph.innerHTML='<div class="tr">'+h(ans)+(j.usedLlm===false?'<div style="color:#695B89;margin-top:6px;font-size:12px">⌁ deterministic answer (LLM gate off)</div>':'')+'</div>';
     tbody.scrollTop=tbody.scrollHeight;cbusy.style.opacity='0';
   }).catch(function(){ph.innerHTML='<div class="tr" style="color:#FF5470">request failed — are you signed in to the cockpit?</div>';cbusy.style.opacity='0';});}

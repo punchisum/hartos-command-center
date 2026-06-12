@@ -273,9 +273,17 @@ export async function handleCockpitRequest(
       // connectome cockpit + Live Operations page, hydrated from the live registry + proposal spine.
       if (env["HARTOS_COCKPIT_V5"] === "true" || url.searchParams.get("v5") === "1") {
         const v5reg = resolveMetaAgentRegistry({ now: nowFor(dctx) });
+        const v5cfg = resolveLlmConfig(env);
         const v5data = buildCockpitV5Data(v5reg.agents, dctx.state?.proposalQueue, {
           now: nowFor(dctx),
           buildSha: (env["BUILD_SHA"] ?? null) as string | null,
+          diagnostics: {
+            providerMode: explainGate(v5cfg).mode,
+            model: v5cfg.model,
+            llmNetwork: resolveLlmNetworkGate(env),
+            writePathConfigured: Boolean(env["HARTOS_ASK_WRITE_URL"] && env["HARTOS_ASK_WRITE_TOKEN"]),
+            env: summarizeEnvPresence(env),
+          },
         });
         return htmlResponse(renderCockpitV5(v5data), cors);
       }

@@ -15,7 +15,7 @@ import {
 const NOW = "2026-06-12T12:00:00.000Z";
 
 const AGENTS: V5SourceAgent[] = [
-  { id: "command", displayName: "HartOS Command / Orchestrator", role: "orchestrator", status: "live", category: "root" },
+  { id: "orchestrator", displayName: "HartOS Command / Orchestrator", role: "orchestrator", status: "live", category: "root" },
   { id: "factory", displayName: "Factory", role: "provisioning", status: "live", category: "agent" },
   { id: "wolverine", displayName: "Wolverine", role: "immune", status: "partial", category: "agent" },
   { id: "sentinel", displayName: "Sentinel", role: "liveness", status: "down", category: "agent" },
@@ -34,7 +34,7 @@ describe("buildCockpitV5Data", () => {
     const fc = d.agents.find((a) => a.id === "factory")!;
     assert.equal(fc.initials, "FC");
     assert.equal(fc.color, "#FF2D9E");
-    assert.equal(d.agents.find((a) => a.id === "command")!.name, "Command");
+    assert.equal(d.agents.find((a) => a.id === "orchestrator")!.name, "Command");
   });
 
   it("a running task makes its agent fire", () => {
