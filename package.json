@@ -115,6 +115,8 @@
     "wolverine:propose": "node --env-file-if-exists=.env.local dist/scripts/wolverine-propose.js",
     "preexecute:cockpit-approved": "npm run build",
     "execute:cockpit-approved": "node --env-file-if-exists=.env.local dist/scripts/run-spine-executor.js",
+    "preexecute:rollback": "npm run build",
+    "execute:rollback": "node --env-file-if-exists=.env.local dist/scripts/run-rollback-executor.js",
     "preobsidian:wolverine-note": "npm run build",
     "obsidian:wolverine-note": "node --env-file-if-exists=.env.local dist/scripts/obsidian-note.js",
     "prerinnegan:compile": "npm run build",
