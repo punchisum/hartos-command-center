@@ -150,10 +150,10 @@ function connectomeScript(): string {
       ax+='<path d="M'+cx+' '+cy+' Q'+mx.toFixed(1)+' '+my.toFixed(1)+' '+x.toFixed(1)+' '+y.toFixed(1)+'" fill="none" stroke="'+c+'" stroke-width="'+(fire?2.4:1.5)+'" opacity="'+(fire?0.92:0.5)+'" filter="url(#gl)"/>';
       if(fire)nd+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="47" fill="'+c+'" opacity="0.16" filter="url(#glbig)"/>';
       nd+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="31" fill="#0A0619" stroke="'+c+'" stroke-width="'+(fire?2.6:1.8)+'" filter="url(#gl)"/>';
-      nd+='<text x="'+x.toFixed(1)+'" y="'+(y+5).toFixed(1)+'" text-anchor="middle" font-family="Orbitron" font-weight="700" font-size="18" fill="'+c+'">'+a.initials+'</text>';
+      nd+='<text x="'+x.toFixed(1)+'" y="'+(y+5).toFixed(1)+'" text-anchor="middle" font-family="Orbitron" font-weight="700" font-size="18" fill="'+c+'">'+h(a.initials)+'</text>';
       const side=x<cx-20?'end':x>cx+20?'start':'middle';const lx=side==='end'?x-40:side==='start'?x+40:x;
-      nd+='<text x="'+lx.toFixed(1)+'" y="'+(y-40).toFixed(1)+'" text-anchor="'+side+'" font-family="Rajdhani" font-weight="600" font-size="18" fill="#ECE4F8">'+a.name+'</text>';
-      nd+='<text x="'+lx.toFixed(1)+'" y="'+(y-22).toFixed(1)+'" text-anchor="'+side+'" font-family="JetBrains Mono" font-size="12" fill="'+c+'" opacity="0.85">'+a.metric+'</text>';
+      nd+='<text x="'+lx.toFixed(1)+'" y="'+(y-40).toFixed(1)+'" text-anchor="'+side+'" font-family="Rajdhani" font-weight="600" font-size="18" fill="#ECE4F8">'+h(a.name)+'</text>';
+      nd+='<text x="'+lx.toFixed(1)+'" y="'+(y-22).toFixed(1)+'" text-anchor="'+side+'" font-family="JetBrains Mono" font-size="12" fill="'+c+'" opacity="0.85">'+h(a.metric)+'</text>';
     }
     return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Fleet connectome"><defs>'+
       '<filter id="gl" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'+
@@ -166,7 +166,7 @@ function connectomeScript(): string {
       '<circle cx="'+cx+'" cy="'+cy+'" r="'+core+'" fill="none" stroke="#34F5A8" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+(0.942*2*Math.PI*core).toFixed(1)+' '+(2*Math.PI*core).toFixed(1)+'" transform="rotate(-90 '+cx+' '+cy+')" filter="url(#gl)"/>'+
       '<text x="'+cx+'" y="'+(cy-30)+'" text-anchor="middle" font-family="Rajdhani" font-size="20" letter-spacing="3" fill="#22E8FF" opacity="0.9">COGNITIVE CORE</text>'+
       '<text x="'+cx+'" y="'+(cy+21)+'" text-anchor="middle" font-family="Orbitron" font-weight="900" font-size="64" fill="#fff" filter="url(#gl)">'+(window.HV.fleetFitness)+'</text>'+
-      '<text x="'+cx+'" y="'+(cy+50)+'" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="#34F5A8">fleet fitness</text>'+nd+'</svg>';
+      '<text x="'+cx+'" y="'+(cy+50)+'" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="#34F5A8">fleet health %</text>'+nd+'</svg>';
   }`;
 }
 
@@ -295,17 +295,18 @@ export function renderCockpitV5(data: CockpitV5Data): string {
 <div class="tx" id="tx">TRANSMIT <i class="ti ti-bolt"></i></div></footer></div>
 <script>
 window.HV=${json};
+function h(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 ${connectomeScript()}
 (function(){
 var D=window.HV,P=document.getElementById('page');
 function el(t){return '<i class="ti '+t+'"></i>';}
 function vit(l,n,c,s){return '<div class="vit"><div class="l">'+l+'</div><div class="n" style="color:'+c+'">'+n+(s?'<span style="font-size:14px;color:#9C8CBC"> '+s+'</span>':'')+'</div></div>';}
 function overview(){
-  var ev=D.events.map(function(e){return '<div class="ev"><span class="spk" style="background:'+e.color+';color:'+e.color+'"></span><span class="evt">'+e.time+'</span><span class="evw" style="color:'+e.color+'">'+e.agent+'</span><span class="evx">'+e.text+'</span></div>';}).join('');
-  var syn=D.proposals.slice(0,4).map(function(p){return '<div class="qcard" style="padding:11px 13px;margin-bottom:10px"><div class="qtop"><span class="mono" style="color:'+p.color+'">'+p.id+'</span><span style="color:#9C8CBC">'+p.origin+'</span><span class="qtier" style="color:'+p.color+';border-color:'+p.color+'66">'+p.tier+'</span></div><div style="font-size:14px;margin:7px 0 0">'+p.title+'</div></div>';}).join('')||'<div class="muted">No pending synapses — the queue is clear.</div>';
+  var ev=D.events.map(function(e){return '<div class="ev"><span class="spk" style="background:'+e.color+';color:'+e.color+'"></span><span class="evt">'+h(e.time)+'</span><span class="evw" style="color:'+e.color+'">'+h(e.agent)+'</span><span class="evx">'+h(e.text)+'</span></div>';}).join('')||'<div class="muted">No recent signal — the loop is quiet.</div>';
+  var syn=D.proposals.slice(0,4).map(function(p){return '<div class="qcard" style="padding:11px 13px;margin-bottom:10px"><div class="qtop"><span class="mono" style="color:'+p.color+'">'+h(p.id)+'</span><span style="color:#9C8CBC">'+h(p.origin)+'</span><span class="qtier" style="color:'+p.color+';border-color:'+p.color+'66">'+h(p.tier)+'</span></div><div style="font-size:14px;margin:7px 0 0">'+h(p.title)+'</div></div>';}).join('')||'<div class="muted">No pending synapses — the queue is clear.</div>';
   return '<div class="cap"><h2>Neural map</h2><span class="sub">fleet connectome · '+D.agents.length+' neurons · cognitive loop live</span><span class="r"><span class="lg"><span class="dot" style="background:#fff;box-shadow:0 0 8px #fff"></span>firing</span><span class="lg"><span class="dot" style="background:#34F5A8"></span>healthy</span><span class="lg"><span class="dot" style="background:#A974FF"></span>idle</span></span></div>'+
   '<div style="display:flex;gap:18px;flex:1;min-height:0" class="ov"><div class="col" style="flex:1;display:flex;flex-direction:column;gap:16px"><div class="panel" style="flex:1;display:flex;flex-direction:column;padding:16px 18px"><div class="cwrap">'+conn(D.agents)+'</div></div>'+
-  '<div class="kpis" style="grid-template-columns:repeat(3,1fr)">'+vit('signal',D.signalPerMin,'#22E8FF','/min')+vit('cortical load',D.corticalLoad,'#A974FF','%')+vit('verify : all',D.verify,'#34F5A8','')+'</div></div>'+
+  '<div class="kpis" style="grid-template-columns:repeat(3,1fr)">'+vit('tasks in flight',D.signalPerMin,'#22E8FF','')+vit('cortical load',D.corticalLoad,'#A974FF','%')+vit('fleet · live/down',D.verify,'#34F5A8','')+'</div></div>'+
   '<div class="col sidecol" style="width:452px;display:flex;flex-direction:column;gap:16px"><div class="panel" style="flex:1;padding:15px 17px;display:flex;flex-direction:column"><div class="phd">'+el('ti-activity')+' signal stream<span class="ct">cognitive loop</span></div><div class="feed">'+ev+'</div></div>'+
   '<div class="panel" style="padding:15px 17px"><div class="phd">'+el('ti-plug-connected')+' pending synapses<span class="ct">authorize</span></div><div style="margin-top:11px">'+syn+'</div></div></div></div>';
 }
@@ -314,9 +315,9 @@ function ops(){
   var cards=(t.tasks||[]).map(function(k){
     var pulse=k.stage==='running'?'<span class="run-pulse"></span>':'';
     return '<div class="tk"><div class="ic" style="border-color:'+k.color+';color:'+k.color+'">'+el(k.stage==='running'?'ti-loader-2':k.stage==='done'?'ti-check':k.stage==='failed'?'ti-x':'ti-clock')+'</div>'+
-      '<div><div class="ti2">'+k.title+'</div><div class="sub"><span class="verb">'+k.agent+' · '+k.verb+'</span></div></div>'+
-      '<div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">'+pulse+'<span class="stg '+k.stage+'">'+k.stage+'</span></div>'+
-      '<div class="age">'+k.ageLabel+'</div></div>';
+      '<div><div class="ti2">'+h(k.title)+'</div><div class="sub"><span class="verb">'+h(k.agent)+' · '+h(k.verb)+'</span></div></div>'+
+      '<div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">'+pulse+'<span class="stg '+h(k.stage)+'">'+h(k.stage)+'</span></div>'+
+      '<div class="age">'+h(k.ageLabel)+'</div></div>';
   }).join('');
   if(!t.available)cards='<div class="empty">'+ (t.note||'Live Operations unavailable.') +'</div>';
   else if(!(t.tasks||[]).length)cards='<div class="empty">No tasks in flight. Approve a job in Synapses and it appears here the moment the daemon picks it up.</div>';
@@ -326,11 +327,11 @@ function ops(){
 }
 function fleet(){
   var rows=D.agents.map(function(a){var sc=a.status==='down'?'#FF5470':a.status==='idle'?'#A974FF':a.status==='watch'?'#FFC24B':a.color;
-    return '<div class="arow"><div class="ac" style="border-color:'+a.color+';color:'+a.color+'">'+a.initials+'</div><div><div style="font-weight:600;font-size:16px">'+a.name+'</div><div style="font-size:12px;color:#9C8CBC">'+a.role+'</div></div><div class="spill" style="color:'+sc+';border-color:'+sc+'66">'+a.status+'</div><div class="muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+a.metric+'</div></div>';}).join('');
+    return '<div class="arow"><div class="ac" style="border-color:'+a.color+';color:'+a.color+'">'+h(a.initials)+'</div><div><div style="font-weight:600;font-size:16px">'+h(a.name)+'</div><div style="font-size:12px;color:#9C8CBC">'+h(a.role)+'</div></div><div class="spill" style="color:'+sc+';border-color:'+sc+'66">'+h(a.status)+'</div><div class="muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+h(a.metric)+'</div></div>';}).join('');
   return '<div class="cap"><h2>Fleet</h2><span class="sub">'+D.agents.length+' neurons · live roster</span></div><div class="panel" style="flex:1;padding:16px 18px;overflow:auto"><div class="phd">'+el('ti-affiliate')+' agent roster</div><div style="margin-top:13px">'+rows+'</div></div>';
 }
 function synapses(){
-  var q=D.proposals.map(function(p){return '<div class="qcard"><div class="qtop"><span class="mono" style="color:'+p.color+'">'+p.id+'</span><span style="color:#9C8CBC">'+p.origin+'</span><span class="qtier" style="color:'+p.color+';border-color:'+p.color+'66">'+p.tier+'</span></div><div style="font-size:16px;font-weight:600;margin:8px 0 6px">'+p.title+'</div><div class="muted">'+p.status+'</div></div>';}).join('')||'<div class="empty">No proposals in the queue.</div>';
+  var q=D.proposals.map(function(p){return '<div class="qcard"><div class="qtop"><span class="mono" style="color:'+p.color+'">'+h(p.id)+'</span><span style="color:#9C8CBC">'+h(p.origin)+'</span><span class="qtier" style="color:'+p.color+';border-color:'+p.color+'66">'+h(p.tier)+'</span></div><div style="font-size:16px;font-weight:600;margin:8px 0 6px">'+h(p.title)+'</div><div class="muted">'+h(p.status)+'</div></div>';}).join('')||'<div class="empty">No proposals in the queue.</div>';
   return '<div class="cap"><h2>Synapses</h2><span class="sub">authorize / sever · the human-approval floor</span></div><div class="panel" style="flex:1;padding:16px 18px;overflow:auto"><div class="phd">'+el('ti-plug-connected')+' proposal queue<span class="ct">'+D.proposals.length+' total</span></div><div style="margin-top:13px">'+q+'</div></div>';
 }
 function audit(){
