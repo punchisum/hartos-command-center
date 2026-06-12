@@ -15,6 +15,7 @@ import { pathToFileURL } from "node:url";
 import { runLiveRunnerLoop, resolvePollMs } from "../src/jobs/live-runner.js";
 import { runJobRunner } from "./hartos-runner.js";
 import { runSpineExecutor } from "./run-spine-executor.js";
+import { runFitnessPollPass } from "./run-fitness-poll.js";
 import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
 import { runFailedJobAlertPass } from "../src/telegram/run-failed-job-alert.js";
 import { runLivenessAlertPass } from "../src/telegram/run-liveness-alert.js";
@@ -67,6 +68,7 @@ if (isMain) {
   let cycle = 0;
   const ALERT_EVERY = 6; //   ~30s at the 5s poll: approvals + execution failures (light DB reads)
   const LIVENESS_EVERY = 36; // ~3min: fleet liveness (local artifact gather + pure assess)
+  const FITNESS_POLL_EVERY = 60; // ~5min: poll the fitness side for pending mutations (daily cadence; gated no-op by default)
 
   const runCycle = async (now: string): Promise<string[]> => {
     const lines = await runJobRunner(process.env, now, 3);
@@ -85,6 +87,20 @@ if (isMain) {
         }
       } catch (e) {
         console.error(`[live-runner] mutation executor failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
+
+    // FITNESS poll (P5) — every ~5min, materialise the fitness side's pending mutations into the
+    // spine as pending_approval proposals. GATED: a pure no-op unless HARTOS_FITNESS_POLL=on + the
+    // fitness identity is set (so it never polls a not-yet-existing RPC). Enqueues only; the approval
+    // floor + ALLOW_FITNESS_ADJUST + the gated executor still decide every write. Error-isolated.
+    if (cycle % FITNESS_POLL_EVERY === 0) {
+      try {
+        const fit = await runFitnessPollPass(process.env, new Date(now));
+        const did = fit.some((l) => /ingested [1-9]/.test(l));
+        if (did) for (const l of fit) console.log(`[live-runner] fitness · ${l}`);
+      } catch (e) {
+        console.error(`[live-runner] fitness poll failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
       }
     }
 

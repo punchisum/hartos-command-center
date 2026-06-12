@@ -14,9 +14,9 @@
 import type { PendingFitnessMutation } from "./fitness-mutation-materialize.js";
 import type { FitnessContext } from "./fitness-mutation-db.js";
 
-/** Minimal pg surface — lets tests inject a fake query without a live connection. */
+/** Minimal pg surface — matches the spine handle (rows: unknown[]); tests inject a fake. */
 export interface Queryable {
-  query: (text: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>>; rowCount: number | null }>;
+  query: (text: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCount?: number | null }>;
 }
 
 const DEFAULT_LIMIT = 25;
@@ -52,7 +52,7 @@ export function makePendingFitnessPoller(db: Queryable, ctx: FitnessContext): Pe
       );
       const out: PendingFitnessMutation[] = [];
       for (const row of r.rows) {
-        const m = mapRow(row);
+        const m = mapRow(row as Record<string, unknown>);
         if (m) out.push(m);
       }
       return out;
