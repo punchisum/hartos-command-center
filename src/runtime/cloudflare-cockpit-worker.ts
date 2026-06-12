@@ -69,6 +69,7 @@ import { routeCockpitCommand } from "../cockpit/command-router.js";
 import { decide, autonomyTierLabel, type ConciergeDecision } from "../cockpit/decision-engine.js";
 import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { renderCockpitV5, buildCockpitV5Data } from "./cloudflare-cockpit-v5.js";
+import type { V5SourceProposal, CockpitV5Data } from "./cloudflare-cockpit-v5.js";
 import { assessFleetLiveness, heartbeatsFromReadModels } from "../sentinel/sentinel-liveness.js";
 import { heartbeatShouldAlert, buildHeartbeatAlert, heartbeatLogLine } from "../sentinel/sentinel-heartbeat.js";
 import { jobSpecFromRoute, buildAgentJobProposal } from "../jobs/agent-job.js";
@@ -122,6 +123,7 @@ export const SUPPORTED_ROUTES = [
   "GET /control",
   "GET /health",
   "GET /api/state",
+  "GET /api/v5",
   "GET /api/control-surface",
   "GET /api/reports",
   "GET /api/threads",
@@ -176,6 +178,27 @@ function isHtmlGetRoute(pathname: string): boolean {
  * Pure with respect to the request — tests call this directly with a mocked
  * Request + Env. No filesystem access happens here.
  */
+/** Build the live v5 cockpit data (shared by GET / and the GET /api/v5 polling endpoint). */
+function buildV5DataForRequest(
+  env: CloudflareCockpitEnv,
+  now: string,
+  proposalQueue: V5SourceProposal[] | undefined,
+): CockpitV5Data {
+  const reg = resolveMetaAgentRegistry({ now });
+  const cfg = resolveLlmConfig(env);
+  return buildCockpitV5Data(reg.agents, proposalQueue, {
+    now,
+    buildSha: (env["BUILD_SHA"] ?? null) as string | null,
+    diagnostics: {
+      providerMode: explainGate(cfg).mode,
+      model: cfg.model,
+      llmNetwork: resolveLlmNetworkGate(env),
+      writePathConfigured: Boolean(env["HARTOS_ASK_WRITE_URL"] && env["HARTOS_ASK_WRITE_TOKEN"]),
+      env: summarizeEnvPresence(env),
+    },
+  });
+}
+
 export async function handleCockpitRequest(
   request: Request,
   env: CloudflareCockpitEnv,
@@ -272,20 +295,7 @@ export async function handleCockpitRequest(
       // v5 "Neural Deck" — flag-gated (HARTOS_COCKPIT_V5=true) or previewable via ?v5=1. Renders the
       // connectome cockpit + Live Operations page, hydrated from the live registry + proposal spine.
       if (env["HARTOS_COCKPIT_V5"] === "true" || url.searchParams.get("v5") === "1") {
-        const v5reg = resolveMetaAgentRegistry({ now: nowFor(dctx) });
-        const v5cfg = resolveLlmConfig(env);
-        const v5data = buildCockpitV5Data(v5reg.agents, dctx.state?.proposalQueue, {
-          now: nowFor(dctx),
-          buildSha: (env["BUILD_SHA"] ?? null) as string | null,
-          diagnostics: {
-            providerMode: explainGate(v5cfg).mode,
-            model: v5cfg.model,
-            llmNetwork: resolveLlmNetworkGate(env),
-            writePathConfigured: Boolean(env["HARTOS_ASK_WRITE_URL"] && env["HARTOS_ASK_WRITE_TOKEN"]),
-            env: summarizeEnvPresence(env),
-          },
-        });
-        return htmlResponse(renderCockpitV5(v5data), cors);
+        return htmlResponse(renderCockpitV5(buildV5DataForRequest(env, nowFor(dctx), dctx.state?.proposalQueue)), cors);
       }
       if (dctx.html) return htmlResponse(dctx.html, cors);
       // Phase D — surface recent threads from the spine in the activity panel.
@@ -326,6 +336,11 @@ export async function handleCockpitRequest(
     }
     if (pathname === "/api/state") {
       return jsonResponse(200, dctx.state ?? { hosted: true, note: "snapshot not embedded" }, cors);
+    }
+    if (pathname === "/api/v5") {
+      // The live v5 cockpit data — the SAME shape the page injects, resolved fresh each request so
+      // the client can poll it and update the connectome / tasks / proposals without a page reload.
+      return jsonResponse(200, buildV5DataForRequest(env, nowFor(dctx), dctx.state?.proposalQueue), cors);
     }
     if (pathname === "/api/agents") {
       // The meta-agent registry (org chart + honest capability/status). Read-only, secret-free.
