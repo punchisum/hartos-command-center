@@ -72,6 +72,9 @@ import { renderCockpitV5, buildCockpitV5Data } from "./cloudflare-cockpit-v5.js"
 import type { CockpitV5Data } from "./cloudflare-cockpit-v5.js";
 import { assessFleetLiveness, heartbeatsFromReadModels } from "../sentinel/sentinel-liveness.js";
 import { heartbeatShouldAlert, buildHeartbeatAlert, heartbeatLogLine } from "../sentinel/sentinel-heartbeat.js";
+import { parseDaemonRpcResult, daemonAlert } from "../telegram/daemon-deadman.js";
+import { telegramNotifyConfig, formatAlert } from "../telegram/alert-bus.js";
+import { TelegramHttpSender } from "../telegram/sender.js";
 import { jobSpecFromRoute, buildAgentJobProposal } from "../jobs/agent-job.js";
 import {
   authenticateCockpitRequest,
@@ -994,9 +997,49 @@ export async function runSentinelHeartbeat(env: CloudflareCockpitEnv): Promise<v
         console.warn(`[sentinel-heartbeat] ALERT (no webhook configured): ${alert.text} — ${alert.agents.join(", ")}`);
       }
     }
+
+    // DEAD-MAN'S-SWITCH: the Worker is the external observer that detects the live-runner daemon's
+    // own death (the daemon can't). The RPC does the staleness check + atomic alert-dedup in the DB.
+    await checkDaemonDeadman(env);
   } catch (err) {
     // A heartbeat must never crash the scheduled run.
     console.log(`[sentinel-heartbeat] error: ${String(err)}`);
+  }
+}
+
+/**
+ * Read the daemon's liveness via the security-definer RPC (which dedups in the DB) and, when it says
+ * to alert, ping Hart on Telegram. Read-only key + a definer RPC; gated by the same ALLOW_TELEGRAM_NOTIFY
+ * + token + chat as the rest of the bus. Never throws — the cron must not crash.
+ */
+async function checkDaemonDeadman(env: CloudflareCockpitEnv): Promise<void> {
+  try {
+    const url = env["HARTOS_FITNESS_SUPABASE_URL"];
+    const key = env["HARTOS_FITNESS_SUPABASE_READONLY_KEY"];
+    if (!url || !key) return; // not configured — silent
+    const res = await fetch(`${url.replace(/\/$/, "")}/rest/v1/rpc/hartos_daemon_liveness_alert`, {
+      method: "POST",
+      headers: { apikey: key, authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" },
+      body: "{}",
+    });
+    if (!res.ok) {
+      console.log(`[daemon-deadman] rpc failed (${res.status})`);
+      return;
+    }
+    const parsed = parseDaemonRpcResult(await res.json());
+    if (!parsed) return;
+    const alert = daemonAlert(parsed);
+    if (!alert) return;
+    const cfg = telegramNotifyConfig(env, true);
+    if (!cfg.ok) {
+      console.warn(`[daemon-deadman] ALERT (telegram disarmed): ${alert.title}`);
+      return;
+    }
+    const sender = new TelegramHttpSender(env, { fetchImpl: fetch.bind(globalThis) });
+    await sender.sendMessage(cfg.chatId!, formatAlert(alert));
+    console.log(`[daemon-deadman] alerted Hart: ${alert.title}`);
+  } catch (err) {
+    console.log(`[daemon-deadman] error: ${String(err)}`);
   }
 }
 

@@ -19,6 +19,8 @@ import { runFailedJobAlertPass } from "../src/telegram/run-failed-job-alert.js";
 import { runLivenessAlertPass } from "../src/telegram/run-liveness-alert.js";
 import { EMPTY_ALERT_STATE, type AlertBusState } from "../src/telegram/alert-bus.js";
 import type { FleetLiveness } from "../src/sentinel/sentinel-liveness.js";
+import { writeDaemonHeartbeat } from "../src/jobs/daemon-heartbeat-store.js";
+import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
 import { redact } from "../src/llm/redaction.js";
 
 const isMain = typeof process.argv[1] === "string" && import.meta.url === pathToFileURL(process.argv[1]).href;
@@ -31,12 +33,20 @@ if (isMain) {
   process.on("SIGINT", () => requestStop("SIGINT"));
   process.on("SIGTERM", () => requestStop("SIGTERM"));
 
+  // Dead-man's-switch source: write a liveness heartbeat to Supabase that the always-on Worker cron
+  // reads (an external observer is the ONLY honest way to detect this process's own death). All
+  // best-effort — a DB blip never crashes the daemon. See src/jobs/daemon-heartbeat-store.ts.
+  const mkDb = () => createCockpitProposalDb(process.env);
+  const beat = (status: "alive" | "error" | "crashed", reason?: string) =>
+    void writeDaemonHeartbeat(mkDb, status, reason).catch((e) => console.error(`[live-runner] heartbeat write failed: ${redact(String(e instanceof Error ? e.message : e))}`));
+
   // Resilience: a stray async error (a dropped DB socket, a fetch reject) must NOT kill the daemon.
-  // Log it and keep the reconcile loop alive; the per-cycle try/catch handles in-cycle failures.
-  process.on("uncaughtException", (e) => console.error(`[live-runner] uncaught (continuing): ${redact(String(e instanceof Error ? e.message : e))}`));
-  process.on("unhandledRejection", (e) => console.error(`[live-runner] unhandled rejection (continuing): ${redact(String(e))}`));
-  // Heartbeat so the log proves liveness even when idle (and a supervisor/Sentinel can see it).
-  const heartbeat = setInterval(() => console.log(`[live-runner] heartbeat · alive · ${new Date().toISOString()}`), 300_000);
+  // Log it, mark the heartbeat errored (a courtesy — staleness is the real detector), keep looping.
+  process.on("uncaughtException", (e) => { console.error(`[live-runner] uncaught (continuing): ${redact(String(e instanceof Error ? e.message : e))}`); beat("error", e instanceof Error ? e.message : String(e)); });
+  process.on("unhandledRejection", (e) => { console.error(`[live-runner] unhandled rejection (continuing): ${redact(String(e))}`); beat("error", String(e)); });
+  // Heartbeat: prove liveness in the log AND to the Supabase row the Worker watches (every 5 min).
+  beat("alive"); // write one immediately so the row exists right after start
+  const heartbeat = setInterval(() => { console.log(`[live-runner] heartbeat · alive · ${new Date().toISOString()}`); beat("alive"); }, 300_000);
   heartbeat.unref?.();
 
   const pollMs = resolvePollMs(process.env);
