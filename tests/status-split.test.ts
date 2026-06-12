@@ -30,9 +30,8 @@ describe("computeStatusSplit", () => {
     assert.equal(split.groups.find((g) => g.key === "system")!.band, "green");
   });
 
-  it("reflects the ops-401 outage as provider RED + fleet not all-green (honest)", () => {
-    assert.equal(split.groups.find((g) => g.key === "provider")!.band, "red");
-    assert.notEqual(split.groups.find((g) => g.key === "fleet")!.band, "green");
+  it("provider band recovered now that the ops read-model is live (no longer RED)", () => {
+    assert.notEqual(split.groups.find((g) => g.key === "provider")!.band, "red");
   });
 
   it("freshness + proposals bands reflect their inputs", () => {

@@ -51,9 +51,9 @@ describe("resolveMetaAgentRegistry", () => {
     assert.equal(reg.byId["beezulbub"].requiresLocalRunner, true); // live hunt needs a runner
   });
 
-  it("shows broken/unavailable status honestly (ops 401)", () => {
-    assert.equal(reg.byId["ops"].status, "unavailable");
-    assert.match(reg.byId["ops"].statusReason, /401|unavailable/i);
+  it("ops read-model is live (the read-only RPCs resolve)", () => {
+    assert.equal(reg.byId["ops"].status, "live");
+    assert.match(reg.byId["ops"].statusReason, /live|read-model/i);
   });
 
   it("counts are consistent and the output is frozen", () => {
