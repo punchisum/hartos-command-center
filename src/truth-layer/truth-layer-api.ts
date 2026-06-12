@@ -1,0 +1,48 @@
+/**
+ * src/truth-layer/truth-layer-api.ts — the single source of truth payload (PURE core).
+ *
+ * Composes an already-assessed FleetLiveness with deploy metadata (which commit is live, when
+ * it was built, which gates are armed) into the report GET /health returns. Its whole reason to
+ * exist: `ok` is COMPUTED from real fleet evidence, never the hardcoded `ok: true` the audit
+ * caught. The cockpit and memory READ this; they never assert their own status.
+ *
+ * PURE: no I/O, no clock (now injected), no env. Armed flags are presence-only — never values.
+ */
+
+import type { FleetLiveness } from "../sentinel/sentinel-liveness.js";
+
+/** A feature-gate flag, reported by PRESENCE only — its value is never exposed. */
+export interface ArmedFlag {
+  name: string;
+  present: boolean;
+}
+
+export interface TruthLayerMeta {
+  now: string;
+  /** Deployed commit SHA (BUILD_SHA), or null when not injected. */
+  version: string | null;
+  /** Deploy build time (BUILD_TIME), or null. */
+  builtAt: string | null;
+  armedFlags: ArmedFlag[];
+}
+
+export interface TruthLayerReport {
+  ok: boolean;
+  computedAt: string;
+  version: string | null;
+  builtAt: string | null;
+  fleet: FleetLiveness;
+  armedFlags: ArmedFlag[];
+}
+
+export function computeFleetVerdict(fleet: FleetLiveness, meta: TruthLayerMeta): TruthLayerReport {
+  // ok is derived from real fleet evidence: not ok the moment any capability is hard-down.
+  return {
+    ok: fleet.overall !== "RED",
+    computedAt: meta.now,
+    version: meta.version,
+    builtAt: meta.builtAt,
+    fleet,
+    armedFlags: meta.armedFlags,
+  };
+}
