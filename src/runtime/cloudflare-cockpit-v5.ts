@@ -31,12 +31,18 @@ export interface V5Agent {
 }
 
 export interface V5Proposal {
+  /** Short display id (S-xxxxx). */
   id: string;
+  /** The REAL spine id — what the gated /api/proposals/transition POST must use. */
+  realId: string;
   origin: string;
   title: string;
   tier: string;
   color: string;
   status: string;
+  risk: string;
+  /** Plain-English "what would happen" for the detail panel. */
+  desc: string;
 }
 
 export interface V5Event {
@@ -261,6 +267,7 @@ const DASHBOARD_AGENTS = new Set(["fitness", "ops"]);
 /** A minimal proposal-queue shape (subset of ProposalQueueItem). */
 export interface V5SourceProposal extends TaskSourceRow {
   riskLevel?: string;
+  description?: string;
 }
 
 function mapStatus(s: string, firing: boolean): V5Agent["status"] {
@@ -310,14 +317,17 @@ export function buildCockpitV5Data(
     risk === "high" ? "#FF5470" : risk === "medium" ? "#FF2D9E" : "#34F5A8";
   const pending = (proposalQueue ?? [])
     .filter((p) => p.status === "pending_approval" || p.status === "draft")
-    .slice(0, 12)
+    .slice(0, 16)
     .map((p): V5Proposal => ({
+      realId: p.id,
       id: p.id.length > 14 ? "S-" + p.id.slice(-5) : p.id,
       origin: typeof p.domain === "string" ? p.domain : "system",
       title: typeof p.title === "string" ? p.title : p.id,
       tier: (p.riskLevel ?? "low") === "low" ? "Tier 1" : "Tier 2",
       color: PROP_COLOR(p.riskLevel ?? "low"),
       status: typeof p.status === "string" ? p.status : "pending_approval",
+      risk: typeof p.riskLevel === "string" ? p.riskLevel : "low",
+      desc: typeof p.description === "string" && p.description ? p.description : (typeof p.title === "string" ? p.title : p.id),
     }));
 
   const events: V5Event[] = tasks.tasks.slice(0, 8).map((t) => ({
@@ -375,6 +385,7 @@ function h(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'
 ${connectomeScript()}
 (function(){
 var D=window.HV,P=document.getElementById('page');
+var selSyn=0;
 function el(t){return '<i class="ti '+t+'"></i>';}
 function eegPath(sig){var d='M0 34',spikes=Math.max(2,Math.min(8,sig||3));for(var x=0;x<=414;x+=4){var n=34+Math.sin(x/7)*1.6;if(x%Math.floor(414/spikes)<6){n=34-(20+(x%9));}d+=' L'+x+' '+n.toFixed(1);}return d;}
 function vit(l,n,c,s){return '<div class="vit"><div class="l">'+l+'</div><div class="n" style="color:'+c+'">'+n+(s?'<span style="font-size:14px;color:#9C8CBC"> '+s+'</span>':'')+'</div></div>';}
@@ -410,8 +421,22 @@ function fleet(){
   return '<div class="cap"><h2>Fleet</h2><span class="sub">'+D.agents.length+' neurons · live roster</span></div><div class="panel" style="flex:1;padding:16px 18px;overflow:auto"><div class="phd">'+el('ti-affiliate')+' agent roster</div><div style="margin-top:13px">'+rows+'</div></div>';
 }
 function synapses(){
-  var q=D.proposals.map(function(p){return '<div class="qcard"><div class="qtop"><span class="mono" style="color:'+p.color+'">'+h(p.id)+'</span><span style="color:#9C8CBC">'+h(p.origin)+'</span><span class="qtier" style="color:'+p.color+';border-color:'+p.color+'66">'+h(p.tier)+'</span></div><div style="font-size:16px;font-weight:600;margin:8px 0 6px">'+h(p.title)+'</div><div class="muted">'+h(p.status)+'</div></div>';}).join('')||'<div class="empty">No proposals in the queue.</div>';
-  return '<div class="cap"><h2>Synapses</h2><span class="sub">authorize / sever · the human-approval floor</span></div><div class="panel" style="flex:1;padding:16px 18px;overflow:auto"><div class="phd">'+el('ti-plug-connected')+' proposal queue<span class="ct">'+D.proposals.length+' total</span></div><div style="margin-top:13px">'+q+'</div></div>';
+  var ps=D.proposals||[];
+  if(!ps.length)return '<div class="cap"><h2>Synapses</h2><span class="sub">authorize / sever · the human-approval floor</span></div><div class="panel" style="flex:1;display:flex;align-items:center;justify-content:center"><div class="empty">No proposals awaiting authorization. Ask HartOS to do something (or let Wolverine propose a fix), then authorize it here.</div></div>';
+  if(selSyn>=ps.length)selSyn=0;
+  var sel=ps[selSyn];
+  var queue=ps.map(function(p,i){return '<div class="qcard'+(i===selSyn?' sel':'')+'" data-syn="'+i+'"><div class="qtop"><span class="mono" style="color:'+p.color+'">'+h(p.id)+'</span><span style="color:#9C8CBC">'+h(p.origin)+'</span><span class="qtier" style="color:'+p.color+';border-color:'+p.color+'66">'+h(p.tier)+'</span></div><div style="font-size:15px;font-weight:600;margin:8px 0 6px">'+h(p.title)+'</div><div style="display:flex;gap:14px;font-size:12px;color:#9C8CBC"><span>'+h(p.risk)+' risk</span><span>'+h(p.status)+'</span></div></div>';}).join('');
+  var canAct=sel.status==='pending_approval';
+  var actions=canAct
+    ?'<div class="acts" style="display:flex;gap:12px;margin-top:auto;padding-top:16px"><button class="big-btn b-ok" data-act="approve" data-rid="'+h(sel.realId)+'">'+el('ti-plug-connected')+' Authorize</button><button class="big-btn b-no" data-act="reject" data-rid="'+h(sel.realId)+'">Reject</button></div>'
+    :'<div class="why" style="margin-top:auto">'+el('ti-info-circle')+' This proposal is <b style="color:#ECE4F8">&nbsp;'+h(sel.status)+'</b> — only <span class="mono">pending_approval</span> items can be authorized here.</div>';
+  var detail='<div class="dwrap" style="width:560px;flex:0 0 auto;display:flex;flex-direction:column;min-height:0;overflow:auto"><div class="qtop"><span class="mono" style="color:'+sel.color+'">'+h(sel.id)+'</span><span style="color:#9C8CBC">from '+h(sel.origin)+'</span><span class="qtier" style="color:'+sel.color+';border-color:'+sel.color+'66">'+h(sel.tier)+'</span></div>'+
+    '<div class="orb" style="font-size:20px;margin:12px 0 10px">'+h(sel.title)+'</div>'+
+    '<div class="muted" style="font-size:14px;line-height:1.55">'+h(sel.desc)+'</div>'+
+    '<div class="dgrid"><div class="dcell"><div class="l">risk</div><div class="n" style="font-size:16px">'+h(sel.risk)+'</div></div><div class="dcell"><div class="l">origin</div><div class="n" style="font-size:16px">'+h(sel.origin)+'</div></div></div>'+
+    '<div class="why" style="margin-top:14px">'+el('ti-shield-lock')+' Why you: '+h(sel.tier)+' — HartOS proposes; only your authorization moves it forward. Reversible + audited; nothing fires until you say go.</div>'+
+    actions+'</div>';
+  return '<div class="cap"><h2>Synapses</h2><span class="sub">authorize / sever · '+ps.length+' awaiting you</span></div><div style="display:flex;gap:18px;flex:1;min-height:0"><div class="col" style="flex:1;min-height:0;overflow:auto">'+queue+'</div>'+detail+'</div>';
 }
 function audit(){
   return '<div class="cap"><h2>Audit</h2><span class="sub">Wolverine immune system</span></div><div class="panel" style="flex:1;padding:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px"><div style="width:96px;height:96px;border-radius:24px;border:2px solid #34F5A8;display:flex;align-items:center;justify-content:center;font-size:48px;color:#34F5A8;background:rgba(52,245,168,.06);box-shadow:0 0 40px -10px #34F5A8">'+el('ti-shield-check')+'</div><div class="orb" style="font-size:22px;color:#34F5A8;letter-spacing:.1em">IMMUNE · CLEAN</div><div class="muted">6 detectors sweeping · hands gated · full audit board lands in the next v5 slice</div></div>';
@@ -454,7 +479,17 @@ function openDrawer(id){var a=null;for(var i=0;i<D.agents.length;i++){if(D.agent
   drawer.classList.add('open');
   document.getElementById('ddx').addEventListener('click',function(){drawer.classList.remove('open');});
 }
-document.getElementById('page').addEventListener('click',function(e){var t=e.target;while(t&&t!==this){if(t.getAttribute&&t.getAttribute('data-id')){openDrawer(t.getAttribute('data-id'));return;}t=t.parentNode;}});
+// gated Authorize/Reject → POST /api/proposals/transition
+function synAct(action,rid,btn){if(!rid)return;var lbl=btn.innerHTML;btn.innerHTML='…';btn.style.opacity='.6';
+  fetch('/api/proposals/transition',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:rid,action:action})}).then(function(r){return r.json();}).then(function(j){
+    if(j.ok){for(var i=0;i<D.proposals.length;i++){if(D.proposals[i].realId===rid){D.proposals[i].status=(action==='approve'?'simulated_approved':'rejected');}}go('synapses');}
+    else{btn.innerHTML=lbl;btn.style.opacity='1';alert((action==='approve'?'Authorize':'Reject')+' did not apply: '+(j.reason||'unknown')+(j.status?(' (status '+j.status+')'):''));}
+  }).catch(function(){btn.innerHTML=lbl;btn.style.opacity='1';alert('Transition request failed — are you signed in to the cockpit?');});}
+document.getElementById('page').addEventListener('click',function(e){var t=e.target;while(t&&t!==this){if(t.getAttribute){
+  if(t.getAttribute('data-act')){synAct(t.getAttribute('data-act'),t.getAttribute('data-rid'),t);return;}
+  var ds=t.getAttribute('data-syn');if(ds!==null&&ds!==undefined){selSyn=parseInt(ds,10)||0;go('synapses');return;}
+  if(t.getAttribute('data-id')){openDrawer(t.getAttribute('data-id'));return;}
+}t=t.parentNode;}});
 
 // ── neural console (collapsible, replies via /api/ask) ──
 var scrim=document.getElementById('scrim'),tbody=document.getElementById('tbody'),peek=document.getElementById('peek'),cin=document.getElementById('cin'),cbusy=document.getElementById('cbusy');
