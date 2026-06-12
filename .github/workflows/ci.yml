@@ -54,9 +54,7 @@ jobs:
   deploy-staging:
     name: Deploy cockpit Worker (merged = deployed)
     needs: verify
-    # First armed deploy is best-effort (continue-on-error) so an unverified token scope cannot
-    # redden the build; flip this off once a green deploy is confirmed to make it a real gate.
-    continue-on-error: true
+    # merged = deployed is a HARD GATE: a failed Worker deploy fails the build (deploy proven working).
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat/cloudflare-hosted-command-center' && vars.ENABLE_STAGING_DEPLOY == 'true'
     runs-on: ubuntu-latest
     concurrency: cockpit-deploy
