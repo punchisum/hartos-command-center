@@ -26,6 +26,14 @@ if (isMain) {
   process.on("SIGINT", () => requestStop("SIGINT"));
   process.on("SIGTERM", () => requestStop("SIGTERM"));
 
+  // Resilience: a stray async error (a dropped DB socket, a fetch reject) must NOT kill the daemon.
+  // Log it and keep the reconcile loop alive; the per-cycle try/catch handles in-cycle failures.
+  process.on("uncaughtException", (e) => console.error(`[live-runner] uncaught (continuing): ${redact(String(e instanceof Error ? e.message : e))}`));
+  process.on("unhandledRejection", (e) => console.error(`[live-runner] unhandled rejection (continuing): ${redact(String(e))}`));
+  // Heartbeat so the log proves liveness even when idle (and a supervisor/Sentinel can see it).
+  const heartbeat = setInterval(() => console.log(`[live-runner] heartbeat · alive · ${new Date().toISOString()}`), 300_000);
+  heartbeat.unref?.();
+
   const pollMs = resolvePollMs(process.env);
   console.log(
     `HartOS live runner — event-triggered execution. Reconciling the approved-job queue every ` +
