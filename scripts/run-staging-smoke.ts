@@ -10,6 +10,7 @@
 
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
+import { execSync } from "node:child_process";
 import { getEnv, optionalEnv, checkProviderStatus } from "../src/runtime/env.js";
 import {
   buildDeploymentReport,
@@ -19,6 +20,24 @@ import {
 
 const env = getEnv();
 const agentName = "test-agent";
+
+// Deployed-SHA verification: the commit we expect to be live. Prefer an explicit
+// EXPECTED_BUILD_SHA (set by CI to the deployed commit); else fall back to the local
+// short HEAD. Used to assert GET /health.version below — proving "live == a known SHA".
+function resolveExpectedSha(): string | null {
+  const fromEnv = process.env.EXPECTED_BUILD_SHA;
+  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  try {
+    return (
+      execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+        .toString()
+        .trim() || null
+    );
+  } catch {
+    return null;
+  }
+}
+const expectedSha = resolveExpectedSha();
 const root = process.cwd();
 
 console.log(`Staging smoke: ${agentName}`);
@@ -54,6 +73,29 @@ if (workerUrl) {
     cloudflareHealthy = res.ok;
     smokeNotes.push(`cloudflare /health: ${res.ok ? "ok" : `HTTP ${res.status}`}`);
     if (!res.ok) smokeTestPassed = false;
+
+    // Assert the deployed commit matches what we expect to be live. A missing or
+    // mismatched version means the deploy did not inject BUILD_SHA, or the live code
+    // is not this commit — either way "live" is not a known SHA, so fail the smoke.
+    if (res.ok) {
+      let liveVersion: string | null = null;
+      try {
+        liveVersion = ((await res.json()) as { version?: string | null }).version ?? null;
+      } catch {
+        liveVersion = null;
+      }
+      if (!expectedSha) {
+        smokeNotes.push("cloudflare /health version: skipped — no EXPECTED_BUILD_SHA and no local git SHA");
+      } else if (liveVersion == null) {
+        smokeTestPassed = false;
+        smokeNotes.push(`cloudflare /health version: MISSING — deploy did not inject BUILD_SHA (expected ${expectedSha})`);
+      } else if (liveVersion !== expectedSha) {
+        smokeTestPassed = false;
+        smokeNotes.push(`cloudflare /health version: MISMATCH — live ${liveVersion} != expected ${expectedSha} (deployed code is not this commit)`);
+      } else {
+        smokeNotes.push(`cloudflare /health version: ${liveVersion} == expected ✓ (live == a known SHA)`);
+      }
+    }
   } catch (err) {
     cloudflareHealthy = false;
     smokeTestPassed = false;
