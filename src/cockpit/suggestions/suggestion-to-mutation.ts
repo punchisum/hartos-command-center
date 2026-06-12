@@ -233,6 +233,13 @@ export function suggestionToMutationProposal(
       riskLevel: "medium",
       proposedPayload: {
         [ADAPTER_ROUTE_KEY]: { adapterId, tier: "T3" } satisfies MutationRoute,
+        // The card identity ALSO rides proposedPayload (alongside the top-level targetId/
+        // targetName the tier gate reads) because the approved-executor reconstructs the
+        // command by reading cardId/cardName/commentText FROM proposedPayload — it is the
+        // single reader contract, mirroring the clickup-move-status payload shape. These are
+        // trusted fields (the confirmed card target); cardId is already an idempotency part.
+        cardId: target.cardId,
+        cardName: target.cardName,
         commentText: target.commentText, // payload only — never an idempotency part.
       },
       dryRunResult: makeDryRun(
