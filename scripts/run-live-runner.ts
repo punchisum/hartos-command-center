@@ -14,6 +14,7 @@
 import { pathToFileURL } from "node:url";
 import { runLiveRunnerLoop, resolvePollMs } from "../src/jobs/live-runner.js";
 import { runJobRunner } from "./hartos-runner.js";
+import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
 import { redact } from "../src/llm/redaction.js";
 
 const isMain = typeof process.argv[1] === "string" && import.meta.url === pathToFileURL(process.argv[1]).href;
@@ -40,9 +41,25 @@ if (isMain) {
       `${pollMs / 1000}s. Only Hart-approved jobs run; per-action gates hold. Ctrl-C to stop.\n`,
   );
 
+  // Outbound approval notifier — pings Hart on Telegram about pending proposals (armed by
+  // ALLOW_TELEGRAM_NOTIFY + TELEGRAM_BOT_TOKEN + HARTOS_TELEGRAM_NOTIFY_CHAT_ID; honest no-op otherwise).
+  // `notifiedIds` is threaded across cycles so a still-pending proposal is announced once, not every poll.
+  let notifiedIds = new Set<string>();
+  const runCycle = async (now: string): Promise<string[]> => {
+    const lines = await runJobRunner(process.env, now, 3);
+    try {
+      const r = await runApprovalNotifyPass(process.env, notifiedIds);
+      notifiedIds = r.notified;
+      if (r.sent) console.log(`[live-runner] telegram · pinged Hart about ${r.count} pending proposal(s)`);
+    } catch (e) {
+      console.error(`[live-runner] telegram notify failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+    }
+    return lines;
+  };
+
   void runLiveRunnerLoop(
     {
-      runCycle: (now) => runJobRunner(process.env, now, 3),
+      runCycle,
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
       now: () => new Date().toISOString(),
       log: (l) => console.log(l),
