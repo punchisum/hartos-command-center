@@ -34,6 +34,8 @@ import { runClickUpComment, type ClickUpCommentProposal, type ClickUpCommentTarg
 import type { ClickUpCommentStore } from "./adapters/clickup-comment.js";
 import { runClickUpMove, type ClickUpMoveProposal, type ClickUpMoveTarget } from "./run-clickup-move.js";
 import type { ClickUpMoveStore } from "./adapters/clickup-move-status.js";
+import { runFitnessMutation, type FitnessMutationProposal, type FitnessMutationTarget } from "./run-fitness-mutation.js";
+import type { FitnessMutationStore } from "./adapters/fitness-mutation.js";
 
 /** The adapter ids this dispatcher knows. */
 export type MutationAdapterId =
@@ -42,7 +44,8 @@ export type MutationAdapterId =
   | "archive-rejected"
   | "mark-reviewed"
   | "clickup-comment"
-  | "clickup-move-status";
+  | "clickup-move-status"
+  | "fitness-mutation";
 
 /** The §13 fan-out facts a delta needs. Defaulted per adapter; a command may override. */
 export interface DeltaContext {
@@ -62,7 +65,8 @@ export type MutationCommand =
   | { adapterId: "archive-rejected"; proposal: ArchiveRejectedProposal; store: ArchiveRejectedStore; delta?: Partial<DeltaContext> }
   | { adapterId: "mark-reviewed"; proposal: MarkReviewedProposal; store: MarkReviewedStore; delta?: Partial<DeltaContext> }
   | { adapterId: "clickup-comment"; proposal: ClickUpCommentProposal; target: ClickUpCommentTarget; store: ClickUpCommentStore; delta?: Partial<DeltaContext> }
-  | { adapterId: "clickup-move-status"; proposal: ClickUpMoveProposal; target: ClickUpMoveTarget; store: ClickUpMoveStore; delta?: Partial<DeltaContext> };
+  | { adapterId: "clickup-move-status"; proposal: ClickUpMoveProposal; target: ClickUpMoveTarget; store: ClickUpMoveStore; delta?: Partial<DeltaContext> }
+  | { adapterId: "fitness-mutation"; proposal: FitnessMutationProposal; target: FitnessMutationTarget; store: FitnessMutationStore; delta?: Partial<DeltaContext> };
 
 export interface DispatchOptions {
   /** Injected for determinism (never the ambient clock). Threaded to both runner + delta. */
@@ -99,6 +103,7 @@ const DEFAULT_DELTA: Record<MutationAdapterId, { domain: ProposalDomain; actionT
   "mark-reviewed": { domain: "ops", actionType: "review_plan" },
   "clickup-comment": { domain: "ops", actionType: "ops_followup_plan" },
   "clickup-move-status": { domain: "ops", actionType: "ops_followup_plan" },
+  "fitness-mutation": { domain: "fitness", actionType: "fitness_adjustment_plan" },
 };
 
 /** Resolve the changedEntity for a command (ClickUp uses the card name; internal uses the proposal id). */
@@ -107,6 +112,8 @@ function defaultChangedEntity(command: MutationCommand): string {
     case "clickup-comment":
     case "clickup-move-status":
       return command.target.cardName;
+    case "fitness-mutation":
+      return `fitness ${command.target.stateDate}`;
     default:
       return `proposal ${command.proposal.id}`;
   }
@@ -171,6 +178,8 @@ async function runCommand(
       return runClickUpComment(command.proposal, command.target, env, { ...shared, store: command.store });
     case "clickup-move-status":
       return runClickUpMove(command.proposal, command.target, env, { ...shared, store: command.store });
+    case "fitness-mutation":
+      return runFitnessMutation(command.proposal, command.target, env, { ...shared, store: command.store });
   }
 }
 
