@@ -46,6 +46,8 @@ import { deterministicOutput } from "../llm/providers/deterministic-provider.js"
 // Worker-safe Ask orchestrator (LLM Ask 2A): composeAskAnswer takes inference INJECTED and
 // returns the deterministic grounding unchanged when askInfer is absent.
 import { composeAskAnswer } from "../llm/ask-llm.js";
+import { interrogateSpec } from "../hartos/spec-interrogator.js";
+import { reviewStrategy } from "../hartos/strategy-review.js";
 // Step 3 (Worker-direct Ask) — we DELIBERATELY wire the key-bearing gateway into the hosted
 // Worker via buildAskInfer. Safe under nodejs_compat: the gateway uses node:path at construction
 // (supported) and usage-logging (node:fs) stays OFF (writeUsage defaults false), so nothing fs is
@@ -215,6 +217,34 @@ function buildV5DataForRequest(
     },
     intelligence,
   });
+}
+
+/**
+ * Agent-creation intent gets a DETERMINISTIC, reliable answer (never the throwing LLM): an advisory
+ * "should we build X?" returns the strategy verdict + a simpler-alternative; an imperative
+ * "build / I want X agent" returns the Factory's spec-interrogation GRILL (the required questions).
+ * This is the fix for "instead of grilling me it tells me about ops" + "Prophet should tell me
+ * whether it's recommended" — the console now grills or recommends instead of summarizing a doc.
+ */
+function composeAgentCreationAnswer(request: string): Awaited<ReturnType<typeof composeAskAnswer>> {
+  const lower = request.toLowerCase();
+  const advisory = /\b(should|worth|recommend|good idea|do you think|wise|makes sense)\b/.test(lower);
+  const interro = interrogateSpec(request);
+  const required = interro.questions.filter((q) => q.required).map((q) => q.question);
+  const grill = required.map((q, i) => `${i + 1}. ${q}`).join("\n");
+  const base = { provider: "deterministic", usedLlm: false, gaps: [] as string[], riskLevel: "low", proposeOnly: true, redactedRequest: request, validation: "fallback", fallbackReason: "none" };
+
+  if (advisory) {
+    const sr = reviewStrategy(request);
+    const VERDICT: Record<string, string> = { BUILD_NOW: "✅ Build it now", BUILD_LATER: "🟡 Build it later", DO_NOT_BUILD: "🛑 Don't build it", NEEDS_MORE_EVIDENCE: "🔎 Not yet — gather evidence" };
+    const summary =
+      `${VERDICT[sr.verdict] ?? sr.verdict} — ${sr.reason}` +
+      (sr.simplerAlternative ? `\n\nSimpler alternative: ${sr.simplerAlternative}` : "") +
+      `\n\nRecommended next step: ${sr.recommendedNextAction}` +
+      (required.length ? `\n\nIf you decide to build it, I'll lock the spec by asking:\n${grill}` : "");
+    return { ...base, mode: "deterministic", title: "Should you build this?", summary, highlights: [`Verdict: ${sr.verdict}`, `Leverage ${sr.expectedLeverage} · risk ${sr.risk} · upkeep ${sr.maintenanceBurden}`], gaps: sr.requiredProof ?? [] } as Awaited<ReturnType<typeof composeAskAnswer>>;
+  }
+  return { ...base, mode: "deterministic", title: "Let's lock the spec first", summary: `Before I build a ${interro.domain} agent, the spec has to be locked — answer these:\n${grill}\n\nReply with your answers and I'll draft a gated build proposal. Nothing runs until you approve it.`, highlights: [`Domain: ${interro.domain}`, `${required.length} questions to lock the spec`] } as Awaited<ReturnType<typeof composeAskAnswer>>;
 }
 
 export async function handleCockpitRequest(
@@ -632,14 +662,18 @@ export async function handleCockpitRequest(
           /* briefing is best-effort; the Ask still works without it */
         }
       }
-      const answer = await composeAskAnswer(
-        groundedDecisions,
-        validation.value,
-        // intent rides in the context so buildAskInfer can route to the specialized reasoning
-        // (strategy/CTO) prompt; source + the optional Rinnegan briefing travel alongside.
-        { source: "cloudflare-cockpit", intent: result.intent, ...(rinneganBriefing ? { rinneganBriefing } : {}) },
-        { infer: ctx.askInfer },
-      );
+      // Agent-creation gets the deterministic Factory grill / strategy verdict (reliable, no LLM
+      // throw); everything else goes through the grounded LLM orchestrator.
+      const answer = result.intent === "build_agent"
+        ? composeAgentCreationAnswer(validation.value)
+        : await composeAskAnswer(
+            groundedDecisions,
+            validation.value,
+            // intent rides in the context so buildAskInfer can route to the specialized reasoning
+            // (strategy/CTO) prompt; source + the optional Rinnegan briefing travel alongside.
+            { source: "cloudflare-cockpit", intent: result.intent, ...(rinneganBriefing ? { rinneganBriefing } : {}) },
+            { infer: ctx.askInfer },
+          );
       // Phase E (Gap E) — when the deterministic answer produced proposal drafts,
       // persist them into the Supabase spine via the gated writer (propose-only;
       // the Worker holds no DB key). Best-effort: persistence never blocks or

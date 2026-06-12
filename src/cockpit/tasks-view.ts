@@ -58,7 +58,7 @@ export interface TaskSourceRow {
 
 /** jobKind → [originating agent, Neural-Deck color, friendly verb]. */
 const KIND_META: Record<string, [string, string, string]> = {
-  "research.brief": ["Beezulbub", "#22E8FF", "researching"],
+  "research.brief": ["Research Agent", "#A974FF", "researching"], // research is the Research Agent's job, NOT Beezulbub (the capability scout)
   "beezulbub.hunt": ["Beezulbub", "#22E8FF", "hunting capability"],
   "claude.execute": ["Factory", "#FF2D9E", "building"],
   "wolverine.audit": ["Wolverine", "#34F5A8", "sweeping"],

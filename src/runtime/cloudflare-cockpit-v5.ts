@@ -457,7 +457,7 @@ function ops(){
   var cards=(t.tasks||[]).map(function(k){
     var pulse=k.stage==='running'?'<span class="run-pulse"></span>':'';
     return '<div class="tk"><div class="ic" style="border-color:'+k.color+';color:'+k.color+'">'+el(k.stage==='running'?'ti-loader-2':k.stage==='done'?'ti-check':k.stage==='failed'?'ti-x':'ti-clock')+'</div>'+
-      '<div><div class="ti2">'+h(k.title)+'</div><div class="sub"><span class="verb">'+h(k.agent)+' · '+h(k.verb)+'</span></div></div>'+
+      '<div><div class="ti2">'+h(k.title)+'</div><div class="sub"><span class="verb">'+h(k.agent)+' · '+h(k.verb)+'</span>'+(k.stage==='done'&&k.kind==='research.brief'?' · <a href="obsidian://open?vault=HartOS-Vault&file=HartOS%2FMaps%2FResearch%20Dossiers%20MOC" style="color:#A974FF" title="open your research dossiers in Obsidian">'+el('ti-file-text')+' open dossier ↗</a>':'')+'</div></div>'+
       '<div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">'+pulse+'<span class="stg '+h(k.stage)+'">'+h(k.stageLabel||k.stage)+'</span></div>'+
       '<div class="age">'+h(k.ageLabel)+'</div></div>';
   }).join('');

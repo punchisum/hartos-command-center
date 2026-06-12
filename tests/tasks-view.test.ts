@@ -36,7 +36,7 @@ describe("buildTasksView", () => {
     const a = v.tasks.find((t) => t.id === "a")!;
     assert.equal(a.stage, "running"); // ONLY a genuinely-executing job is "running" — honest lifecycle
     assert.equal(a.stageLabel, "running");
-    assert.equal(a.agent, "Beezulbub");
+    assert.equal(a.agent, "Research Agent"); // research.brief is the Research Agent's job, not Beezulbub
     assert.equal(a.verb, "researching");
     const a2 = v.tasks.find((t) => t.id === "a2")!;
     assert.equal(a2.stage, "queued"); // approved-but-unclaimed is queued, not fake-running
@@ -55,7 +55,7 @@ describe("buildTasksView", () => {
     );
     assert.equal(v.tasks.length, 1, "hosted rows must produce tasks — the old payload-only read left Live Ops empty");
     assert.equal(v.tasks[0]!.stage, "running");
-    assert.equal(v.tasks[0]!.agent, "Beezulbub");
+    assert.equal(v.tasks[0]!.agent, "Research Agent");
   });
 
   it("ignores non-agent_job rows", () => {

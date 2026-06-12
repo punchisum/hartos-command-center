@@ -297,7 +297,9 @@ export function detectCockpitIntent(request: string): { intent: CockpitIntent; m
   // 4. Build / new agent.
   m = has(t, "what should i build", "what to build", "build next", "what next");
   if (m.length) return { intent: "build_agent", matchedKeywords: m };
-  const buildWords = has(t, "build", "create", "make", "new", "spin up", "scaffold");
+  // "want / need / should we have a … agent" are build requests too — Hart says "I want a
+  // financial analyst agent", not just "create". Include desire/recommendation verbs.
+  const buildWords = has(t, "build", "create", "make", "new", "spin up", "scaffold", "want", "need", "should we have", "should i have", "should we create", "should i build");
   if (buildWords.length && has(t, "agent").length) {
     return { intent: "build_agent", matchedKeywords: [...buildWords, "agent"] };
   }
