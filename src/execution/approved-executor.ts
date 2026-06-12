@@ -25,6 +25,7 @@ import { ADAPTER_ROUTE_KEY } from "../cockpit/suggestions/suggestion-to-mutation
 import { EXECUTABLE_FROM } from "../doctrine/execution-gate.js";
 import type { MutationCommand, MutationAdapterId, DispatchResult, DispatchOptions } from "./execution-dispatch.js";
 import type { VerificationResult } from "./execution-verification.js";
+import { idempotencyKeyForCommand, isReplay } from "./idempotency-replay.js";
 import type { ClickUpMoveStore } from "./adapters/clickup-move-status.js";
 import type { ClickUpCommentStore } from "./adapters/clickup-comment.js";
 import type { RejectDraftsStore } from "./adapters/reject-drafts.js";
@@ -58,6 +59,12 @@ export interface ExecuteApprovedInput {
   now: Date;
   /** Cap how many approved proposals to execute in one pass (default 1 — one card at a time). */
   max?: number;
+  /**
+   * P3 idempotency-replay: keys that ALREADY executed+landed in a prior run. A command whose
+   * derived key is in this set is skipped pre-dispatch (never re-run). Default empty — same-batch
+   * duplicates are still caught within the pass regardless.
+   */
+  executedKeys?: Set<string>;
 }
 
 export interface ExecuteOneResult {
@@ -154,12 +161,22 @@ export async function executeApprovedProposals(input: ExecuteApprovedInput): Pro
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   const results: ExecuteOneResult[] = [];
   let executed = 0;
+  // P3 idempotency-replay: keys executed in THIS batch (seen) + already landed in a prior run.
+  const seen = new Set<string>();
+  const alreadyLanded = input.executedKeys ?? new Set<string>();
 
   for (const p of executableList) {
     if (executed >= max) break;
     const built = commandFromApprovedProposal(p, input.stores);
     if ("skip" in built) {
       results.push({ proposalId: p.id, adapterId: null, outcome: "skipped", wrote: false, detail: built.skip, verification: null });
+      continue;
+    }
+    // Skip a replay BEFORE dispatch — a key already executed this batch or landed in a prior run.
+    // (The adapters are also structurally idempotent; this avoids the redundant re-read/dispatch.)
+    const key = idempotencyKeyForCommand(built);
+    if (isReplay(key, seen, alreadyLanded)) {
+      results.push({ proposalId: p.id, adapterId: built.adapterId, outcome: "skipped", wrote: false, detail: "idempotency-replay: key already executed (skipped re-dispatch)", verification: null });
       continue;
     }
     try {
@@ -173,7 +190,10 @@ export async function executeApprovedProposals(input: ExecuteApprovedInput): Pro
         detail: res.result.outcome?.summary ?? (wrote ? "executed" : "no write (gate refused / noop / not armed)"),
         verification: res.verification, // P3: surface the landed verdict for host-side persistence.
       });
-      if (wrote) executed += 1;
+      if (wrote) {
+        executed += 1;
+        if (key) seen.add(key); // only a real write marks the key consumed for this batch
+      }
     } catch (err) {
       results.push({ proposalId: p.id, adapterId: built.adapterId, outcome: "error", wrote: false, detail: (err as Error).message, verification: null });
     }

@@ -10,6 +10,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { commandFromApprovedProposal, executeApprovedProposals } from "../src/execution/approved-executor.js";
+import { clickupMoveIdempotencyKey } from "../src/execution/run-clickup-move.js";
 import { ADAPTER_ROUTE_KEY, suggestionToMutationProposal } from "../src/cockpit/suggestions/suggestion-to-mutation.js";
 import { EXECUTABLE_FROM } from "../src/doctrine/execution-gate.js";
 import type { ProposalQueueItem } from "../src/cockpit/proposals/proposal-types.js";
@@ -199,6 +200,45 @@ describe("round-trip: suggestionToMutationProposal output → commandFromApprove
     const out = await executeApprovedProposals({ proposals: [moveProposal()], stores: { clickUpMove: fakeClickUp }, env: {}, dispatch, now: NOW });
     assert.equal(out.results[0]!.outcome, "executed");
     assert.deepEqual(out.results[0]!.verification, verification, "the landed verdict must reach the host executor");
+  });
+
+  function moveDispatch(onCall: () => void) {
+    return async (): Promise<DispatchResult> => {
+      onCall();
+      return {
+        adapterId: "clickup-move-status",
+        result: { adapterId: "clickup-move-status", precondition: { allowed: true, denials: [] } as never, executed: true, outcome: { ran: true, reversible: true, before: {}, after: {}, summary: "moved" } as never },
+        delta: { kind: "state_delta" } as never,
+        verification: { landed: true, detail: "landed" },
+      };
+    };
+  }
+
+  it("skips a same-batch idempotency replay — the same move is dispatched only once", async () => {
+    let calls = 0;
+    const out = await executeApprovedProposals({
+      proposals: [moveProposal({ id: "p-a" }), moveProposal({ id: "p-b" })], // identical card+from+to ⇒ one key
+      stores: { clickUpMove: fakeClickUp }, env: {}, dispatch: moveDispatch(() => { calls += 1; }), now: NOW, max: 2,
+    });
+    assert.equal(calls, 1, "the duplicate move is not dispatched a second time");
+    assert.equal(out.executed, 1);
+    const replay = out.results.find((r) => r.outcome === "skipped");
+    assert.ok(replay, "the duplicate is recorded as a skip");
+    assert.match(replay!.detail, /idempotency.?replay/i);
+  });
+
+  it("skips a proposal whose key already landed in a prior run (executedKeys) — no re-dispatch", async () => {
+    let calls = 0;
+    const key = clickupMoveIdempotencyKey("86a", "in progress", "on hold");
+    const out = await executeApprovedProposals({
+      proposals: [moveProposal()],
+      stores: { clickUpMove: fakeClickUp }, env: {}, dispatch: moveDispatch(() => { calls += 1; }), now: NOW,
+      executedKeys: new Set([key]),
+    });
+    assert.equal(calls, 0, "an already-landed move is never re-dispatched");
+    assert.equal(out.executed, 0);
+    assert.equal(out.results[0]!.outcome, "skipped");
+    assert.match(out.results[0]!.detail, /idempotency.?replay/i);
   });
 
   it("a no-verify-path write leaves result.verification null (honest, not a false landed)", async () => {
