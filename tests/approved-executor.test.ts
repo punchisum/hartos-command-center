@@ -10,9 +10,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { commandFromApprovedProposal, executeApprovedProposals } from "../src/execution/approved-executor.js";
-import { ADAPTER_ROUTE_KEY } from "../src/cockpit/suggestions/suggestion-to-mutation.js";
+import { ADAPTER_ROUTE_KEY, suggestionToMutationProposal } from "../src/cockpit/suggestions/suggestion-to-mutation.js";
 import { EXECUTABLE_FROM } from "../src/doctrine/execution-gate.js";
 import type { ProposalQueueItem } from "../src/cockpit/proposals/proposal-types.js";
+import type { SuggestedAction } from "../src/cockpit/suggestions/suggest-actions.js";
 import type { DispatchResult } from "../src/execution/execution-dispatch.js";
 
 const NOW = new Date("2026-06-09T12:00:00.000Z");
@@ -113,5 +114,75 @@ describe("executeApprovedProposals", () => {
     assert.equal(out.executable, 2);
     assert.equal(out.executed, 1, "capped at one write");
     assert.equal(d.calls(), 1);
+  });
+});
+
+describe("round-trip: suggestionToMutationProposal output → commandFromApprovedProposal", () => {
+  // Regression for the payload-shape mismatch (confirmed 2026-06-10): the suggestion mapper
+  // put cardId/cardName in the TOP-LEVEL targetId/targetName, but the executor reconstructs the
+  // command from proposedPayload — so a suggestion-derived clickup-comment proposal silently
+  // skipped with "incomplete comment payload" and never wrote. The mapper now also writes
+  // cardId/cardName into proposedPayload (the executor's single reader contract). This test
+  // round-trips a real mapper output through the executor and asserts it BUILDS (not a skip).
+  const CLICKUP_COMMENT: SuggestedAction = {
+    id: "sg-triage-comment-on-the-blocked-clickup-card",
+    domain: "ops",
+    actionType: "ops_followup_plan",
+    title: "Comment on the blocked ClickUp card to unblock it",
+    rationale: "The card has been blocked for 6 days with no update.",
+    source: "triage",
+    priority: "high",
+  };
+  const CLICKUP_TARGET = {
+    cardId: "abc123",
+    cardName: "Ship the Q3 report",
+    currentStatus: "blocked",
+    commentText: "Following up — what is blocking this? Please post an update.",
+  };
+
+  /** Approve a mapper output the way the cockpit would: same fields, status → EXECUTABLE_FROM. */
+  function approve(proposal: NonNullable<ReturnType<typeof suggestionToMutationProposal>>): ProposalQueueItem {
+    return {
+      ...proposal,
+      status: EXECUTABLE_FROM,
+      updatedAt: NOW.toISOString(),
+      auditEvents: [],
+    } as ProposalQueueItem;
+  }
+
+  it("a suggestion-derived clickup-comment proposal BUILDS a command (not a skip)", () => {
+    const mapped = suggestionToMutationProposal(CLICKUP_COMMENT, { now: NOW.toISOString(), clickUpTarget: CLICKUP_TARGET });
+    assert.ok(mapped, "mapper should produce a proposal for a confirmed ClickUp target");
+
+    const built = commandFromApprovedProposal(approve(mapped), { clickUpComment: fakeClickUp });
+    assert.ok(!("skip" in built), `expected a command, got skip: ${"skip" in built ? built.skip : ""}`);
+    if ("skip" in built) return;
+
+    assert.equal(built.adapterId, "clickup-comment");
+    if (built.adapterId === "clickup-comment") {
+      assert.deepEqual(built.target, {
+        cardId: CLICKUP_TARGET.cardId,
+        cardName: CLICKUP_TARGET.cardName,
+        commentText: CLICKUP_TARGET.commentText,
+      });
+    }
+  });
+
+  it("executes the mapped+approved proposal end-to-end (gate faked) — dispatch is called, write reported", async () => {
+    const mapped = suggestionToMutationProposal(CLICKUP_COMMENT, { now: NOW.toISOString(), clickUpTarget: CLICKUP_TARGET })!;
+    let calls = 0;
+    const dispatch = async (): Promise<DispatchResult> => {
+      calls += 1;
+      return {
+        adapterId: "clickup-comment",
+        result: { adapterId: "clickup-comment", precondition: { allowed: true, denials: [] } as never, executed: true, outcome: { ran: true, reversible: false, before: {}, after: {}, summary: "posted comment" } as never },
+        delta: { kind: "state_delta" } as never,
+      };
+    };
+    const out = await executeApprovedProposals({ proposals: [approve(mapped)], stores: { clickUpComment: fakeClickUp }, env: {}, dispatch, now: NOW });
+    assert.equal(out.executable, 1);
+    assert.equal(out.executed, 1, "the suggestion-derived proposal is no longer silently skipped");
+    assert.equal(out.results[0]!.outcome, "executed");
+    assert.equal(calls, 1, "dispatch was actually reached (no pre-dispatch skip)");
   });
 });

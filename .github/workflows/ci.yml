@@ -54,6 +54,10 @@ jobs:
   deploy-staging:
     name: Deploy to staging (gated)
     needs: verify
+    # The Worker config (wrangler.cockpit.toml) is local-only by design, and launch:staging does
+    # heavy first-time provisioning, so this job cannot cleanly deploy from CI yet. It is best-effort
+    # and MUST NOT fail the build — real Worker deploys stay manual (wrangler from local).
+    continue-on-error: true
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat/cloudflare-hosted-command-center' && vars.ENABLE_STAGING_DEPLOY == 'true'
     runs-on: ubuntu-latest
     environment: staging
