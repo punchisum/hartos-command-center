@@ -9,7 +9,9 @@
  * PURE: no I/O, no clock (now injected), no env. Armed flags are presence-only — never values.
  */
 
-import type { FleetLiveness } from "../sentinel/sentinel-liveness.js";
+import { assessFleetLiveness, type FleetLiveness } from "../sentinel/sentinel-liveness.js";
+import { gatherHeartbeats } from "../sentinel/heartbeat-gatherer.js";
+import type { MetaAgentRegistry } from "../agents/meta-agent-registry.js";
 
 /** A feature-gate flag, reported by PRESENCE only — its value is never exposed. */
 export interface ArmedFlag {
@@ -45,4 +47,28 @@ export function computeFleetVerdict(fleet: FleetLiveness, meta: TruthLayerMeta):
     fleet,
     armedFlags: meta.armedFlags,
   };
+}
+
+/**
+ * End-to-end truth report from the inputs a Worker route honestly has: the registry (who should
+ * run), the read-model diagnostics (enabled/stale sources), the snapshot time, `now`, and deploy
+ * metadata. Composes the sanitizing gatherer → liveness assessor → verdict. PURE.
+ */
+export function assembleTruthReport(
+  registry: MetaAgentRegistry,
+  readModel: { enabledSources: string[]; staleSources: string[] },
+  snapshotAt: string | null,
+  now: string,
+  meta: { version: string | null; builtAt: string | null; armedFlags: ArmedFlag[] },
+): TruthLayerReport {
+  const heartbeats = gatherHeartbeats({
+    nowIso: now,
+    readModel: {
+      enabledSources: readModel.enabledSources,
+      staleSources: readModel.staleSources,
+      snapshotAt,
+    },
+  });
+  const fleet = assessFleetLiveness(registry, heartbeats, now);
+  return computeFleetVerdict(fleet, { now, version: meta.version, builtAt: meta.builtAt, armedFlags: meta.armedFlags });
 }

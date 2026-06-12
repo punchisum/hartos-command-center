@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { computeFleetVerdict } from "../src/truth-layer/truth-layer-api.js";
+import { computeFleetVerdict, assembleTruthReport } from "../src/truth-layer/truth-layer-api.js";
 import type { FleetLiveness } from "../src/sentinel/sentinel-liveness.js";
+import { resolveMetaAgentRegistry } from "../src/agents/meta-agent-registry.js";
 
 function fleet(overall: FleetLiveness["overall"]): FleetLiveness {
   return {
@@ -43,4 +44,23 @@ test("computeFleetVerdict carries armed flags as presence-only, never values", (
   const report = computeFleetVerdict(fleet("GREEN"), META);
   assert.deepEqual(report.armedFlags, [{ name: "HARTOS_LLM_ENABLE_NETWORK", present: true }]);
   assert.equal(JSON.stringify(report.armedFlags).includes("value"), false);
+});
+
+test("assembleTruthReport marks the answering Worker up and stays ok when nothing is down", () => {
+  const now = "2026-06-12T10:00:00.000Z";
+  const registry = resolveMetaAgentRegistry({ now });
+
+  const report = assembleTruthReport(
+    registry,
+    { enabledSources: [], staleSources: [] },
+    null,
+    now,
+    { version: "abc1234", builtAt: null, armedFlags: [] },
+  );
+
+  assert.equal(report.version, "abc1234");
+  const cockpit = report.fleet.verdicts.find((v) => v.agentId === "cockpit");
+  assert.ok(cockpit, "cockpit verdict present");
+  assert.equal(cockpit.state, "up"); // the Worker is answering ⇒ fresh self-evidence
+  assert.equal(report.ok, true); // other agents are 'unknown' (AMBER), not down ⇒ still ok
 });

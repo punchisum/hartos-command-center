@@ -73,6 +73,7 @@ import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { renderCockpitV5, buildCockpitV5Data } from "./cloudflare-cockpit-v5.js";
 import type { CockpitV5Data } from "./cloudflare-cockpit-v5.js";
 import { assessFleetLiveness, heartbeatsFromReadModels } from "../sentinel/sentinel-liveness.js";
+import { assembleTruthReport } from "../truth-layer/truth-layer-api.js";
 import { heartbeatShouldAlert, buildHeartbeatAlert, heartbeatLogLine } from "../sentinel/sentinel-heartbeat.js";
 import { parseDaemonRpcResult, daemonAlert } from "../telegram/daemon-deadman.js";
 import { telegramNotifyConfig, formatAlert } from "../telegram/alert-bus.js";
@@ -399,14 +400,44 @@ export async function handleCockpitRequest(
       return jsonResponse(200, { reports: ctx.reports ?? [] }, cors);
     }
     if (pathname === "/api/liveness") {
-      // Sentinel — fleet liveness from the evidence THIS Worker honestly has: itself (it is
-      // answering) + the read-model snapshot/diagnostics. Agents with no Worker-visible
-      // evidence stay "unknown" here; the local CLI (npm run sentinel:status) covers
-      // artifact-dir evidence. Read-only; never assumes up.
-      const reg = resolveMetaAgentRegistry({ now: nowFor(dctx) });
+      // Truth layer — fleet liveness from the evidence THIS Worker honestly has: itself (it is
+      // answering ⇒ fresh) + the read-model snapshot/diagnostics, every source sanitized so a
+      // future/garbage timestamp can never read as "up". Agents with no Worker-visible evidence
+      // stay "unknown" (the local CLI covers artifact-dir evidence). Read-only; never assumes up.
+      const now = nowFor(dctx);
+      const reg = resolveMetaAgentRegistry({ now });
       const rm = readModelStatusView(dctx.state);
-      const heartbeats = heartbeatsFromReadModels(rm, nowFor(dctx), ctx.generatedAt ?? null);
-      return jsonResponse(200, assessFleetLiveness(reg, heartbeats, nowFor(dctx)), cors);
+      const flagEnv = env as unknown as Record<string, string | undefined>;
+      const armedFlags = [
+        "HARTOS_ALLOW_CLAUDE_EXECUTE",
+        "HARTOS_MEMORY_CAPTURE",
+        "HARTOS_RESEARCH_GATHER",
+        "ALLOW_OBSIDIAN_WRITE",
+        "HARTOS_LLM_ENABLE_NETWORK",
+        "HARTOS_EXECUTION_KILL_SWITCH",
+      ].map((name) => {
+        const v = String(flagEnv[name] ?? "").trim().toLowerCase();
+        return { name, present: v === "true" || v === "on" };
+      });
+      const report = assembleTruthReport(reg, rm, ctx.generatedAt ?? null, now, {
+        version: flagEnv["BUILD_SHA"] ?? null,
+        builtAt: flagEnv["BUILD_TIME"] ?? null,
+        armedFlags,
+      });
+      // Backward-compatible: fleet fields stay top-level (overall/verdicts/counts) for existing
+      // consumers; truth-layer additions (ok/version/builtAt/computedAt/armedFlags) sit alongside.
+      return jsonResponse(
+        200,
+        {
+          ...report.fleet,
+          ok: report.ok,
+          version: report.version,
+          builtAt: report.builtAt,
+          computedAt: report.computedAt,
+          armedFlags: report.armedFlags,
+        },
+        cors,
+      );
     }
     if (pathname === "/api/threads") {
       // Phase D — prefer the Supabase thread spine (so the hosted Worker shows
