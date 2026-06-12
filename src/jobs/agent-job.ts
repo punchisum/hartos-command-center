@@ -23,6 +23,10 @@ export const AGENT_JOB_KINDS = [
   "memory.capture",
   "rinnegan.sync",
   "report",
+  // The Claude-CLI execution hand: applies a Hart-APPROVED code change (Wolverine fix, agent build,
+  // refactor) by driving headless `claude -p` to edit the repo. Armed by HARTOS_ALLOW_CLAUDE_EXECUTE;
+  // git-reversible; code-edit tools only. See execution/claude-task-executor.ts.
+  "claude.execute",
 ] as const;
 
 export type AgentJobKind = (typeof AGENT_JOB_KINDS)[number];
@@ -99,6 +103,9 @@ export function jobSpecFromRoute(route: RoutingDecision): AgentJobSpec | null {
       return { kind: "memory.capture", arg: "", localCommand: "npm run cockpit:memory-capture", gates: ["HARTOS_MEMORY_CAPTURE"] };
     case "rinnegan":
       return { kind: "rinnegan.sync", arg: "", localCommand: "npm run rinnegan:sync-pack", gates: ["HARTOS_SUPABASE_DB_URL"] };
+    // NOTE: factory/agent-building already has its own agent-creation proposal path; routing it to
+    // claude.execute here double-writes. The claude.execute job kind is created explicitly (Wolverine
+    // fix → claude.execute, or a dedicated "execute" intent) — see execution/claude-task-executor.ts.
     default:
       return null;
   }

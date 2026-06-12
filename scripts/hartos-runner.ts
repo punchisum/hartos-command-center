@@ -20,6 +20,7 @@ import { runBeezulbubHunt } from "./beezulbub-hunt.js";
 import { runResearch } from "./research-run.js";
 import { runReport } from "./report-run.js";
 import { runMemoryCapture } from "./cockpit-memory-capture.js";
+import { runClaudeTask } from "../src/execution/claude-task-executor.js";
 import { isAgentJobKind, sanitizeJobArg, type AgentJobKind } from "../src/jobs/agent-job.js";
 import { redact } from "../src/llm/redaction.js";
 
@@ -47,6 +48,12 @@ async function executeJob(kind: AgentJobKind, arg: string, env: Record<string, s
     case "research.brief": {
       const r = await runResearch(arg || "scope this request", env, now);
       return { ok: true, detail: r.lines.slice(-3).join(" | ").slice(0, 300) };
+    }
+    case "claude.execute": {
+      // The Claude-CLI execution hand — applies a Hart-approved code change to the repo. Armed by
+      // HARTOS_ALLOW_CLAUDE_EXECUTE (default OFF ⇒ honest skip; the job stays approved + re-runnable).
+      // Git-reversible (review with `git diff`); code-edit tools only, never Bash.
+      return await runClaudeTask(arg, env);
     }
     case "report": {
       // Deterministic HartOS state report; files to the vault when ALLOW_OBSIDIAN_WRITE is armed
