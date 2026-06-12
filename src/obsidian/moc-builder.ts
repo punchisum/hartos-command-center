@@ -27,7 +27,8 @@ export interface MocSpec {
   tags: string[];
 }
 
-/** The standard HartOS maps. Home is the lobby; the rest map one area each. */
+/** The standard HartOS maps. Home is the lobby; the rest map one area each — EVERY real vault
+ * folder has a map, so the graph is a tree (Home → area maps → notes), never a 170-spoke starburst. */
 export const STANDARD_MOCS: MocSpec[] = [
   { title: "Home", folder: "", purpose: "The vault lobby — start here. Links to every area map.", tags: ["hartos", "moc", "home"] },
   { title: "Command Center MOC", folder: "Cockpit", purpose: "The cockpit + command surface: routing, proposals, mutation spine.", tags: ["hartos", "moc", "command"] },
@@ -38,6 +39,11 @@ export const STANDARD_MOCS: MocSpec[] = [
   { title: "Ops MOC", folder: "Ops Agent", purpose: "Ops/business execution notes + ClickUp context.", tags: ["hartos", "moc", "ops"] },
   { title: "Fitness MOC", folder: "Fitness Agent", purpose: "Training / recovery / nutrition notes.", tags: ["hartos", "moc", "fitness"] },
   { title: "Doctrine MOC", folder: "Vision & Doctrine", purpose: "The constitution: vision, doctrine, design principles.", tags: ["hartos", "moc", "doctrine"] },
+  { title: "Architecture MOC", folder: "Architecture & Contracts", purpose: "System architecture, boundaries, provider contracts.", tags: ["hartos", "moc", "architecture"] },
+  { title: "SOPs MOC", folder: "SOPs & Runbooks", purpose: "Operating procedures + runbooks — how to run/recover things.", tags: ["hartos", "moc", "sop"] },
+  { title: "Roadmaps MOC", folder: "Roadmaps & Plans", purpose: "Roadmaps, phase plans, implementation maps.", tags: ["hartos", "moc", "roadmap"] },
+  { title: "Handovers MOC", folder: "Handovers", purpose: "Session handovers — what was done, what's next.", tags: ["hartos", "moc", "handover"] },
+  { title: "Reports & Audits MOC", folder: "Reports & Audits", purpose: "Point-in-time reports, audits, reviews (the historical record).", tags: ["hartos", "moc", "report"] },
 ];
 
 function linkList(notes: VaultNoteRef[] | undefined, folder: string): string[] {
