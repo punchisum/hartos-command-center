@@ -74,4 +74,25 @@ describe("renderCockpitV5", () => {
     const html = renderCockpitV5(buildCockpitV5Data(AGENTS, evil, { now: NOW, buildSha: null }));
     assert.ok(!html.includes("</script><img"), "raw </script> must be escaped in the data blob");
   });
+
+  it("includes the Intelligence page (nav + Prophet synthesis render)", () => {
+    const intelligence = {
+      available: true,
+      confidence: "medium",
+      note: "Two corroborated risks; coverage thin on ops telemetry.",
+      risks: [{ subject: "secret drift", severity: "high", why: "two ALLOW_EXEC flags armed without an approved proposal" }],
+    };
+    const d = buildCockpitV5Data(AGENTS, PROPS, { now: NOW, buildSha: "abc", intelligence });
+    assert.equal(d.intelligence.available, true);
+    assert.equal(d.intelligence.risks[0]!.subject, "secret drift");
+    const html = renderCockpitV5(d);
+    assert.match(html, /data-p="intel"/); // nav item present
+    assert.match(html, /Prophet cross-fleet synthesis/);
+  });
+
+  it("defaults intelligence to an honest unavailable state when not supplied", () => {
+    const d = buildCockpitV5Data(AGENTS, PROPS, { now: NOW, buildSha: null });
+    assert.equal(d.intelligence.available, false);
+    assert.deepEqual(d.intelligence.risks, []);
+  });
 });

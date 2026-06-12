@@ -69,7 +69,7 @@ import { routeCockpitCommand } from "../cockpit/command-router.js";
 import { decide, autonomyTierLabel, type ConciergeDecision } from "../cockpit/decision-engine.js";
 import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { renderCockpitV5, buildCockpitV5Data } from "./cloudflare-cockpit-v5.js";
-import type { V5SourceProposal, CockpitV5Data } from "./cloudflare-cockpit-v5.js";
+import type { CockpitV5Data } from "./cloudflare-cockpit-v5.js";
 import { assessFleetLiveness, heartbeatsFromReadModels } from "../sentinel/sentinel-liveness.js";
 import { heartbeatShouldAlert, buildHeartbeatAlert, heartbeatLogLine } from "../sentinel/sentinel-heartbeat.js";
 import { jobSpecFromRoute, buildAgentJobProposal } from "../jobs/agent-job.js";
@@ -182,11 +182,25 @@ function isHtmlGetRoute(pathname: string): boolean {
 function buildV5DataForRequest(
   env: CloudflareCockpitEnv,
   now: string,
-  proposalQueue: V5SourceProposal[] | undefined,
+  state: Parameters<typeof fleetSynthesisView>[0],
 ): CockpitV5Data {
   const reg = resolveMetaAgentRegistry({ now });
   const cfg = resolveLlmConfig(env);
-  return buildCockpitV5Data(reg.agents, proposalQueue, {
+  // Prophet cross-fleet synthesis — derived from in-memory state (cheap, safe for the 6s poll).
+  const syn = fleetSynthesisView(state, now);
+  const intelligence = syn.available
+    ? {
+        available: true,
+        confidence: String(syn.confidence ?? "unknown"),
+        note: syn.note ?? "",
+        risks: (syn.topRisks ?? []).slice(0, 8).map((r) => ({
+          subject: String(r.subject ?? ""),
+          severity: String(r.severity ?? "low"),
+          why: String(r.why ?? ""),
+        })),
+      }
+    : { available: false, confidence: "unknown", note: syn.note ?? "Synthesis unavailable — read-models not resolved.", risks: [] };
+  return buildCockpitV5Data(reg.agents, state?.proposalQueue, {
     now,
     buildSha: (env["BUILD_SHA"] ?? null) as string | null,
     diagnostics: {
@@ -196,6 +210,7 @@ function buildV5DataForRequest(
       writePathConfigured: Boolean(env["HARTOS_ASK_WRITE_URL"] && env["HARTOS_ASK_WRITE_TOKEN"]),
       env: summarizeEnvPresence(env),
     },
+    intelligence,
   });
 }
 
@@ -295,7 +310,7 @@ export async function handleCockpitRequest(
       // v5 "Neural Deck" — flag-gated (HARTOS_COCKPIT_V5=true) or previewable via ?v5=1. Renders the
       // connectome cockpit + Live Operations page, hydrated from the live registry + proposal spine.
       if (env["HARTOS_COCKPIT_V5"] === "true" || url.searchParams.get("v5") === "1") {
-        return htmlResponse(renderCockpitV5(buildV5DataForRequest(env, nowFor(dctx), dctx.state?.proposalQueue)), cors);
+        return htmlResponse(renderCockpitV5(buildV5DataForRequest(env, nowFor(dctx), dctx.state)), cors);
       }
       if (dctx.html) return htmlResponse(dctx.html, cors);
       // Phase D — surface recent threads from the spine in the activity panel.
@@ -340,7 +355,7 @@ export async function handleCockpitRequest(
     if (pathname === "/api/v5") {
       // The live v5 cockpit data — the SAME shape the page injects, resolved fresh each request so
       // the client can poll it and update the connectome / tasks / proposals without a page reload.
-      return jsonResponse(200, buildV5DataForRequest(env, nowFor(dctx), dctx.state?.proposalQueue), cors);
+      return jsonResponse(200, buildV5DataForRequest(env, nowFor(dctx), dctx.state), cors);
     }
     if (pathname === "/api/agents") {
       // The meta-agent registry (org chart + honest capability/status). Read-only, secret-free.

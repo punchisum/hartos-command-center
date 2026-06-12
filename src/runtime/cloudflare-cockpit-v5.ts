@@ -60,6 +60,13 @@ export interface V5Diagnostics {
   env: { name: string; present: boolean; secret: boolean }[];
 }
 
+export interface V5Intelligence {
+  available: boolean;
+  confidence: string;
+  note: string;
+  risks: { subject: string; severity: string; why: string }[];
+}
+
 export interface CockpitV5Data {
   now: string;
   buildSha: string | null;
@@ -72,6 +79,7 @@ export interface CockpitV5Data {
   proposals: V5Proposal[];
   events: V5Event[];
   diagnostics: V5Diagnostics;
+  intelligence: V5Intelligence;
 }
 
 const esc = (s: unknown): string =>
@@ -285,7 +293,7 @@ function mapStatus(s: string, firing: boolean): V5Agent["status"] {
 export function buildCockpitV5Data(
   agents: V5SourceAgent[],
   proposalQueue: V5SourceProposal[] | undefined,
-  opts: { now: string; buildSha: string | null; diagnostics?: V5Diagnostics },
+  opts: { now: string; buildSha: string | null; diagnostics?: V5Diagnostics; intelligence?: V5Intelligence },
 ): CockpitV5Data {
   const tasks = buildTasksView(proposalQueue, opts.now);
   const firingAgents = new Set(
@@ -349,6 +357,7 @@ export function buildCockpitV5Data(
     proposals: pending,
     events,
     diagnostics: opts.diagnostics ?? { providerMode: "unknown", model: "—", llmNetwork: false, writePathConfigured: false, env: [] },
+    intelligence: opts.intelligence ?? { available: false, confidence: "unknown", note: "Synthesis not resolved.", risks: [] },
   };
 }
 
@@ -368,6 +377,7 @@ export function renderCockpitV5(data: CockpitV5Data): string {
 <div class="nv on" data-p="overview"><i class="ti ti-brain"></i><span>overview</span></div>
 <div class="nv" data-p="fleet"><i class="ti ti-affiliate"></i><span>fleet</span></div>
 <div class="nv" data-p="ops"><i class="ti ti-activity-heartbeat"></i><span>live ops</span></div>
+<div class="nv" data-p="intel"><i class="ti ti-brain"></i><span>intelligence</span></div>
 <div class="nv" data-p="synapses"><i class="ti ti-plug-connected"></i><span>synapses</span></div>
 <div class="nv" data-p="audit"><i class="ti ti-shield-half"></i><span>audit</span></div>
 <div class="nv" data-p="tech"><i class="ti ti-bug"></i><span>technical</span></div>
@@ -468,7 +478,21 @@ function tech(){
   '<div class="panel" style="flex:1;min-height:0;padding:16px 18px;display:flex;flex-direction:column"><div class="phd">'+el('ti-key')+' environment<span class="ct">'+missing+' required missing</span></div><div style="margin-top:8px;overflow:auto">'+envrows+'</div></div></div>'+
   '<div class="col sidecol" style="width:480px;min-height:0"><div class="panel" style="padding:16px 18px;height:100%;display:flex;flex-direction:column"><div class="phd">'+el('ti-alert-triangle')+' needs attention<span class="ct">open items</span></div><div style="margin-top:12px;overflow:auto">'+items+'</div></div></div></div>';
 }
-var PAGES={overview:overview,fleet:fleet,ops:ops,synapses:synapses,audit:audit,tech:tech};
+function intel(){
+  var I=D.intelligence||{available:false,confidence:'unknown',note:'',risks:[]};
+  var cc=I.confidence==='high'?'#34F5A8':I.confidence==='medium'?'#FFC24B':I.confidence==='low'?'#FF9A4B':'#695B89';
+  var sevC=function(s){s=(''+(s||'')).toLowerCase();return s.indexOf('high')>=0||s.indexOf('critical')>=0?'#FF5470':s.indexOf('med')>=0||s.indexOf('elev')>=0?'#FFC24B':'#34F5A8';};
+  var risks=(I.risks||[]).map(function(r){var c=sevC(r.severity);return '<div class="panel" style="padding:14px 16px;margin-bottom:11px;border-left:3px solid '+c+'"><div style="display:flex;align-items:center;gap:10px"><span class="spill" style="color:'+c+';border-color:'+c+'66;text-transform:uppercase;font-size:11px">'+h(r.severity)+'</span><div style="font-size:14.5px;font-weight:600">'+h(r.subject)+'</div></div><div class="muted" style="font-size:13px;margin-top:7px;line-height:1.5">'+h(r.why)+'</div></div>';}).join('')||'<div class="muted" style="font-size:13px">No correlated cross-fleet risks right now — Prophet reads the fleet as nominal, or no agent has surfaced a signal worth correlating.</div>';
+  var sig=(D.events||[]).slice(0,7).map(function(e){return '<div style="display:flex;gap:11px;align-items:flex-start;padding:9px 0;border-bottom:1px solid rgba(140,100,230,.08)"><span class="dot" style="background:'+(e.color||'#A974FF')+';margin-top:5px"></span><div style="flex:1"><div style="font-size:13px;color:#ECE4F8">'+h(e.text)+'</div><div class="mono muted" style="font-size:11px;margin-top:2px">'+h(e.agent)+' · '+h(e.time)+'</div></div></div>';}).join('')||'<div class="muted" style="font-size:13px">No recent fleet signal.</div>';
+  var pc=I.available?cc:'#695B89';
+  return '<div class="cap"><h2>Intelligence</h2><span class="sub">Prophet cross-fleet synthesis · live read-only</span></div>'+
+   '<div style="display:flex;gap:18px;flex:1;min-height:0"><div class="col" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:16px">'+
+   '<div class="panel" style="padding:18px 20px;flex:0 0 auto;display:flex;align-items:center;gap:18px"><div style="width:72px;height:72px;border-radius:20px;border:2px solid '+pc+';display:flex;align-items:center;justify-content:center;font-size:32px;color:'+pc+';background:'+pc+'14">'+el('ti-brain')+'</div><div style="flex:1"><div class="orb" style="font-size:19px;color:'+pc+'">'+(I.available?('CONFIDENCE · '+h((''+(I.confidence||'unknown')).toUpperCase())):'SYNTHESIS UNAVAILABLE')+'</div><div class="muted" style="font-size:13px;margin-top:6px;line-height:1.5">'+h(I.note||'Prophet has no synthesis to report.')+'</div></div></div>'+
+   '<div class="panel" style="flex:1;min-height:0;padding:16px 18px;display:flex;flex-direction:column"><div class="phd">'+el('ti-alert-triangle')+' correlated risks<span class="ct">'+((I.risks||[]).length)+' ranked</span></div><div style="margin-top:13px;overflow:auto">'+risks+'</div></div></div>'+
+   '<div class="col sidecol" style="width:420px;min-height:0;display:flex;flex-direction:column;gap:16px"><div class="panel" style="padding:16px 18px;flex:1;min-height:0;display:flex;flex-direction:column"><div class="phd">'+el('ti-broadcast')+' intelligence signal<span class="ct">live stream</span></div><div style="margin-top:10px;overflow:auto">'+sig+'</div></div>'+
+   '<div class="panel" style="padding:16px 18px;flex:0 0 auto"><div class="phd">'+el('ti-notebook')+' knowledge</div><div class="muted" style="font-size:13px;margin-top:9px;line-height:1.55">Research dossiers Prophet files land in your Obsidian vault (the meaning layer) and the Ask grounding index. Fire a directive from the console to grow it.</div></div></div></div>';
+}
+var PAGES={overview:overview,fleet:fleet,ops:ops,intel:intel,synapses:synapses,audit:audit,tech:tech};
 function go(name){curPage=name;P.innerHTML=(PAGES[name]||overview)();var ns=document.querySelectorAll('.nv');for(var i=0;i<ns.length;i++)ns[i].classList.toggle('on',ns[i].getAttribute('data-p')===name);}
 var navs=document.querySelectorAll('.nv');for(var i=0;i<navs.length;i++)navs[i].addEventListener('click',function(){var n=this.getAttribute('data-p');location.hash=n;go(n);});
 window.addEventListener('hashchange',function(){var h=(location.hash||'').replace('#','');if(PAGES[h])go(h);});
