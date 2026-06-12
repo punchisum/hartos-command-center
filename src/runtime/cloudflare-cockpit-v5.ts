@@ -23,6 +23,11 @@ export interface V5Agent {
   metric: string;
   color: string;
   status: "firing" | "healthy" | "watch" | "idle" | "down";
+  /** Honest status reason + description (for the agent drawer). */
+  statusReason: string;
+  description: string;
+  /** Whether a dedicated /agent/<id>/ui dashboard exists (fitness/ops today). */
+  hasDashboard: boolean;
 }
 
 export interface V5Proposal {
@@ -71,7 +76,7 @@ body{background:#05030C;color:#ECE4F8;font-family:'Rajdhani',system-ui,sans-seri
 .panel{background:#0C0720;border:1px solid rgba(140,100,230,0.18);border-radius:16px;position:relative}
 .phd{display:flex;align-items:center;gap:9px;font-weight:700;font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:#9C8CBC}
 .phd .ct{margin-left:auto;font-family:'JetBrains Mono';font-size:11px;letter-spacing:0;color:#695B89}
-.deck{min-height:100vh;display:flex;flex-direction:column;background:radial-gradient(1200px 700px at 38% 30%, #0A0518 0%, #05030C 62%)}
+.deck{height:100vh;overflow:hidden;display:flex;flex-direction:column;background:radial-gradient(1200px 700px at 38% 30%, #0A0518 0%, #05030C 62%);position:relative}
 header{height:72px;flex:0 0 auto;display:flex;align-items:center;gap:18px;padding:0 26px;border-bottom:1px solid rgba(140,100,230,0.18)}
 .bmk{width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,#FF2D9E,#A974FF);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;box-shadow:0 0 22px -4px #FF2D9E}
 .bw{font-family:'Orbitron';font-weight:900;font-size:21px;line-height:1}.bt{font-size:11px;letter-spacing:.34em;color:#9C8CBC;text-transform:uppercase}
@@ -108,7 +113,54 @@ footer{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:14px 26px;
 .ev{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid rgba(140,100,230,.10);font-size:13.5px}.ev:last-child{border-bottom:none}
 .spk{width:5px;height:18px;border-radius:2px;flex:0 0 auto;box-shadow:0 0 8px currentColor}
 .evt{font-size:11px;color:#695B89}.evw{font-family:'JetBrains Mono';font-size:12px;flex:0 0 96px}.evx{color:#9C8CBC;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cwrap{flex:1;min-height:340px;display:flex;align-items:center;justify-content:center}
+.cwrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+.cwrap svg{max-height:100%;width:auto}
+.page{overflow:hidden}.col{min-height:0}
+.sidecol{overflow:auto}
+/* EEG */
+.eegbox{border:1px solid rgba(140,100,230,0.18);border-radius:12px;overflow:hidden;background:#0A0619;margin-top:10px}
+.eeg path.live{stroke-dasharray:1400;stroke-dashoffset:1400;animation:eegdraw 3.2s linear infinite}
+@keyframes eegdraw{to{stroke-dashoffset:0}}
+.eeg-r{display:flex;align-items:center;gap:12px;margin-top:9px}.eeg-r .big{font-family:'Orbitron';font-weight:700;font-size:20px;color:#22E8FF}.eeg-r .s{font-size:12px;color:#9C8CBC}
+/* connectome firing pulse + clickable hit areas */
+.fire{animation:firepulse 1.8s ease-in-out infinite}
+@keyframes firepulse{0%,100%{opacity:.45}50%{opacity:1}}
+.hit{cursor:pointer;opacity:0}
+.npart{animation:axflow 2.4s linear infinite}
+@keyframes axflow{0%{opacity:0}10%{opacity:1}90%{opacity:1}100%{opacity:0;transform:translate(0,0)}}
+/* agent drawer */
+.drawer{position:absolute;top:0;right:0;bottom:0;width:420px;max-width:92vw;z-index:35;background:#0C0720;border-left:1px solid rgba(165,116,255,0.40);box-shadow:-30px 0 70px -30px #000;transform:translateX(102%);transition:transform .3s cubic-bezier(.3,.85,.3,1);display:flex;flex-direction:column;padding:22px 24px;overflow:auto}
+.drawer.open{transform:translateX(0)}
+.drawer .dx{position:absolute;top:16px;right:18px;font-size:20px;color:#9C8CBC;cursor:pointer}
+.dbig{width:74px;height:74px;border-radius:50%;border:2.5px solid;display:flex;align-items:center;justify-content:center;font-family:'Orbitron';font-weight:700;font-size:24px;background:#0A0518}
+.dgrid{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:16px}
+.dcell{background:#0A0619;border:1px solid rgba(140,100,230,0.18);border-radius:11px;padding:11px 13px}
+.dcell .l{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#9C8CBC}.dcell .n{font-family:'Orbitron';font-weight:700;font-size:17px;margin-top:3px}
+.dlink{display:inline-flex;align-items:center;gap:8px;margin-top:16px;padding:11px 16px;border-radius:12px;font-family:'Orbitron';font-weight:700;font-size:13px;letter-spacing:.06em;color:#04140c;background:linear-gradient(135deg,#34F5A8,#19c98a);box-shadow:0 0 26px -8px #34F5A8;text-decoration:none}
+/* neural console */
+.scrim{position:absolute;inset:0;background:rgba(5,3,12,.74);backdrop-filter:blur(3px);z-index:40;opacity:0;pointer-events:none;transition:opacity .22s ease}
+.scrim.open{opacity:1;pointer-events:auto}
+.term{position:absolute;left:8%;right:8%;top:10%;bottom:10%;z-index:41;background:#0C0720;border:1px solid rgba(165,116,255,0.40);border-radius:18px;box-shadow:0 0 80px -20px #FF2D9E;display:flex;flex-direction:column;overflow:hidden;transform:scale(.96);opacity:0;transition:transform .32s cubic-bezier(.3,.85,.3,1),opacity .2s ease}
+.scrim.open .term{transform:scale(1);opacity:1}
+.thd{height:48px;flex:0 0 auto;display:flex;align-items:center;gap:11px;padding:0 18px;border-bottom:1px solid rgba(140,100,230,0.18);background:#0A0619}
+.thd .mono{font-size:12px;letter-spacing:.16em;color:#22E8FF}
+.tdots{display:flex;gap:7px}.tdots i{width:11px;height:11px;border-radius:50%;display:block}
+.tbody{flex:1;min-height:0;padding:18px 22px;font-family:'JetBrains Mono';font-size:13.5px;line-height:1.7;overflow:auto;display:flex;flex-direction:column;gap:4px}
+.tu{color:#ECE4F8}.tu .tp{color:#22E8FF;margin-right:8px}
+.tr{color:#9C8CBC;margin:2px 0 14px;padding-left:8px;border-left:2px solid rgba(140,100,230,0.18);white-space:pre-wrap}
+.tr .ok{color:#34F5A8}
+.tcur{display:inline-block;color:#22E8FF;animation:blink 1.1s step-end infinite}@keyframes blink{50%{opacity:0}}
+.tfoot{flex:0 0 auto;border-top:1px solid rgba(140,100,230,0.18);padding:13px 18px;background:#0A0619}
+.tchips{display:flex;gap:9px;margin-bottom:10px;flex-wrap:wrap}
+.tchip{font-family:'JetBrains Mono';font-size:12px;padding:5px 11px;border:1px solid rgba(140,100,230,0.18);border-radius:8px;color:#9C8CBC;cursor:pointer}
+.tchip:hover{border-color:rgba(165,116,255,0.40);color:#ECE4F8}
+.tin{display:flex;align-items:center;gap:11px;height:46px;padding:0 16px;background:#0A0518;border:1px solid rgba(165,116,255,0.40);border-radius:12px}
+.tin input{flex:1;background:none;border:none;outline:none;color:#ECE4F8;font-family:'JetBrains Mono';font-size:13.5px}
+.peek{position:absolute;left:18px;right:18px;bottom:92px;height:50px;z-index:30;display:flex;align-items:center;gap:13px;padding:0 18px;background:#0A0619;border:1px solid rgba(165,116,255,0.40);border-radius:14px;box-shadow:0 0 38px -14px #22E8FF;cursor:pointer;transform:translateY(120%);transition:transform .26s ease}
+.peek.show{transform:translateY(0)}
+.peek .lbl{font-family:'JetBrains Mono';font-size:12px;letter-spacing:.12em;color:#22E8FF}
+.peek .mid{flex:1;font-family:'JetBrains Mono';font-size:13px;color:#9C8CBC;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pulse{width:9px;height:9px;border-radius:50%;background:#22E8FF;box-shadow:0 0 11px #22E8FF;animation:bp 1.6s ease-in-out infinite}
 .qcard{background:#0A0619;border:1px solid rgba(140,100,230,0.18);border-radius:14px;padding:13px 15px;margin-bottom:11px}
 .qtop{display:flex;align-items:center;gap:9px;font-size:12px}
 .qtier{margin-left:auto;font-size:10.5px;border:1px solid;border-radius:6px;padding:2px 8px;text-transform:uppercase;letter-spacing:.06em}
@@ -145,15 +197,18 @@ function connectomeScript(): string {
     const L={command:[-90,330],sentinel:[-54,300],cto:[-18,352],factory:[18,302],fitness:[54,346],ops:[90,300],beezulbub:[126,350],prophet:[162,300],wolverine:[198,352],rinnegan:[234,305]};
     let ax='',nd='';
     for(const a of agents){const p=L[a.id]||[0,300];const ang=p[0]*d2r,r=p[1];
-      const x=cx+Math.cos(ang)*r,y=cy+Math.sin(ang)*r;const c=a.color||'#A974FF';const fire=a.status==='firing';
+      const x=cx+Math.cos(ang)*r,y=cy+Math.sin(ang)*r;const c=a.color||'#A974FF';const fire=a.status==='firing';const dn=a.status==='down';
       const mx=cx+(x-cx)*0.55,my=cy+(y-cy)*0.55-40;
-      ax+='<path d="M'+cx+' '+cy+' Q'+mx.toFixed(1)+' '+my.toFixed(1)+' '+x.toFixed(1)+' '+y.toFixed(1)+'" fill="none" stroke="'+c+'" stroke-width="'+(fire?2.4:1.5)+'" opacity="'+(fire?0.92:0.5)+'" filter="url(#gl)"/>';
-      if(fire)nd+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="47" fill="'+c+'" opacity="0.16" filter="url(#glbig)"/>';
-      nd+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="31" fill="#0A0619" stroke="'+c+'" stroke-width="'+(fire?2.6:1.8)+'" filter="url(#gl)"/>';
-      nd+='<text x="'+x.toFixed(1)+'" y="'+(y+5).toFixed(1)+'" text-anchor="middle" font-family="Orbitron" font-weight="700" font-size="18" fill="'+c+'">'+h(a.initials)+'</text>';
+      const pd='M'+cx+' '+cy+' Q'+mx.toFixed(1)+' '+my.toFixed(1)+' '+x.toFixed(1)+' '+y.toFixed(1);
+      ax+='<path d="'+pd+'" fill="none" stroke="'+c+'" stroke-width="'+(fire?2.4:1.5)+'" opacity="'+(dn?0.16:fire?0.92:0.5)+'" filter="url(#gl)"/>';
+      if(fire)ax+='<circle r="3.4" fill="#fff" opacity="0.95" filter="url(#gl)"><animateMotion dur="2.4s" repeatCount="indefinite" path="'+pd+'"/></circle>';
+      if(fire)nd+='<circle class="fire" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="47" fill="'+c+'" opacity="0.16" filter="url(#glbig)"/>';
+      nd+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="31" fill="#0A0619" stroke="'+c+'" stroke-width="'+(fire?2.6:1.8)+'" opacity="'+(dn?0.5:1)+'" filter="url(#gl)"/>';
+      nd+='<text x="'+x.toFixed(1)+'" y="'+(y+5).toFixed(1)+'" text-anchor="middle" font-family="Orbitron" font-weight="700" font-size="18" fill="'+c+'" opacity="'+(dn?0.5:1)+'">'+h(a.initials)+'</text>';
       const side=x<cx-20?'end':x>cx+20?'start':'middle';const lx=side==='end'?x-40:side==='start'?x+40:x;
       nd+='<text x="'+lx.toFixed(1)+'" y="'+(y-40).toFixed(1)+'" text-anchor="'+side+'" font-family="Rajdhani" font-weight="600" font-size="18" fill="#ECE4F8">'+h(a.name)+'</text>';
       nd+='<text x="'+lx.toFixed(1)+'" y="'+(y-22).toFixed(1)+'" text-anchor="'+side+'" font-family="JetBrains Mono" font-size="12" fill="'+c+'" opacity="0.85">'+h(a.metric)+'</text>';
+      nd+='<circle class="hit" data-id="'+h(a.id)+'" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="46" fill="#fff"/>';
     }
     return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Fleet connectome"><defs>'+
       '<filter id="gl" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'+
@@ -188,7 +243,11 @@ export interface V5SourceAgent {
   status: string;
   category?: string;
   statusReason?: string;
+  description?: string;
 }
+
+/** Agents that have a real dedicated dashboard page (/agent/<id>/ui). */
+const DASHBOARD_AGENTS = new Set(["fitness", "ops"]);
 
 /** A minimal proposal-queue shape (subset of ProposalQueueItem). */
 export interface V5SourceProposal extends TaskSourceRow {
@@ -225,9 +284,12 @@ export function buildCockpitV5Data(
       name: a.displayName.replace(/^HartOS\s+/i, "").split(/[\/(]/)[0]!.trim() || a.id,
       initials: INITIALS[a.id] ?? a.id.slice(0, 2).toUpperCase(),
       role: a.role,
-      metric: a.status === "live" ? "online" : a.status,
+      metric: a.status === "live" ? "online" : a.status === "partial" ? "propose-only" : a.status,
       color: AGENT_COLOR[a.id] ?? "#A974FF",
       status: mapStatus(a.status, firing),
+      statusReason: a.statusReason ?? "",
+      description: a.description ?? a.role,
+      hasDashboard: DASHBOARD_AGENTS.has(a.id),
     };
   });
 
@@ -290,9 +352,12 @@ export function renderCockpitV5(data: CockpitV5Data): string {
 <div class="nv" data-p="audit"><i class="ti ti-shield-half"></i><span>audit</span></div>
 <div class="spine-f"><span class="dot" style="background:#34F5A8;box-shadow:0 0 10px #34F5A8"></span><span class="mono" id="uppct">100%</span></div></div>
 <div class="page" id="page"></div></div>
-<footer><div class="kdk"><i class="ti ti-terminal-2" style="font-size:18px;color:#22E8FF"></i> neural console <span class="kbd">\`</span></div>
+<footer><div class="kdk" id="opencon"><i class="ti ti-terminal-2" style="font-size:18px;color:#22E8FF"></i> neural console <span class="kbd">\`</span></div>
 <div class="input"><i class="ti ti-prompt" style="color:#22E8FF"></i><input id="ask" placeholder="transmit directive to the fleet…" autocomplete="off"></div>
-<div class="tx" id="tx">TRANSMIT <i class="ti ti-bolt"></i></div></footer></div>
+<div class="tx" id="tx">TRANSMIT <i class="ti ti-bolt"></i></div></footer>
+<aside class="drawer" id="drawer"></aside>
+<div class="peek" id="peek"><span class="pulse"></span><span class="lbl">NEURAL CONSOLE</span><span class="mid" id="peekmid">tap to resume the console</span><i class="ti ti-chevron-up"></i></div>
+<div class="scrim" id="scrim"><div class="term"><div class="thd"><div class="tdots"><i style="background:#FF5470"></i><i style="background:#FFC24B"></i><i style="background:#34F5A8"></i></div><span class="mono">HARTOS NEURAL CONSOLE</span><span class="dot" style="background:#34F5A8;margin-left:6px;box-shadow:0 0 8px #34F5A8"></span><span style="margin-left:auto;font-size:11px;color:#695B89" class="mono">esc to collapse</span><i class="ti ti-x" id="cclose" style="cursor:pointer;color:#9C8CBC;margin-left:14px"></i></div><div class="tbody" id="tbody"></div><div class="tfoot"><div class="tchips" id="tchips"></div><div class="tin"><span style="color:#22E8FF" class="mono">&gt;</span><input id="cin" placeholder="talk to HartOS, or type a command…" autocomplete="off"><span class="dot" id="cbusy" style="background:#22E8FF;opacity:0"></span></div></div></div></div></div>
 <script>
 window.HV=${json};
 function h(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
@@ -300,6 +365,7 @@ ${connectomeScript()}
 (function(){
 var D=window.HV,P=document.getElementById('page');
 function el(t){return '<i class="ti '+t+'"></i>';}
+function eegPath(sig){var d='M0 34',spikes=Math.max(2,Math.min(8,sig||3));for(var x=0;x<=414;x+=4){var n=34+Math.sin(x/7)*1.6;if(x%Math.floor(414/spikes)<6){n=34-(20+(x%9));}d+=' L'+x+' '+n.toFixed(1);}return d;}
 function vit(l,n,c,s){return '<div class="vit"><div class="l">'+l+'</div><div class="n" style="color:'+c+'">'+n+(s?'<span style="font-size:14px;color:#9C8CBC"> '+s+'</span>':'')+'</div></div>';}
 function overview(){
   var ev=D.events.map(function(e){return '<div class="ev"><span class="spk" style="background:'+e.color+';color:'+e.color+'"></span><span class="evt">'+h(e.time)+'</span><span class="evw" style="color:'+e.color+'">'+h(e.agent)+'</span><span class="evx">'+h(e.text)+'</span></div>';}).join('')||'<div class="muted">No recent signal — the loop is quiet.</div>';
@@ -307,8 +373,10 @@ function overview(){
   return '<div class="cap"><h2>Neural map</h2><span class="sub">fleet connectome · '+D.agents.length+' neurons · cognitive loop live</span><span class="r"><span class="lg"><span class="dot" style="background:#fff;box-shadow:0 0 8px #fff"></span>firing</span><span class="lg"><span class="dot" style="background:#34F5A8"></span>healthy</span><span class="lg"><span class="dot" style="background:#A974FF"></span>idle</span></span></div>'+
   '<div style="display:flex;gap:18px;flex:1;min-height:0" class="ov"><div class="col" style="flex:1;display:flex;flex-direction:column;gap:16px"><div class="panel" style="flex:1;display:flex;flex-direction:column;padding:16px 18px"><div class="cwrap">'+conn(D.agents)+'</div></div>'+
   '<div class="kpis" style="grid-template-columns:repeat(3,1fr)">'+vit('tasks in flight',D.signalPerMin,'#22E8FF','')+vit('cortical load',D.corticalLoad,'#A974FF','%')+vit('fleet · live/down',D.verify,'#34F5A8','')+'</div></div>'+
-  '<div class="col sidecol" style="width:452px;display:flex;flex-direction:column;gap:16px"><div class="panel" style="flex:1;padding:15px 17px;display:flex;flex-direction:column"><div class="phd">'+el('ti-activity')+' signal stream<span class="ct">cognitive loop</span></div><div class="feed">'+ev+'</div></div>'+
-  '<div class="panel" style="padding:15px 17px"><div class="phd">'+el('ti-plug-connected')+' pending synapses<span class="ct">authorize</span></div><div style="margin-top:11px">'+syn+'</div></div></div></div>';
+  '<div class="col sidecol" style="width:452px;display:flex;flex-direction:column;gap:16px">'+
+  '<div class="panel" style="padding:14px 16px;flex:0 0 auto"><div class="phd">'+el('ti-wave-sine')+' neural activity<span class="ct">EEG · live</span></div><div class="eegbox"><svg class="eeg" viewBox="0 0 414 68" width="100%" height="68" preserveAspectRatio="none"><line x1="0" y1="34" x2="414" y2="34" stroke="#22E8FF" stroke-width="0.5" opacity="0.18"/><path class="live" d="'+eegPath(D.signalPerMin)+'" fill="none" stroke="#22E8FF" stroke-width="1.6"/></svg></div><div class="eeg-r"><span class="big">'+D.signalPerMin+'</span><span class="s">signal events · phase-locked to the loop</span></div></div>'+
+  '<div class="panel" style="flex:1;min-height:0;padding:15px 17px;display:flex;flex-direction:column"><div class="phd">'+el('ti-activity')+' signal stream<span class="ct">cognitive loop</span></div><div class="feed" style="overflow:auto">'+ev+'</div></div>'+
+  '<div class="panel" style="padding:15px 17px;flex:0 0 auto"><div class="phd">'+el('ti-plug-connected')+' pending synapses<span class="ct">authorize</span></div><div style="margin-top:11px">'+syn+'</div></div></div></div>';
 }
 function ops(){
   var t=D.tasks,c=t.counts;
@@ -327,7 +395,7 @@ function ops(){
 }
 function fleet(){
   var rows=D.agents.map(function(a){var sc=a.status==='down'?'#FF5470':a.status==='idle'?'#A974FF':a.status==='watch'?'#FFC24B':a.color;
-    return '<div class="arow"><div class="ac" style="border-color:'+a.color+';color:'+a.color+'">'+h(a.initials)+'</div><div><div style="font-weight:600;font-size:16px">'+h(a.name)+'</div><div style="font-size:12px;color:#9C8CBC">'+h(a.role)+'</div></div><div class="spill" style="color:'+sc+';border-color:'+sc+'66">'+h(a.status)+'</div><div class="muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+h(a.metric)+'</div></div>';}).join('');
+    return '<div class="arow" data-id="'+h(a.id)+'"><div class="ac" style="border-color:'+a.color+';color:'+a.color+'">'+h(a.initials)+'</div><div><div style="font-weight:600;font-size:16px">'+h(a.name)+'</div><div style="font-size:12px;color:#9C8CBC">'+h(a.role)+'</div></div><div class="spill" style="color:'+sc+';border-color:'+sc+'66">'+h(a.status)+'</div><div class="muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+h(a.metric)+'</div></div>';}).join('');
   return '<div class="cap"><h2>Fleet</h2><span class="sub">'+D.agents.length+' neurons · live roster</span></div><div class="panel" style="flex:1;padding:16px 18px;overflow:auto"><div class="phd">'+el('ti-affiliate')+' agent roster</div><div style="margin-top:13px">'+rows+'</div></div>';
 }
 function synapses(){
@@ -344,13 +412,58 @@ window.addEventListener('hashchange',function(){var h=(location.hash||'').replac
 var start=(location.hash||'').replace('#','');go(PAGES[start]?start:'overview');
 // clock
 function tick(){var d=new Date();document.getElementById('clock').textContent=d.toTimeString().slice(0,8);}tick();setInterval(tick,1000);
-// footer console → /api/ask (existing endpoint)
-function send(){var v=document.getElementById('ask').value.trim();if(!v)return;var tx=document.getElementById('tx');tx.textContent='…';
+
+// ── agent drawer (click a neuron or fleet row) ──
+var drawer=document.getElementById('drawer');
+function statusColor(s){return s==='down'?'#FF5470':s==='idle'?'#A974FF':s==='watch'?'#FFC24B':s==='firing'?'#fff':'#34F5A8';}
+function openDrawer(id){var a=null;for(var i=0;i<D.agents.length;i++){if(D.agents[i].id===id){a=D.agents[i];break;}}if(!a)return;
+  var sc=statusColor(a.status);
+  var dash=a.hasDashboard?'<a class="dlink" href="/agent/'+h(a.id)+'/ui">'+el('ti-external-link')+' Open full dashboard</a>':'<div class="muted" style="margin-top:16px;font-size:13px">No dedicated dashboard yet — this neuron is wired but its detail page is a next-slice build.</div>';
+  drawer.innerHTML='<i class="ti ti-x dx" id="ddx"></i><div style="display:flex;align-items:center;gap:16px"><div class="dbig" style="border-color:'+a.color+';color:'+a.color+'">'+h(a.initials)+'</div><div><div class="orb" style="font-size:20px">'+h(a.name)+'</div><div class="muted" style="font-size:13px">'+h(a.role)+'</div></div></div>'+
+    '<div style="margin-top:14px"><span class="spill" style="color:'+sc+';border-color:'+sc+'66">'+h(a.status)+'</span></div>'+
+    '<div class="muted" style="margin-top:14px;font-size:14px;line-height:1.55">'+h(a.description)+'</div>'+
+    (a.statusReason?'<div class="dcell" style="margin-top:14px"><div class="l">status</div><div style="font-size:13.5px;color:#ECE4F8;margin-top:4px">'+h(a.statusReason)+'</div></div>':'')+
+    '<div class="dgrid"><div class="dcell"><div class="l">signal</div><div class="n" style="color:'+a.color+'">'+h(a.metric)+'</div></div><div class="dcell"><div class="l">health</div><div class="n" style="color:'+sc+'">'+h(a.status)+'</div></div></div>'+dash;
+  drawer.classList.add('open');
+  document.getElementById('ddx').addEventListener('click',function(){drawer.classList.remove('open');});
+}
+document.getElementById('page').addEventListener('click',function(e){var t=e.target;while(t&&t!==this){if(t.getAttribute&&t.getAttribute('data-id')){openDrawer(t.getAttribute('data-id'));return;}t=t.parentNode;}});
+
+// ── neural console (collapsible, replies via /api/ask) ──
+var scrim=document.getElementById('scrim'),tbody=document.getElementById('tbody'),peek=document.getElementById('peek'),cin=document.getElementById('cin'),cbusy=document.getElementById('cbusy');
+var booted=false;
+function tline(html){var d=document.createElement('div');d.innerHTML=html;tbody.appendChild(d);tbody.scrollTop=tbody.scrollHeight;return d;}
+function openConsole(prefill){scrim.classList.add('open');peek.classList.remove('show');
+  if(!booted){booted=true;tline('<div class="tr"><span class="ok">HartOS neural console online.</span> Ask anything, or use a slash command. Answers come from the live fleet (propose-only).</div>');
+    var chips=['/fleet','/synapses','/audit','/ask Prophet','/ops status'];document.getElementById('tchips').innerHTML=chips.map(function(c){return '<span class="tchip">'+c+'</span>';}).join('');
+    var cs=document.querySelectorAll('.tchip');for(var i=0;i<cs.length;i++)cs[i].addEventListener('click',function(){cin.value=this.textContent;cin.focus();});}
+  setTimeout(function(){cin.focus();if(prefill){cin.value=prefill;}},120);}
+function closeConsole(){scrim.classList.remove('open');peek.classList.add('show');document.getElementById('peekmid').textContent=lastReply||'tap to resume the console';}
+var lastReply='';
+function consoleSend(){var v=cin.value.trim();if(!v)return;cin.value='';
+  // slash commands route the cockpit; everything else goes to /api/ask
+  var sl=v.toLowerCase();
+  if(sl==='/fleet'||sl==='/synapses'||sl==='/audit'||sl==='/overview'||sl==='/ops'){var pg=sl.replace('/','').replace('ops','ops');if(PAGES[pg]){tline('<div class="tu"><span class="tp">&gt;</span>'+h(v)+'</div>');tline('<div class="tr">opening <span class="ok">'+h(pg)+'</span> …</div>');location.hash=pg;go(pg);setTimeout(closeConsole,400);return;}}
+  tline('<div class="tu"><span class="tp">&gt;</span>'+h(v)+'</div>');
+  var ph=tline('<div class="tr"><span class="tcur">▌</span> consulting the fleet…</div>');cbusy.style.opacity='1';
   fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:v})}).then(function(r){return r.json();}).then(function(j){
-    alert((j.summary||j.answer||'(no answer)').slice(0,800));tx.innerHTML='TRANSMIT <i class=\\'ti ti-bolt\\'></i>';document.getElementById('ask').value='';
-  }).catch(function(){tx.innerHTML='TRANSMIT <i class=\\'ti ti-bolt\\'></i>';alert('Ask failed (are you authenticated?)');});}
-document.getElementById('tx').addEventListener('click',send);
-document.getElementById('ask').addEventListener('keydown',function(e){if(e.key==='Enter')send();});
+    var ans=(j.summary||j.answer||'(no answer returned)');lastReply=ans.slice(0,90);
+    ph.innerHTML='<div class="tr">'+h(ans)+(j.usedLlm===false?'<div style="color:#695B89;margin-top:6px;font-size:12px">⌁ deterministic answer (LLM gate off)</div>':'')+'</div>';
+    tbody.scrollTop=tbody.scrollHeight;cbusy.style.opacity='0';
+  }).catch(function(){ph.innerHTML='<div class="tr" style="color:#FF5470">request failed — are you signed in to the cockpit?</div>';cbusy.style.opacity='0';});}
+document.getElementById('opencon').addEventListener('click',function(){openConsole();});
+document.getElementById('cclose').addEventListener('click',closeConsole);
+document.getElementById('peek').addEventListener('click',function(){openConsole();});
+scrim.addEventListener('click',function(e){if(e.target===scrim)closeConsole();});
+cin.addEventListener('keydown',function(e){if(e.key==='Enter')consoleSend();});
+// footer input + TRANSMIT now open the console with the text
+function fromFooter(){var v=document.getElementById('ask').value.trim();document.getElementById('ask').value='';openConsole();setTimeout(function(){cin.value=v;consoleSend();},160);}
+document.getElementById('tx').addEventListener('click',fromFooter);
+document.getElementById('ask').addEventListener('keydown',function(e){if(e.key==='Enter')fromFooter();});
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){if(scrim.classList.contains('open'))closeConsole();else drawer.classList.remove('open');}
+  if((e.key==='\`'||e.key==='~')&&document.activeElement.tagName!=='INPUT'){e.preventDefault();if(scrim.classList.contains('open'))closeConsole();else openConsole();}
+});
 })();
 </script></body></html>`;
 }
