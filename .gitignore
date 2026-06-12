@@ -49,3 +49,9 @@ supabase/.temp/
 docs/HANDOVER_*.md
 hartos-cockpit-v5-design.html
 cockpit-v4-live.html
+# Sibling-session generated artifacts (capability-registry scaffold, devoured packs, previews)
+capabilities/
+packs/
+scripts/render-v4-preview.mjs
+scripts/run-memory-heartbeat.cmd
+docs/HARTOS_COCKPIT_V4_ARCHITECTURE.md
