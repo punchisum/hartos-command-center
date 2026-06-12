@@ -68,6 +68,7 @@ import { composeKnowledgeSurface, deriveKnowledgeInputs, type KnowledgeSurface }
 import { routeCockpitCommand } from "../cockpit/command-router.js";
 import { decide, autonomyTierLabel, type ConciergeDecision } from "../cockpit/decision-engine.js";
 import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
+import { renderCockpitV5, buildCockpitV5Data } from "./cloudflare-cockpit-v5.js";
 import { assessFleetLiveness, heartbeatsFromReadModels } from "../sentinel/sentinel-liveness.js";
 import { heartbeatShouldAlert, buildHeartbeatAlert, heartbeatLogLine } from "../sentinel/sentinel-heartbeat.js";
 import { jobSpecFromRoute, buildAgentJobProposal } from "../jobs/agent-job.js";
@@ -268,6 +269,16 @@ export async function handleCockpitRequest(
     }
 
     if (pathname === "/" || pathname === "/index.html") {
+      // v5 "Neural Deck" — flag-gated (HARTOS_COCKPIT_V5=true) or previewable via ?v5=1. Renders the
+      // connectome cockpit + Live Operations page, hydrated from the live registry + proposal spine.
+      if (env["HARTOS_COCKPIT_V5"] === "true" || url.searchParams.get("v5") === "1") {
+        const v5reg = resolveMetaAgentRegistry({ now: nowFor(dctx) });
+        const v5data = buildCockpitV5Data(v5reg.agents, dctx.state?.proposalQueue, {
+          now: nowFor(dctx),
+          buildSha: (env["BUILD_SHA"] ?? null) as string | null,
+        });
+        return htmlResponse(renderCockpitV5(v5data), cors);
+      }
       if (dctx.html) return htmlResponse(dctx.html, cors);
       // Phase D — surface recent threads from the spine in the activity panel.
       const threads = dctx.threadsProvider ? await dctx.threadsProvider().catch(() => null) : null;

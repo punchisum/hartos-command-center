@@ -47,3 +47,4 @@ agent-scaffold/**/wrangler.toml
 supabase/.temp/
 # Stale session handover docs — generated per-session, not repo history
 docs/HANDOVER_*.md
+hartos-cockpit-v5-design.html
