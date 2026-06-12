@@ -71,6 +71,7 @@ function fakeDispatch(wroteFor: (id: string) => boolean): DispatchFn {
         outcome: { ran: wrote, reversible: true, before: {}, after: {}, summary: wrote ? "wrote (fake)" : "no write (gate refused)" },
       },
       delta: wrote ? ({ source: command.adapterId } as unknown as DispatchResult["delta"]) : null,
+      verification: null,
     };
   };
 }

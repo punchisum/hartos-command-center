@@ -277,5 +277,5 @@ function executedDispatch(d: StateDeltaSignal): DispatchResult {
     executed: true,
     outcome: staleOutcome(),
   };
-  return { adapterId: "clickup-comment", result, delta: d };
+  return { adapterId: "clickup-comment", result, delta: d, verification: null };
 }

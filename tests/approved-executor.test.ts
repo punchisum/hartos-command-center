@@ -75,6 +75,7 @@ describe("executeApprovedProposals", () => {
         adapterId: "clickup-move-status",
         result: { adapterId: "clickup-move-status", precondition: { allowed: wrote, denials: [] } as never, executed: wrote, outcome: { ran: wrote, reversible: true, before: {}, after: {}, summary: wrote ? "moved in progress → on hold" : "refused (flag off)" } as never },
         delta: wrote ? ({ kind: "state_delta" } as never) : null,
+        verification: null,
       };
     };
     return { fn: dispatchStub, calls: () => calls };
@@ -177,6 +178,7 @@ describe("round-trip: suggestionToMutationProposal output → commandFromApprove
         adapterId: "clickup-comment",
         result: { adapterId: "clickup-comment", precondition: { allowed: true, denials: [] } as never, executed: true, outcome: { ran: true, reversible: false, before: {}, after: {}, summary: "posted comment" } as never },
         delta: { kind: "state_delta" } as never,
+        verification: null,
       };
     };
     const out = await executeApprovedProposals({ proposals: [approve(mapped)], stores: { clickUpComment: fakeClickUp }, env: {}, dispatch, now: NOW });
