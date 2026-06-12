@@ -11,6 +11,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { commandFromApprovedProposal, executeApprovedProposals } from "../src/execution/approved-executor.js";
 import { clickupMoveIdempotencyKey } from "../src/execution/run-clickup-move.js";
+import { pendingFitnessMutationToProposal } from "../src/fitness/fitness-mutation-materialize.js";
 import { ADAPTER_ROUTE_KEY, suggestionToMutationProposal } from "../src/cockpit/suggestions/suggestion-to-mutation.js";
 import { EXECUTABLE_FROM } from "../src/doctrine/execution-gate.js";
 import type { ProposalQueueItem } from "../src/cockpit/proposals/proposal-types.js";
@@ -64,6 +65,40 @@ describe("commandFromApprovedProposal", () => {
   it("skips when no ClickUp store is injected", () => {
     const built = commandFromApprovedProposal(moveProposal(), {});
     assert.ok("skip" in built && /no ClickUp move store/.test(built.skip));
+  });
+
+  function approvedFitness() {
+    const p = pendingFitnessMutationToProposal(
+      { stateDate: "2026-06-12", recoveryBand: "green", recoveryScore: 84, action: "as-planned", caloriePct: 10, reason: "Green — fuel.", idempotencyKey: "k" },
+      NOW,
+    );
+    return { ...p, status: EXECUTABLE_FROM };
+  }
+
+  it("reconstructs a fitness-mutation command from a materialized + approved fitness proposal", () => {
+    const built = commandFromApprovedProposal(approvedFitness(), { fitnessMutation: fakeClickUp });
+    assert.ok(!("skip" in built));
+    if ("skip" in built) return;
+    assert.equal(built.adapterId, "fitness-mutation");
+    if (built.adapterId === "fitness-mutation") {
+      assert.equal(built.target.stateDate, "2026-06-12");
+      assert.equal(built.target.recoveryBand, "green");
+      assert.equal(built.target.adjustment.action, "as-planned");
+      assert.equal(built.target.adjustment.caloriePct, 10);
+      assert.equal(built.target.adjustment.reason, "Green — fuel.");
+    }
+  });
+
+  it("skips a fitness-mutation when no fitness store is injected", () => {
+    const built = commandFromApprovedProposal(approvedFitness(), {});
+    assert.ok("skip" in built && /no fitness/i.test(built.skip));
+  });
+
+  it("skips a fitness-mutation with an incomplete payload", () => {
+    const bad = approvedFitness();
+    bad.proposedPayload = { [ADAPTER_ROUTE_KEY]: { adapterId: "fitness-mutation", tier: "T1" }, stateDate: "2026-06-12" };
+    const built = commandFromApprovedProposal(bad, { fitnessMutation: fakeClickUp });
+    assert.ok("skip" in built && /incomplete fitness/i.test(built.skip));
   });
 });
 
