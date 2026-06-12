@@ -70,6 +70,15 @@ describe("runClaudeTask", () => {
     assert.match(r.detail, /failed: model error/);
   });
 
+  it("refuses a raw agent-build (spec-interrogation gate) without spawning claude", async () => {
+    let ran = false;
+    const runner: ClaudeTaskRunner = async () => { ran = true; return { ok: true, text: "x" }; };
+    const r = await runClaudeTask("build a new crypto portfolio agent", ARMED, runner);
+    assert.equal(r.ok, false);
+    assert.match(r.detail, /refused|interrogat/i);
+    assert.equal(ran, false, "must not blind-build an un-interrogated agent");
+  });
+
   it("never throws — a throwing runner is caught", async () => {
     const r = await runClaudeTask("do thing", ARMED, async () => { throw new Error("boom"); });
     assert.equal(r.ok, false);

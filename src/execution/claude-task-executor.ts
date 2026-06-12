@@ -21,6 +21,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { gateAgentBuild } from "./agent-build-gate.js";
 
 export const CLAUDE_EXECUTE_ARM_ENV = "HARTOS_ALLOW_CLAUDE_EXECUTE";
 export const KILL_SWITCH_ENV = "HARTOS_EXECUTION_KILL_SWITCH";
@@ -105,6 +106,17 @@ export async function runClaudeTask(
   const gate = claudeExecuteArmed(env);
   if (!gate.armed) return { ok: false, detail: `skipped — ${gate.reason}` };
   if (!task || !task.trim()) return { ok: false, detail: "skipped — empty task" };
+
+  // SPEC-INTERROGATION GATE: HartOS must grill for specs before building an agent. A raw
+  // agent-build (not spec-locked) is refused with the required questions — it must go through the
+  // Factory interrogation first, never a blind scaffold.
+  const buildGate = gateAgentBuild(task);
+  if (!buildGate.allowed) {
+    return {
+      ok: false,
+      detail: `refused — ${buildGate.reason} Required specs: ${buildGate.questions.slice(0, 6).join(" · ") || "(see Factory)"}`,
+    };
+  }
 
   const model = env["HARTOS_CLAUDE_EXECUTE_MODEL"]?.trim() || DEFAULT_MODEL;
   const timeoutMs = Number(env["HARTOS_CLAUDE_EXECUTE_TIMEOUT_MS"]) || DEFAULT_TIMEOUT_MS;
