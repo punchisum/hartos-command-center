@@ -89,12 +89,12 @@ function runResult(over: Partial<AdapterRunResult> = {}): AdapterRunResult {
 
 /** A DispatchResult that EXECUTED — carries a non-null delta the consumer should apply. */
 function executed(d: StateDeltaSignal, adapterId: DispatchResult["adapterId"] = "clickup-move-status"): DispatchResult {
-  return { adapterId, result: runResult({ adapterId }), delta: d };
+  return { adapterId, result: runResult({ adapterId }), delta: d, verification: null };
 }
 
 /** A DispatchResult that did NOT execute (noop / refusal / dry-run) — null delta, contributes nothing. */
 function noExec(adapterId: DispatchResult["adapterId"] = "clickup-move-status"): DispatchResult {
-  return { adapterId, result: runResult({ adapterId, executed: false, outcome: null }), delta: null };
+  return { adapterId, result: runResult({ adapterId, executed: false, outcome: null }), delta: null, verification: null };
 }
 
 /** A two-signal prior briefing (ops + fitness), both live/high — the canonical incremental fixture. */
