@@ -320,7 +320,14 @@ function mapStatus(s: string, firing: boolean): V5Agent["status"] {
 export function buildCockpitV5Data(
   agents: V5SourceAgent[],
   proposalQueue: V5SourceProposal[] | undefined,
-  opts: { now: string; buildSha: string | null; diagnostics?: V5Diagnostics; intelligence?: V5Intelligence },
+  opts: {
+    now: string;
+    buildSha: string | null;
+    /** Fleet health % computed by the truth layer from real liveness. Wins over the asserted count. */
+    liveHealthPct?: number;
+    diagnostics?: V5Diagnostics;
+    intelligence?: V5Intelligence;
+  },
 ): CockpitV5Data {
   const tasks = buildTasksView(proposalQueue, opts.now);
   const firingAgents = new Set(
@@ -346,7 +353,9 @@ export function buildCockpitV5Data(
 
   const live = v5agents.filter((a) => a.status !== "down" && a.status !== "idle").length;
   const total = v5agents.length || 1;
-  const healthPct = Math.round((live / total) * 100);
+  // Truth-layer health (computed from real liveness) wins; fall back to the asserted count only
+  // when the caller has no truth-layer figure to pass.
+  const healthPct = opts.liveHealthPct ?? Math.round((live / total) * 100);
 
   const PROP_COLOR = (risk: string): string =>
     risk === "high" ? "#FF5470" : risk === "medium" ? "#FF2D9E" : "#34F5A8";

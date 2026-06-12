@@ -29,7 +29,12 @@ export type MetaAgentCategory =
   | "memory"
   | "organ";
 
-/** Honest lifecycle status of a node as of this patch. */
+/**
+ * The catalog's EXPECTED lifecycle status (hand-authored). This is expectation, NOT measured
+ * reality — the truth layer (GET /api/liveness, computeFleetVerdict) derives actual liveness from
+ * evidence, and the v5 cockpit's fleet-health figure is computed, not counted from these. Treat as
+ * "what this node should be," shown alongside the computed truth, never as the live truth itself.
+ */
 export type AgentStatus = "live" | "partial" | "local_only" | "unavailable" | "stale";
 
 /** How much authority the node carries — the safety tier. */
