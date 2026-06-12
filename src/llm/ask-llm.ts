@@ -184,8 +184,10 @@ export async function composeAskAnswer(
   }
 
   // Honesty: the gateway may return a VALID structured output that was produced deterministically
-  // (gate closed) or by fallback. Only a real openai-mode result counts as "LLM used" — never launder.
-  const usedRealLlm = result.provider === "openai" && result.mode === "openai";
+  // (gate closed) or by fallback. Only a real NETWORK-mode result (openai or gemini — the chain's
+  // two live providers) counts as "LLM used" — never launder. (This check predating the Gemini
+  // migration mislabeled every real Gemini answer "deterministic / LLM gate off".)
+  const usedRealLlm = result.mode === "openai" || result.mode === "gemini";
   return {
     mode: usedRealLlm ? "llm" : "deterministic",
     provider: result.provider,
