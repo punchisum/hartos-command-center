@@ -31,6 +31,8 @@ import type { ClickUpCommentStore } from "./adapters/clickup-comment.js";
 import type { RejectDraftsStore } from "./adapters/reject-drafts.js";
 import type { ArchiveRejectedStore } from "./adapters/archive-rejected.js";
 import type { RefreshSyncStore } from "./adapters/refresh-sync.js";
+import type { FitnessMutationStore } from "./adapters/fitness-mutation.js";
+import type { FitnessAdjustment } from "../fitness/fitness-adjustment-rules.js";
 
 /** The live stores a host injects (ClickUp + the internal proposal-queue cleanup stores). */
 export interface ApprovedExecutorStores {
@@ -41,6 +43,8 @@ export interface ApprovedExecutorStores {
   archiveRejected?: ArchiveRejectedStore;
   /** Expire past-due drafts (queue hygiene); internal + reversible, the third autoheal adapter. */
   refreshSync?: RefreshSyncStore;
+  /** P5: the fitness "hand" — applies a recovery adjustment to Hart's own training (inside the fence). */
+  fitnessMutation?: FitnessMutationStore;
 }
 
 /** Injected gated dispatcher (the real `dispatchMutation` in production; a fake in tests). */
@@ -125,6 +129,24 @@ export function commandFromApprovedProposal(p: ProposalQueueItem, stores: Approv
     const commentText = str(payload, "commentText");
     if (!cardId || !cardName || !commentText) return { skip: "incomplete comment payload (need cardId/cardName/commentText)" };
     return { adapterId: "clickup-comment", proposal: proposalRef, target: { cardId, cardName, commentText }, store: stores.clickUpComment };
+  }
+
+  if (route.adapterId === "fitness-mutation") {
+    // P5: autonomous fitness (inside the fence). Reconstruct the deterministic adjustment from the
+    // materialized payload — never re-deciding it here. caloriePct is numeric; the rest are strings.
+    if (!stores.fitnessMutation) return { skip: "no fitness mutation store injected" };
+    const stateDate = str(payload, "stateDate");
+    const recoveryBand = str(payload, "recoveryBand");
+    const action = str(payload, "action");
+    const caloriePct = typeof payload.caloriePct === "number" ? payload.caloriePct : null;
+    if (!stateDate || !recoveryBand || !action || caloriePct === null) {
+      return { skip: "incomplete fitness mutation payload (need stateDate/recoveryBand/action/caloriePct)" };
+    }
+    if (recoveryBand !== "green" && recoveryBand !== "amber" && recoveryBand !== "red") {
+      return { skip: "incomplete fitness mutation payload (unrecognised recoveryBand)" };
+    }
+    const adjustment: FitnessAdjustment = { action: action as FitnessAdjustment["action"], caloriePct, reason: str(payload, "reason") ?? "" };
+    return { adapterId: "fitness-mutation", proposal: proposalRef, target: { stateDate, recoveryBand, adjustment }, store: stores.fitnessMutation };
   }
 
   // Internal proposal-queue cleanups (bulk-by-status; no per-row target). These are the first
