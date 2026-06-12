@@ -488,8 +488,16 @@ function synapses(){
   var sel=ps[selSyn];
   var queue=ps.map(function(p,i){return '<div class="qcard'+(i===selSyn?' sel':'')+'" data-syn="'+i+'"><div class="qtop"><span class="mono" style="color:'+p.color+'">'+h(p.id)+'</span><span style="color:#9C8CBC">'+h(p.origin)+'</span><span class="qtier" style="color:'+p.color+';border-color:'+p.color+'66">'+h(p.tier)+'</span></div><div style="font-size:15px;font-weight:600;margin:8px 0 6px">'+h(p.title)+'</div><div style="display:flex;gap:14px;font-size:12px;color:#9C8CBC"><span>'+h(p.risk)+' risk</span><span>'+h(p.statusLabel||p.status)+'</span></div></div>';}).join('');
   var canAct=sel.status==='pending_approval';
+  // P4: an executed mutation can be UNDONE. The cockpit is read-only (no DB key here), so the
+  // rollback action is a copy_cli affordance — the gated one-shot command (the ALLOW_EXEC flag +
+  // fail-closed rollback-gate still decide; the original must be confirmed-landed + un-diverged).
+  var rbCmd='npm run execute:rollback -- --from '+(sel.realId||sel.id);
   var actions=canAct
     ?'<div class="acts" style="display:flex;gap:12px;margin-top:auto;padding-top:16px"><button class="big-btn b-ok" data-act="approve" data-rid="'+h(sel.realId)+'">'+el('ti-plug-connected')+' Authorize</button><button class="big-btn b-no" data-act="reject" data-rid="'+h(sel.realId)+'">Reject</button></div>'
+    :sel.status==='executed'
+      ?'<div class="why" style="margin-top:auto;border-color:rgba(255,194,75,.35);background:rgba(255,194,75,.06)">'+el('ti-shield-lock')+' <b style="color:#FFC24B">Rollback available.</b>&nbsp;This executed mutation can be undone — gated, reversible, audited. Run locally; the per-action flag + fail-closed gate still decide (refuses if the original is unconfirmed or the target diverged):<div class="mono" style="margin-top:8px;padding:8px 10px;background:#0c0a14;border:1px solid #2a2440;border-radius:8px;user-select:all;-webkit-user-select:all;font-size:12px;word-break:break-all">'+h(rbCmd)+'</div></div>'
+    :/^rollback_/.test(sel.status||'')
+      ?'<div class="why" style="margin-top:auto">'+el('ti-shield-lock')+' Rollback proposal — <b style="color:#ECE4F8">'+h(sel.statusLabel||sel.status)+'</b>. Approved rollbacks run via <span class="mono">npm run execute:rollback</span> locally (gated).</div>'
     :(sel.status==='simulated_approved'||sel.status==='approved_for_execution'
       ?'<div class="why" style="margin-top:auto;border-color:rgba(52,245,168,.35);background:rgba(52,245,168,.06)">'+el('ti-circle-check')+' <b style="color:#34F5A8">Approved — queued.</b>&nbsp;The daemon picks it up within seconds; watch it run in <span data-goto="ops" style="color:#22E8FF;cursor:pointer">Live Ops →</span></div>'
       :'<div class="why" style="margin-top:auto">'+el('ti-info-circle')+' This item is <b style="color:#ECE4F8">&nbsp;'+h(sel.statusLabel||sel.status)+'</b> — nothing for you to action here.</div>');

@@ -76,6 +76,16 @@ describe("renderCockpitV5", () => {
     assert.ok(!html.includes("</script><img"), "raw </script> must be escaped in the data blob");
   });
 
+  it("ships the P4 Rollback copy_cli affordance (executed + rollback_* branches; gated command)", () => {
+    // The affordance is built client-side in synapses(), so the rendered page carries the CODE
+    // (command template + branches), not an interpolated result. Lock those against regression.
+    const html = renderCockpitV5(buildCockpitV5Data(AGENTS, PROPS, { now: NOW, buildSha: "abc" }));
+    assert.ok(html.includes("execute:rollback -- --from"), "the gated one-shot rollback command is surfaced");
+    assert.ok(html.includes("sel.status==='executed'"), "executed mutations get the Rollback affordance");
+    assert.ok(html.includes("/^rollback_/"), "rollback lifecycle proposals are recognised");
+    assert.ok(html.includes("Rollback available"), "the affordance is labelled");
+  });
+
   it("includes the Intelligence page (nav + Prophet synthesis render)", () => {
     const intelligence = {
       available: true,

@@ -21,11 +21,13 @@ import { pathToFileURL } from "node:url";
 import { dispatchMutation } from "../src/execution/execution-dispatch.js";
 import { executeRollback } from "../src/execution/rollback-executor.js";
 import { rollbackInputForExecutedMove } from "../src/execution/rollback-request.js";
+import { rollbackProposalFor } from "../src/execution/rollback-proposal.js";
 import { recordExecutionVerification } from "../src/execution/execution-verification-audit.js";
 import { isActionAllowlisted } from "../src/execution/execution-adapter.js";
 import { clickupMoveStatusAdapter } from "../src/execution/adapters/clickup-move-status.js";
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
 import { createClickUpClient } from "../src/execution/clickup-client.js";
+import type { ProposalQueueItem } from "../src/cockpit/proposals/proposal-types.js";
 import { redact } from "../src/llm/redaction.js";
 
 /** The spine status the cockpit sets when Hart approves a rollback (Key 1). */
@@ -40,6 +42,49 @@ function parseMax(argv: string[]): number {
   return 1;
 }
 
+function parseFrom(argv: string[]): string | null {
+  const i = argv.indexOf("--from");
+  return i >= 0 && argv[i + 1] ? String(argv[i + 1]) : null;
+}
+
+/**
+ * `--from <executedId>` one-shot: generate a rollback for an executed move and AUTHORIZE it
+ * host-side (insert as rollback_approved — running this CLI IS Hart's Key 1, exactly like
+ * run-spine-executor). The main loop then executes it through the gated path (the ALLOW_EXEC_*
+ * flag + fail-closed gate still decide every write). Returns a status line.
+ */
+async function createApprovedRollbackFrom(
+  handle: { query(text: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount?: number | null }> },
+  executedId: string,
+  now: Date,
+): Promise<string> {
+  const sel = await handle.query(`select id, payload, status from public.cockpit_proposals where id = $1 limit 1`, [executedId]);
+  const row = (sel.rows as Array<{ id: string; payload: unknown; status: string }>)[0];
+  if (!row) return `--from ${executedId}: no such proposal`;
+  if (row.status !== "executed") return `--from ${executedId}: proposal status is "${row.status}", not "executed" — nothing landed to undo`;
+
+  const payload = (row.payload && typeof row.payload === "object" ? row.payload : {}) as Record<string, unknown>;
+  const original = { ...payload, id: row.id, status: "executed" } as unknown as ProposalQueueItem;
+  const rb = rollbackProposalFor(original, now);
+  if (!rb) return `--from ${executedId}: not an invertible executed move (no rollback generated)`;
+
+  // Insert as rollback_approved (host authorization). ON CONFLICT keeps it idempotent — the
+  // deterministic id means re-running --from never duplicates the rollback.
+  const ins = await handle.query(
+    `insert into public.cockpit_proposals (id, domain, action_type, title, risk_level, status, source_intent, created_at, updated_at, expires_at, payload)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$8,null,$9)
+     on conflict (id) do nothing`,
+    [rb.id, rb.domain, rb.actionType, rb.title, rb.riskLevel, ROLLBACK_APPROVED, rb.sourceIntent, now.toISOString(), JSON.stringify({ ...rb, status: ROLLBACK_APPROVED })],
+  );
+  await handle.query(
+    `insert into public.cockpit_proposal_audit (proposal_id, event, to_status) values ($1, 'rollback_approved', $2)`,
+    [rb.id, ROLLBACK_APPROVED],
+  );
+  return (ins.rowCount ?? 0) === 1
+    ? `--from ${executedId}: created + authorized rollback ${rb.id}`
+    : `--from ${executedId}: rollback ${rb.id} already exists (re-using it)`;
+}
+
 function str(payload: Record<string, unknown>, key: string): string | null {
   const v = payload[key];
   return typeof v === "string" && v.length > 0 ? v : null;
@@ -49,6 +94,7 @@ export async function runRollbackExecutor(
   env: Record<string, string | undefined>,
   now: Date,
   max: number,
+  fromExecutedId: string | null = null,
 ): Promise<string[]> {
   const out: string[] = [];
   const handle = createCockpitProposalDb(env);
@@ -64,6 +110,9 @@ export async function runRollbackExecutor(
   }
 
   try {
+    // `--from <executedId>`: create + host-authorize the rollback first, then fall through to run it.
+    if (fromExecutedId) out.push(await createApprovedRollbackFrom(handle, fromExecutedId, now));
+
     const res = await handle.query(
       `select id, payload, expires_at from public.cockpit_proposals where status = $1 order by updated_at asc nulls last`,
       [ROLLBACK_APPROVED],
@@ -168,7 +217,7 @@ export async function runRollbackExecutor(
 
 const isMain = typeof process.argv[1] === "string" && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
-  runRollbackExecutor(process.env, new Date(), parseMax(process.argv.slice(2)))
+  runRollbackExecutor(process.env, new Date(), parseMax(process.argv.slice(2)), parseFrom(process.argv.slice(2)))
     .then((lines) => {
       console.log("\nHartOS — approved-rollback executor (gated; flags decide)\n");
       for (const l of lines) console.log(l);
