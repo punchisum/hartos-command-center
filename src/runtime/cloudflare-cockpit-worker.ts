@@ -73,7 +73,7 @@ import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { renderCockpitV5, buildCockpitV5Data } from "./cloudflare-cockpit-v5.js";
 import type { CockpitV5Data } from "./cloudflare-cockpit-v5.js";
 import { assessFleetLiveness, heartbeatsFromReadModels } from "../sentinel/sentinel-liveness.js";
-import { assembleTruthReport } from "../truth-layer/truth-layer-api.js";
+import { assembleTruthReport, fleetHealthPercent } from "../truth-layer/truth-layer-api.js";
 import { heartbeatShouldAlert, buildHeartbeatAlert, heartbeatLogLine } from "../sentinel/sentinel-heartbeat.js";
 import { parseDaemonRpcResult, daemonAlert } from "../telegram/daemon-deadman.js";
 import { telegramNotifyConfig, formatAlert } from "../telegram/alert-bus.js";
@@ -206,9 +206,17 @@ function buildV5DataForRequest(
         })),
       }
     : { available: false, confidence: "unknown", note: syn.note ?? "Synthesis unavailable — read-models not resolved.", risks: [] };
+  // Truth-layer fleet health: computed from the same Worker-visible liveness as /api/liveness, so
+  // the cockpit's headline number is no longer the asserted count of "live" catalog entries.
+  const liveTruth = assembleTruthReport(reg, readModelStatusView(state), now, now, {
+    version: null,
+    builtAt: null,
+    armedFlags: [],
+  });
   return buildCockpitV5Data(reg.agents, state?.proposalQueue, {
     now,
     buildSha: (env["BUILD_SHA"] ?? null) as string | null,
+    liveHealthPct: fleetHealthPercent(liveTruth.fleet),
     diagnostics: {
       providerMode: explainGate(cfg).mode,
       model: cfg.model,
