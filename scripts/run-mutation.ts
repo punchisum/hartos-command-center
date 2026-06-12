@@ -59,8 +59,13 @@ import type { ArchiveRejectedStore } from "../src/execution/adapters/archive-rej
 import type { MarkReviewedStore } from "../src/execution/adapters/mark-reviewed.js";
 import type { RefreshSyncStore } from "../src/execution/adapters/refresh-sync.js";
 
-/** The adapter ids this CLI accepts (the dispatcher's union, surfaced for help text). */
-const ADAPTER_IDS: readonly MutationAdapterId[] = [
+/**
+ * The adapter ids this manual CLI accepts. Excludes "fitness-mutation": autonomous fitness is
+ * NEVER hand-dispatched per-card — it flows through the live-runner poller → spine → the gated
+ * executor (its target is the deterministic recovery decision, not CLI args).
+ */
+type CliMutationAdapterId = Exclude<MutationAdapterId, "fitness-mutation">;
+const ADAPTER_IDS: readonly CliMutationAdapterId[] = [
   "clickup-comment",
   "clickup-move-status",
   "reject-drafts",
@@ -69,8 +74,13 @@ const ADAPTER_IDS: readonly MutationAdapterId[] = [
   "refresh-sync",
 ];
 
+/** Narrowing guard: is this string a CLI-dispatchable adapter id? */
+function isCliAdapter(x: string): x is CliMutationAdapterId {
+  return (ADAPTER_IDS as readonly string[]).includes(x);
+}
+
 /** Per-adapter arming flag NAME (surfaced so the operator knows what to set; never the value). */
-const ADAPTER_FLAG: Record<MutationAdapterId, string> = {
+const ADAPTER_FLAG: Record<CliMutationAdapterId, string> = {
   "clickup-comment": CLICKUP_COMMENT_FLAG,
   "clickup-move-status": CLICKUP_MOVE_FLAG,
   "reject-drafts": REJECT_DRAFTS_FLAG,
@@ -80,7 +90,7 @@ const ADAPTER_FLAG: Record<MutationAdapterId, string> = {
 };
 
 /** Per-adapter store-credential env var NAME (surfaced in the "not configured" message). */
-const ADAPTER_CRED_ENV: Record<MutationAdapterId, string> = {
+const ADAPTER_CRED_ENV: Record<CliMutationAdapterId, string> = {
   "clickup-comment": CLICKUP_TOKEN_ENV,
   "clickup-move-status": CLICKUP_TOKEN_ENV,
   "reject-drafts": EXECUTOR_DB_URL_ENV,
@@ -158,7 +168,7 @@ function req(flags: Record<string, string>, name: string, missing: string[]): st
 
 /** Build the store for an adapter from env, or report it not-configured. Closes pg in `close`. */
 async function resolveStore(
-  adapter: MutationAdapterId,
+  adapter: CliMutationAdapterId,
   env: Record<string, string | undefined>,
 ): Promise<ResolvedStore> {
   switch (adapter) {
@@ -200,7 +210,7 @@ function describeFlag(env: Record<string, string | undefined>, flagName: string)
 
 /** Construct the typed MutationCommand for an adapter from parsed flags + the resolved store. */
 function buildCommand(
-  adapter: MutationAdapterId,
+  adapter: CliMutationAdapterId,
   flags: Record<string, string>,
   store: NonNullable<ResolvedStore["store"]>,
   missing: string[],
@@ -281,12 +291,13 @@ export async function runMutationCli(input: RunMutationCliInput): Promise<RunMut
   const execute = bools.has("execute");
 
   // ── 1) Validate the adapter id up front (a clear, no-throw refusal otherwise). ──
-  const adapter = flags.adapter as MutationAdapterId | undefined;
-  if (!adapter || !ADAPTER_IDS.includes(adapter)) {
-    lines.push(adapter ? `Unknown adapter: ${adapter}` : "Missing required --adapter <id>");
+  const adapterArg = flags.adapter;
+  if (!adapterArg || !isCliAdapter(adapterArg)) {
+    lines.push(adapterArg ? `Unknown adapter: ${adapterArg}` : "Missing required --adapter <id>");
     lines.push(...usageLines());
     return { exitCode: 2, lines };
   }
+  const adapter: CliMutationAdapterId = adapterArg;
 
   // ── 2) Header — adapter, mode, arming flag + kill-switch, all by NAME. ──
   const killOn = (env[KILL_SWITCH_ENV] ?? "").trim().toLowerCase() === "on";
