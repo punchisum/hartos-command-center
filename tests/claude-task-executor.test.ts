@@ -12,8 +12,12 @@ import {
   KILL_SWITCH_ENV,
   type ClaudeTaskRunner,
 } from "../src/execution/claude-task-executor.js";
+import { type GitProbe } from "../src/execution/claude-exec-baseline.js";
 
 const ARMED = { [CLAUDE_EXECUTE_ARM_ENV]: "true", CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-test" };
+
+/** A hermetic git probe so executor tests don't depend on the real working tree. */
+const NOOP_GIT: GitProbe = { headSha: () => "test-head-sha", dirtyPaths: () => [] };
 
 describe("claudeExecuteArmed", () => {
   it("disarmed by default (no flag)", () => {
@@ -58,14 +62,14 @@ describe("runClaudeTask", () => {
       assert.match(prompt, /add a null check/);
       return { ok: true, text: "Edited src/foo.ts to add the guard." };
     };
-    const r = await runClaudeTask("add a null check to foo", ARMED, runner);
+    const r = await runClaudeTask("add a null check to foo", ARMED, runner, NOOP_GIT);
     assert.equal(r.ok, true);
     assert.match(r.detail, /claude applied/);
     assert.match(r.detail, /Edited src\/foo\.ts/);
   });
 
   it("armed + runner failure ⇒ not ok (honest)", async () => {
-    const r = await runClaudeTask("do thing", ARMED, async () => ({ ok: false, text: "model error" }));
+    const r = await runClaudeTask("do thing", ARMED, async () => ({ ok: false, text: "model error" }), NOOP_GIT);
     assert.equal(r.ok, false);
     assert.match(r.detail, /failed: model error/);
   });
@@ -80,8 +84,47 @@ describe("runClaudeTask", () => {
   });
 
   it("never throws — a throwing runner is caught", async () => {
-    const r = await runClaudeTask("do thing", ARMED, async () => { throw new Error("boom"); });
+    const r = await runClaudeTask("do thing", ARMED, async () => { throw new Error("boom"); }, NOOP_GIT);
     assert.equal(r.ok, false);
     assert.match(r.detail, /threw: boom/);
+  });
+});
+
+describe("runClaudeTask — W3 baseline + scope", () => {
+  // A fake GitProbe: fixed head; first dirtyPaths() call = before, second = after.
+  function fakeGit(snapshots: string[][]): GitProbe {
+    let i = 0;
+    return {
+      headSha: () => "base-sha-001",
+      dirtyPaths: () => snapshots[Math.min(i++, snapshots.length - 1)],
+    };
+  }
+
+  it("success ⇒ returns the baseline sha and the files the run changed", async () => {
+    const git = fakeGit([[], ["src/foo.ts"]]);
+    const runner: ClaudeTaskRunner = async () => ({ ok: true, text: "Edited src/foo.ts." });
+    const r = await runClaudeTask("add a null check to foo", ARMED, runner, git);
+    assert.equal(r.ok, true);
+    assert.equal(r.baselineSha, "base-sha-001");
+    assert.deepEqual(r.filesChanged, ["src/foo.ts"]);
+  });
+
+  it("refuses (honest skip) when the baseline can't be captured — never spawns", async () => {
+    let ran = false;
+    const brokenGit: GitProbe = {
+      headSha: () => { throw new Error("not a git repo"); },
+      dirtyPaths: () => [],
+    };
+    const runner: ClaudeTaskRunner = async () => { ran = true; return { ok: true, text: "x" }; };
+    const r = await runClaudeTask("add a null check to foo", ARMED, runner, brokenGit);
+    assert.equal(r.ok, false);
+    assert.match(r.detail, /baseline/i);
+    assert.equal(ran, false, "must not spawn when it cannot anchor a baseline");
+  });
+
+  it("disarmed skip carries no baseline (gate runs before any git)", async () => {
+    const r = await runClaudeTask("apply fix", { CLAUDE_CODE_OAUTH_TOKEN: "t" }, async () => ({ ok: true, text: "x" }));
+    assert.equal(r.ok, false);
+    assert.equal(r.baselineSha ?? null, null);
   });
 });
