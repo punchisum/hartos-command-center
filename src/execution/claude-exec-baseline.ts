@@ -38,6 +38,10 @@ export const realGitProbe: GitProbe = {
     const r = runGit(["status", "--porcelain"], cwd);
     if (!r.ok) return [];
     // porcelain v1: 2-char status + space + path; strip the 3-char prefix.
+    // LIMITATION (intentional for W3): this does NOT decode renames ("R  old -> new" is
+    // recorded as one literal entry) or git's quoting of paths with special chars. That is
+    // adequate for W3's audit LABEL of edit/write-only runs. P6's rollback keys real actions
+    // off these paths, so it must switch to `git status --porcelain -z` (NUL-delimited) first.
     return r.stdout
       .split("\n")
       .map((l) => l.slice(3).trim())
