@@ -23,3 +23,55 @@ test("fail-closed: paths outside the source tree are denied", () => {
   assert.equal(isInSelfModScope("../../etc/passwd").allowed, false);
   assert.equal(isInSelfModScope("node_modules/evil/index.js").allowed, false);
 });
+
+// SELF-PROTECTION: self-mod must never edit the machinery that fences, executes, or audits it —
+// otherwise a single self-mod could weaken its own restraints and the SAME run would clear itself.
+test("self-mod may NOT edit the doctrine (its own fence)", () => {
+  assert.equal(isInSelfModScope("src/doctrine/doctrine.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/doctrine/execution-gate.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/doctrine/amendment-gate.ts").allowed, false);
+});
+
+test("self-mod may NOT edit the self-mod guards/verifiers themselves", () => {
+  assert.equal(isInSelfModScope("src/execution/self-mod-scope-guard.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/self-mod-post-verify.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/self-mod-pre-verify.ts").allowed, false);
+});
+
+test("self-mod may NOT edit the W3 hand/baseline its run + rollback depend on", () => {
+  assert.equal(isInSelfModScope("src/execution/claude-exec-baseline.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/claude-exec-tool-scope.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/claude-task-executor.ts").allowed, false);
+});
+
+test("self-mod may NOT edit the secret detector its post-verify relies on", () => {
+  assert.equal(isInSelfModScope("src/llm/redaction.ts").allowed, false);
+});
+
+test("self-mod may NOT edit the dispatch/verify/audit spine that executes + audits it", () => {
+  assert.equal(isInSelfModScope("src/execution/execution-verification.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/execution-verification-audit.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/execution-adapter.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/execution-dispatch.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/approved-executor.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/rollback-executor.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/audit-tail.ts").allowed, false);
+});
+
+// Case-fold regression: a case-insensitive FS (Windows daemon) aliases these to the real
+// guardrails, and `git status` reports an untracked path's verbatim casing — they MUST deny.
+test("self-mod denial is case-folded (no case-variant bypass)", () => {
+  assert.equal(isInSelfModScope("src/Doctrine/doctrine.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/DOCTRINE/doctrine.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/llm/REDACTION.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/Claude-Task-Executor.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/Self-Mod-Scope-Guard.ts").allowed, false);
+  assert.equal(isInSelfModScope("SRC/DOCTRINE/EXECUTION-GATE.TS").allowed, false);
+});
+
+test("self-mod MAY still edit non-protected runtime logic (no over-deny)", () => {
+  // Only redaction.ts is protected inside src/llm — the rest of the dir is fair game.
+  assert.equal(isInSelfModScope("src/llm/ask-llm.ts").allowed, true);
+  assert.equal(isInSelfModScope("src/cockpit/cockpit.ts").allowed, true);
+  assert.equal(isInSelfModScope("src/sentinel/sentinel-liveness.ts").allowed, true);
+});
