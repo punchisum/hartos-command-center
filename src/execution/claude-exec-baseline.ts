@@ -35,19 +35,37 @@ export const realGitProbe: GitProbe = {
     return r.stdout;
   },
   dirtyPaths(cwd: string): string[] {
-    const r = runGit(["status", "--porcelain"], cwd);
+    // -z: NUL-delimited, so paths with spaces/unicode are NOT C-quoted, and a rename/copy emits
+    // both the new path and (as the next NUL field) the original. This is what makes the set
+    // rename-/special-char-safe for P6's rollback, which keys real file actions off these paths.
+    const r = runGit(["status", "--porcelain", "-z"], cwd);
     if (!r.ok) return [];
-    // porcelain v1: 2-char status + space + path; strip the 3-char prefix.
-    // LIMITATION (intentional for W3): this does NOT decode renames ("R  old -> new" is
-    // recorded as one literal entry) or git's quoting of paths with special chars. That is
-    // adequate for W3's audit LABEL of edit/write-only runs. P6's rollback keys real actions
-    // off these paths, so it must switch to `git status --porcelain -z` (NUL-delimited) first.
-    return r.stdout
-      .split("\n")
-      .map((l) => l.slice(3).trim())
-      .filter((p) => p.length > 0);
+    return parsePorcelainZ(r.stdout);
   },
 };
+
+/**
+ * Parse `git status --porcelain -z` output into the set of affected paths. Each record is
+ * `XY␠PATH` NUL-terminated; a rename/copy (index status R or C) appends the ORIGINAL path as the
+ * next NUL field — both the new and the original path are emitted so a run-rename is fully
+ * attributable AND reversible (restore the original, remove the new). Pure + exported for testing.
+ */
+export function parsePorcelainZ(stdout: string): string[] {
+  const tokens = stdout.split("\0").filter((t) => t.length > 0);
+  const paths: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const entry = tokens[i];
+    const status = entry[0];
+    const path = entry.slice(3); // "XY " prefix (2 status chars + space)
+    if (path) paths.push(path);
+    if (status === "R" || status === "C") {
+      i += 1; // the next NUL field is the bare original path
+      const orig = tokens[i];
+      if (orig) paths.push(orig);
+    }
+  }
+  return paths;
+}
 
 /** Capture the baseline before an execution run. Throws if HEAD can't be read (unauditable cwd). */
 export function captureBaseline(cwd: string, git: GitProbe = realGitProbe): ExecBaseline {

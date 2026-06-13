@@ -33,8 +33,8 @@ describe("rollbackSelfMod", () => {
     const { git, calls } = fakeGit(["src/existing.ts"]);
     const r = rollbackSelfMod("/repo", BASE, ["src/existing.ts", "src/new.ts"], git);
     assert.equal(r.ok, true);
-    assert.deepEqual(r.restored, ["src/existing.ts"]);
-    assert.deepEqual(r.removed, ["src/new.ts"]);
+    assert.deepEqual(r.attemptedRestore, ["src/existing.ts"]);
+    assert.deepEqual(r.attemptedRemove, ["src/new.ts"]);
     assert.deepEqual(calls.restore, ["src/existing.ts"]);
     assert.deepEqual(calls.remove, ["src/new.ts"]);
     assert.deepEqual(r.errors, []);
@@ -43,8 +43,8 @@ describe("rollbackSelfMod", () => {
   it("all files existed at baseline → only restores", () => {
     const { git, calls } = fakeGit(["a.ts", "b.ts"]);
     const r = rollbackSelfMod("/repo", BASE, ["a.ts", "b.ts"], git);
-    assert.deepEqual(r.restored, ["a.ts", "b.ts"]);
-    assert.deepEqual(r.removed, []);
+    assert.deepEqual(r.attemptedRestore, ["a.ts", "b.ts"]);
+    assert.deepEqual(r.attemptedRemove, []);
     assert.deepEqual(calls.remove, []);
     assert.equal(r.ok, true);
   });
@@ -52,8 +52,8 @@ describe("rollbackSelfMod", () => {
   it("all files new → only removes", () => {
     const { git, calls } = fakeGit([]);
     const r = rollbackSelfMod("/repo", BASE, ["x.ts", "y.ts"], git);
-    assert.deepEqual(r.removed, ["x.ts", "y.ts"]);
-    assert.deepEqual(r.restored, []);
+    assert.deepEqual(r.attemptedRemove, ["x.ts", "y.ts"]);
+    assert.deepEqual(r.attemptedRestore, []);
     assert.deepEqual(calls.restore, []);
     assert.equal(r.ok, true);
   });
@@ -81,5 +81,25 @@ describe("rollbackSelfMod", () => {
     assert.ok(r.errors.some((e) => /existedAtBaseline failed/.test(e)));
     assert.deepEqual(calls.restore, []);
     assert.deepEqual(calls.remove, []);
+  });
+
+  // A run-rename arrives (via the -z parser) as BOTH paths: the new (created) + the old (deleted).
+  // Rollback must restore the old and remove the new — the existing partition handles it correctly.
+  it("reverts a rename: restores the original, removes the new", () => {
+    const { git, calls } = fakeGit(["src/old.ts"]); // only the original existed at baseline
+    const r = rollbackSelfMod("/repo", BASE, ["src/new.ts", "src/old.ts"], git);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.attemptedRestore, ["src/old.ts"]);
+    assert.deepEqual(r.attemptedRemove, ["src/new.ts"]);
+    assert.deepEqual(calls.restore, ["src/old.ts"]);
+    assert.deepEqual(calls.remove, ["src/new.ts"]);
+  });
+
+  it("handles paths with spaces literally (no quoting/splitting)", () => {
+    const { git, calls } = fakeGit(["src/weird file.ts"]);
+    const r = rollbackSelfMod("/repo", BASE, ["src/weird file.ts", "src/new file.ts"], git);
+    assert.equal(r.ok, true);
+    assert.deepEqual(calls.restore, ["src/weird file.ts"]);
+    assert.deepEqual(calls.remove, ["src/new file.ts"]);
   });
 });

@@ -22,8 +22,10 @@ export interface SelfModRollbackGit {
 
 export interface RollbackResult {
   ok: boolean;
-  restored: string[];
-  removed: string[];
+  /** Paths we ATTEMPTED to restore (intent, not a per-file success guarantee — see ok/errors). */
+  attemptedRestore: string[];
+  /** Paths we ATTEMPTED to remove. */
+  attemptedRemove: string[];
   errors: string[];
 }
 
@@ -42,8 +44,10 @@ export const realSelfModRollbackGit: SelfModRollbackGit = {
   },
   restoreToBaseline(cwd, baselineSha, paths) {
     if (paths.length === 0) return;
-    const r = runGit(["checkout", baselineSha, "--", ...paths], cwd);
-    if (!r.ok) throw new Error(`git checkout failed: ${r.stderr}`);
+    // `git restore --staged --worktree` restores BOTH the index and the working tree to the baseline,
+    // leaving a genuinely CLEAN tree (plain `git checkout <sha> -- path` would leave the file STAGED).
+    const r = runGit(["restore", "--source", baselineSha, "--staged", "--worktree", "--", ...paths], cwd);
+    if (!r.ok) throw new Error(`git restore failed: ${r.stderr}`);
   },
   removeFiles(cwd, paths) {
     if (paths.length === 0) return;
@@ -65,7 +69,7 @@ export function rollbackSelfMod(
   try {
     existed = git.existedAtBaseline(cwd, baseline.headSha, changedFiles);
   } catch (e) {
-    return { ok: false, restored: [], removed: [], errors: [`existedAtBaseline failed: ${msg(e)}`] };
+    return { ok: false, attemptedRestore: [], attemptedRemove: [], errors: [`existedAtBaseline failed: ${msg(e)}`] };
   }
 
   const existedSet = new Set(existed);
@@ -84,5 +88,5 @@ export function rollbackSelfMod(
     errors.push(`remove failed: ${msg(e)}`);
   }
 
-  return { ok: errors.length === 0, restored: toRestore, removed: toRemove, errors };
+  return { ok: errors.length === 0, attemptedRestore: toRestore, attemptedRemove: toRemove, errors };
 }

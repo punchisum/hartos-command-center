@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import {
   captureBaseline,
   changedByRun,
+  parsePorcelainZ,
   type GitProbe,
   type ExecBaseline,
 } from "../src/execution/claude-exec-baseline.js";
@@ -44,5 +45,29 @@ describe("changedByRun", () => {
     const git = fakeGit("abc123", [["src/x.ts"], ["src/x.ts"]]);
     const base = captureBaseline("/repo", git);
     assert.deepEqual(changedByRun("/repo", base, git), []);
+  });
+});
+
+describe("parsePorcelainZ", () => {
+  const NUL = "\0";
+
+  it("parses normal modified + untracked entries", () => {
+    const out = ` M src/a.ts${NUL}?? src/b.ts${NUL}`;
+    assert.deepEqual(parsePorcelainZ(out), ["src/a.ts", "src/b.ts"]);
+  });
+
+  it("keeps spaced/unicode paths literal (no C-quoting under -z)", () => {
+    const out = `?? src/weird file.ts${NUL} M src/café.ts${NUL}`;
+    assert.deepEqual(parsePorcelainZ(out), ["src/weird file.ts", "src/café.ts"]);
+  });
+
+  it("emits BOTH the new and original path for a rename", () => {
+    // -z rename: "R  <new>" then a bare NUL field "<old>".
+    const out = `R  src/new.ts${NUL}src/old.ts${NUL} M src/other.ts${NUL}`;
+    assert.deepEqual(parsePorcelainZ(out), ["src/new.ts", "src/old.ts", "src/other.ts"]);
+  });
+
+  it("empty output → []", () => {
+    assert.deepEqual(parsePorcelainZ(""), []);
   });
 });
