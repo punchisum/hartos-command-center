@@ -16,6 +16,7 @@
 
 import { ACTION_EXECUTION, MUTATION_ENDPOINTS } from "../runtime/cloudflare-security.js";
 import { executeProposal, executionAllowed, ActionExecutionDisabledError, type GateEnv } from "../cockpit/proposals/gates.js";
+import { isSelfModArmed } from "./amendment-gate.js";
 
 export { ACTION_EXECUTION, MUTATION_ENDPOINTS } from "../runtime/cloudflare-security.js";
 export { executeProposal, executionAllowed, ActionExecutionDisabledError } from "../cockpit/proposals/gates.js";
@@ -48,8 +49,8 @@ export const DOCTRINE: DoctrineClause[] = [
   {
     id: "human-approval",
     title: "Human approval floor",
-    rule: "Nothing executes without Hart's explicit, per-action approval.",
-    enforcedBy: "the approval spine (Phase 2.2 lifecycle) + the fail-closed precondition (Phase 2.5)",
+    rule: "Nothing executes without Hart's explicit, per-action approval — EXCEPT the Amendment §6 auto-apply self-mod classes (fix, recalibrate), which are pre-authorized by the ratified amendment + class flag, bounded by the self-mod gauntlet, and notify-after.",
+    enforcedBy: "the approval spine (Phase 2.2 lifecycle) + the fail-closed precondition (Phase 2.5); the §6 carve-out is gated by amendment-gate isSelfModArmed",
   },
   {
     id: "no-secret-exposure",
@@ -84,8 +85,14 @@ export const DOCTRINE: DoctrineClause[] = [
   {
     id: "fail-closed",
     title: "Fail-closed",
-    rule: "When in doubt, deny. Execution is disabled by default; only one allowlisted, approved, audited action may ever run.",
-    enforcedBy: "ACTION_EXECUTION='disabled' + executionAllowed() hard-capped false + the Phase 2.5 precondition gate",
+    rule: "When in doubt, deny. Execution is disabled by default; only allowlisted, approved (or Amendment §6-authorized), audited, reversible actions ever run. The kill-switch disables every autonomous path.",
+    enforcedBy: "ACTION_EXECUTION='disabled' + executionAllowed() hard-capped false + the Phase 2.5 precondition gate; self-mod gated fail-closed by amendment-gate isSelfModArmed",
+  },
+  {
+    id: "self-modification",
+    title: "Bounded autonomous self-modification (Amendment §6)",
+    rule: "HartOS may modify its own src/ runtime only under a permanent gauntlet: armed by the ratified Amendment §6 + class flag + kill-switch off; clean baseline; in-scope only (never its own guardrails); full suite green; no secret; reversible. Fix/recalibrate auto-apply within a size cap; extend is propose-only; a failed post-deploy auto-reverts and disarms; the kill-switch dominates.",
+    enforcedBy: "amendment-gate isSelfModArmed (fail-closed AND of three) + self-mod-scope-guard + pre/post-verify + self-mod-rollback + the executeSelfMod gauntlet (post-deploy revert wired in integration)",
   },
 ];
 
@@ -123,6 +130,15 @@ export function checkDoctrineInvariants(): DoctrineViolation[] {
   }
   if (!failedClosed) {
     v.push({ clause: "propose-before-execute", detail: "executeProposal() did not fail closed with ActionExecutionDisabledError" });
+  }
+
+  // Amendment §6: self-mod must be fail-closed — disarmed unless the full AND of three holds, and the
+  // kill-switch must always dominate. A regression to the amendment-gate fails the build here.
+  if (isSelfModArmed({ amendmentApproved: false, classFlagArmed: false, killSwitchOn: false })) {
+    v.push({ clause: "self-modification", detail: "self-mod armed with no conditions set — must be fail-closed by default" });
+  }
+  if (isSelfModArmed({ amendmentApproved: true, classFlagArmed: true, killSwitchOn: true })) {
+    v.push({ clause: "self-modification", detail: "self-mod armed with the kill-switch ON — the kill-switch must dominate" });
   }
 
   return v;
