@@ -23,7 +23,7 @@
 import { spawn } from "node:child_process";
 import { gateAgentBuild } from "./agent-build-gate.js";
 import { assertCodeEditScope } from "./claude-exec-tool-scope.js";
-import { captureBaseline, changedByRun, realGitProbe, type GitProbe } from "./claude-exec-baseline.js";
+import { captureBaseline, changedByRun, realGitProbe, type GitProbe, type ExecBaseline } from "./claude-exec-baseline.js";
 
 export const CLAUDE_EXECUTE_ARM_ENV = "HARTOS_ALLOW_CLAUDE_EXECUTE";
 export const KILL_SWITCH_ENV = "HARTOS_EXECUTION_KILL_SWITCH";
@@ -131,7 +131,7 @@ export async function runClaudeTask(
 
   // W3: anchor the run to a git baseline. An unauditable run (no git) must NOT proceed.
   const cwd = process.cwd();
-  let baseline;
+  let baseline: ExecBaseline;
   try {
     baseline = captureBaseline(cwd, git);
   } catch (e) {

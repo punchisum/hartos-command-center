@@ -16,6 +16,9 @@ import { type GitProbe } from "../src/execution/claude-exec-baseline.js";
 
 const ARMED = { [CLAUDE_EXECUTE_ARM_ENV]: "true", CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-test" };
 
+/** A hermetic git probe so executor tests don't depend on the real working tree. */
+const NOOP_GIT: GitProbe = { headSha: () => "test-head-sha", dirtyPaths: () => [] };
+
 describe("claudeExecuteArmed", () => {
   it("disarmed by default (no flag)", () => {
     const g = claudeExecuteArmed({ CLAUDE_CODE_OAUTH_TOKEN: "t" });
@@ -59,14 +62,14 @@ describe("runClaudeTask", () => {
       assert.match(prompt, /add a null check/);
       return { ok: true, text: "Edited src/foo.ts to add the guard." };
     };
-    const r = await runClaudeTask("add a null check to foo", ARMED, runner);
+    const r = await runClaudeTask("add a null check to foo", ARMED, runner, NOOP_GIT);
     assert.equal(r.ok, true);
     assert.match(r.detail, /claude applied/);
     assert.match(r.detail, /Edited src\/foo\.ts/);
   });
 
   it("armed + runner failure ⇒ not ok (honest)", async () => {
-    const r = await runClaudeTask("do thing", ARMED, async () => ({ ok: false, text: "model error" }));
+    const r = await runClaudeTask("do thing", ARMED, async () => ({ ok: false, text: "model error" }), NOOP_GIT);
     assert.equal(r.ok, false);
     assert.match(r.detail, /failed: model error/);
   });
@@ -81,7 +84,7 @@ describe("runClaudeTask", () => {
   });
 
   it("never throws — a throwing runner is caught", async () => {
-    const r = await runClaudeTask("do thing", ARMED, async () => { throw new Error("boom"); });
+    const r = await runClaudeTask("do thing", ARMED, async () => { throw new Error("boom"); }, NOOP_GIT);
     assert.equal(r.ok, false);
     assert.match(r.detail, /threw: boom/);
   });
