@@ -110,4 +110,33 @@ describe("executeSelfMod", () => {
     assert.equal(r.outcome, "rollback-failed");
     assert.ok(r.errors.some((e) => /restore failed/.test(e)));
   });
+
+  // A port THROWING (rejecting subprocess hand, failing git diff, un-spawnable test runner) must NOT
+  // leave a dirty tree un-rolled-back or escape as an exception — it must roll back + return a verdict.
+  it("hand REJECTS → recomputes the changed set, rolls back, never escapes", async () => {
+    const { ports, calls } = makePorts({ changed: ["src/partial.ts"] });
+    ports.runHand = async () => { throw new Error("subprocess died"); };
+    const r = await executeSelfMod(ports);
+    assert.equal(r.outcome, "rolled-back");
+    assert.match(r.reason, /port threw/);
+    assert.ok(calls.includes("rollback"), "must roll back partial edits");
+    assert.deepEqual(r.changedFiles, ["src/partial.ts"], "recomputes the changed set to know what to revert");
+  });
+
+  it("runTests THROWS → rolls back, never escapes as an exception", async () => {
+    const { ports, calls } = makePorts();
+    ports.runTests = () => { throw new Error("ENOENT: npm not found"); };
+    const r = await executeSelfMod(ports);
+    assert.equal(r.outcome, "rolled-back");
+    assert.match(r.reason, /port threw/);
+    assert.ok(calls.includes("rollback"));
+  });
+
+  it("a THROWING rollback port → rollback-failed (still no escape)", async () => {
+    const { ports } = makePorts({ tests: { ok: false, detail: "x" } });
+    ports.rollback = () => { throw new Error("git restore exploded"); };
+    const r = await executeSelfMod(ports);
+    assert.equal(r.outcome, "rollback-failed");
+    assert.ok(r.errors.some((e) => /rollback threw/.test(e)));
+  });
 });

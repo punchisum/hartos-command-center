@@ -43,12 +43,28 @@ export interface SelfModRunResult {
   errors: string[];
 }
 
-function afterRollback(
+function msg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * Roll back (best-effort) and build the result. A THROWING rollback port still yields rollback-failed
+ * with the error surfaced — never an escaped exception. The orchestration must not trust any port not
+ * to throw, because a failed self-mod left un-rolled-back is worse than a loud failure.
+ */
+function rollbackAnd(
   stage: "hand" | "verify",
   reason: string,
+  baseline: ExecBaseline,
   changed: string[],
-  rb: RollbackResult,
+  ports: SelfModPorts,
 ): SelfModRunResult {
+  let rb: RollbackResult;
+  try {
+    rb = ports.rollback(baseline, changed);
+  } catch (re) {
+    return { outcome: "rollback-failed", stage, reason, changedFiles: changed, errors: [`rollback threw: ${msg(re)}`] };
+  }
   return {
     outcome: rb.ok ? "rolled-back" : "rollback-failed",
     stage,
@@ -58,36 +74,54 @@ function afterRollback(
   };
 }
 
-/** Run one self-mod through the gauntlet. Disarmed by default ⇒ a skip. Decides on port verdicts only. */
+/** Run one self-mod through the gauntlet. Disarmed by default ⇒ a skip. Once the baseline is taken,
+ *  ANY port throw triggers a best-effort rollback and a verdict — an exception never escapes. */
 export async function executeSelfMod(ports: SelfModPorts): Promise<SelfModRunResult> {
   if (!ports.isArmed()) {
     return { outcome: "skipped", stage: "amendment-gate", reason: "self-mod not armed (amendment / class flag / kill-switch)", changedFiles: [], errors: [] };
   }
 
-  const pre = ports.preVerify();
+  // pre-verify: a dirty/non-git tree (or a throwing probe) refuses BEFORE the tree is ever touched.
+  let pre: PreVerifyResult;
+  try {
+    pre = ports.preVerify();
+  } catch (e) {
+    return { outcome: "skipped", stage: "pre-verify", reason: `pre-verify threw: ${msg(e)}`, changedFiles: [], errors: [] };
+  }
   if (!pre.ok || !pre.baseline) {
     return { outcome: "skipped", stage: "pre-verify", reason: pre.reason, changedFiles: [], errors: [] };
   }
   const baseline = pre.baseline;
 
-  const hand = await ports.runHand();
-  // Authoritative changed set (captures partial edits even if the hand reported failure).
-  const changed = ports.changedFiles(baseline);
+  // From here the working tree may be edited → any throw MUST roll back, never escape.
+  let changed: string[] = [];
+  try {
+    const hand = await ports.runHand();
+    // Authoritative changed set (captures partial edits even if the hand reported failure).
+    changed = ports.changedFiles(baseline);
 
-  if (!hand.ok) {
-    return afterRollback("hand", `hand failed: ${hand.detail}`, changed, ports.rollback(baseline, changed));
+    if (!hand.ok) {
+      return rollbackAnd("hand", `hand failed: ${hand.detail}`, baseline, changed, ports);
+    }
+
+    // Evaluate BOTH gates before deciding, so the reason reports every failure.
+    const tests = ports.runTests();
+    const post = ports.postVerify(changed, ports.diffText(baseline));
+
+    if (tests.ok && post.ok) {
+      return { outcome: "kept", stage: "verified", reason: "self-mod verified (tests pass, in scope, no secret leak)", changedFiles: changed, errors: [] };
+    }
+
+    const reasons: string[] = [];
+    if (!tests.ok) reasons.push(`tests failed: ${tests.detail}`);
+    if (!post.ok) reasons.push(`post-verify: ${post.violations.map((v) => `${v.kind} ${v.detail}`).join("; ")}`);
+    return rollbackAnd("verify", reasons.join(" | "), baseline, changed, ports);
+  } catch (e) {
+    // A port threw after the baseline — the tree may hold partial edits. If we never captured the
+    // changed set, best-effort recompute it so rollback knows what to revert; then roll back + report.
+    if (changed.length === 0) {
+      try { changed = ports.changedFiles(baseline); } catch { /* keep [] — rollback does what it can */ }
+    }
+    return rollbackAnd("verify", `port threw: ${msg(e)}`, baseline, changed, ports);
   }
-
-  // Evaluate BOTH gates before deciding, so the reason reports every failure.
-  const tests = ports.runTests();
-  const post = ports.postVerify(changed, ports.diffText(baseline));
-
-  if (tests.ok && post.ok) {
-    return { outcome: "kept", stage: "verified", reason: "self-mod verified (tests pass, in scope, no secret leak)", changedFiles: changed, errors: [] };
-  }
-
-  const reasons: string[] = [];
-  if (!tests.ok) reasons.push(`tests failed: ${tests.detail}`);
-  if (!post.ok) reasons.push(`post-verify: ${post.violations.map((v) => `${v.kind} ${v.detail}`).join("; ")}`);
-  return afterRollback("verify", reasons.join(" | "), changed, ports.rollback(baseline, changed));
 }
