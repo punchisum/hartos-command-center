@@ -54,6 +54,24 @@ def heart(c, cx, cy, s, color, alpha=1.0):
     c.restoreState()
 
 
+def sparkle(c, cx, cy, s, color, alpha=1.0):
+    """A cute 4-point star."""
+    c.saveState()
+    c.setFillColor(color)
+    if alpha < 1.0:
+        c.setFillAlpha(alpha)
+    i = s * 0.30
+    p = c.beginPath()
+    pts = [(cx, cy + s), (cx + i, cy + i), (cx + s, cy), (cx + i, cy - i),
+           (cx, cy - s), (cx - i, cy - i), (cx - s, cy), (cx - i, cy + i)]
+    p.moveTo(*pts[0])
+    for pt in pts[1:]:
+        p.lineTo(*pt)
+    p.close()
+    c.drawPath(p, fill=1, stroke=0)
+    c.restoreState()
+
+
 def panel(c, x, y, w, h, r, fill, stroke=None, sw=0):
     c.saveState()
     c.setFillColor(fill)
@@ -384,7 +402,58 @@ def page_features(c):
 
 
 # =========================================================================
-#  PAGE 5 — WHY I MADE IT (the heart of it)
+#  PAGE 5 — THE MAGIC PART (it builds itself)
+# =========================================================================
+def page_magic(c):
+    bg(c)
+    scatter_hearts(c, [
+        (540, 120, 13, PINK, 0.6), (60, 130, 12, BLUE, 0.6),
+    ])
+    # sparkles for the "magic" feel
+    sparkle(c, 470, 800, 16, BUTTER, 0.9)
+    sparkle(c, 520, 770, 10, CORAL, 0.8)
+    sparkle(c, 70, 150, 12, SAGE, 0.7)
+    sparkle(c, 500, 250, 11, PINK, 0.7)
+
+    c.setFillColor(INK)
+    c.setFont(SANS_B, 30)
+    c.drawString(64, 760, "the magic part")
+    sparkle(c, 392, 772, 14, CORAL, 1.0)
+
+    panel(c, 56, 232, W - 112, 488, 26, WHITE, stroke=BLUE, sw=1.2)
+
+    y = 678
+    paras = [
+        ("Here's the part I'm honestly proudest of.", SERIF_B, 16.5, 24),
+        ("Most apps just sit there and wait to be told what to do. "
+         "HartOS can build, improve, and even fix itself.", SERIF, 15, 22),
+        ("When it's missing a skill, it doesn't get stuck — it can go "
+         "and learn that skill, or build the new piece on its own. It "
+         "genuinely grows, and it can pick up almost any new ability "
+         "it needs.", SERIF, 15, 22),
+        ("That's what lets me make real, production-grade things — "
+         "actual products that people can rely on, not just little "
+         "experiments that fall apart.", SERIF, 15, 22),
+        ("And it gives me a real head start. I can take almost any "
+         "idea and turn it into a real business — quickly — while the "
+         "system quietly upgrades itself to do whatever that new "
+         "dream needs.", SERIF, 15, 22),
+        ("It's like having a little workshop that keeps inventing new "
+         "tools for itself, just because I imagined something new.",
+         SERIF_IT, 15.5, 23),
+    ]
+    for t, font, size, lead in paras:
+        col = BLUE if font == SERIF_IT else INK
+        if font == SERIF_IT:
+            col = INK_SOFT
+        y = wrap(c, t, 88, y, W - 176, font, size, lead, col)
+        y -= 13
+
+    c.showPage()
+
+
+# =========================================================================
+#  PAGE 6 — WHY I MADE IT (the heart of it)
 # =========================================================================
 def page_why(c):
     bg(c, CREAM2)
@@ -473,6 +542,7 @@ def build(path):
     page_intro(c)
     page_what(c)
     page_features(c)
+    page_magic(c)
     page_why(c)
     page_closing(c)
     c.save()
