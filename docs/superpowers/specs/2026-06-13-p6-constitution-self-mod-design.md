@@ -49,14 +49,19 @@ After an auto-deploy: run the post-deploy check (smoke test + health + deployed-
 
 A post-deploy failure disarms self-mod (Hart re-arms). A rate cap (proposed: **≤ 1 auto-deploy / hour**) prevents a misfiring loop from spamming prod.
 
-## 4. Constitutional structure in code (strictly additive)
+## 4. Constitutional structure in code
 
-- **Keep the existing fence intact.** `ACTION_EXECUTION`, `executeProposal`, `executionAllowed` invariants are **unchanged** — path (a) stays disabled forever.
+This **amends the doctrine** — it is not merely additive. The substance is a genuine change to a foundational governance rule; only the *code structure* (the Worker fence) stays untouched.
+
+- **AMEND the `human-approval` clause** (`doctrine.ts` `DOCTRINE` array). Today it reads *"Nothing executes without Hart's explicit, per-action approval."* This is the rule the amendment changes. New form: *"Nothing executes without Hart's approval, EXCEPT the amendment-authorized auto-apply self-mod classes (fix, recalibrate) — pre-authorized by the ratified §6 + class flag, bounded by the gauntlet, and notify-after."* This carve-out IS the constitutional amendment.
+- **AMEND the `fail-closed` clause** prose to acknowledge the second, separately-gated execution path (self-mod on the host) so the doctrine doc reflects reality (the underlying path-(a) enforcement is unchanged).
+- **ADD a new `self-modification` clause** to the `DOCTRINE` array (the full §3 rules + their `enforcedBy`).
+- **Keep the path-(a) fence intact.** `ACTION_EXECUTION`, `executeProposal`, `executionAllowed` invariants are **unchanged** — the public Worker stays execution-disabled forever. Self-mod rides path (b).
 - **`docs/CONSTITUTION.md`** (new) — the written §6 Hart formally ratifies; the human-readable governance text (the substance of §3).
-- **`src/doctrine/doctrine.ts`** — add a new `self-modification` clause to the `DOCTRINE` array (documents the carved exception + its `enforcedBy`), and extend `checkDoctrineInvariants()` with a **new assertion: self-mod is fail-closed by default** (`isSelfModArmed` returns false unless the three arming conditions hold).
-- **`tests/doctrine-conformance.test.ts`** — amended *in the same PR* to assert the new fail-closed default, so CI fails the build if self-mod ever becomes armed-by-accident.
+- **Extend `checkDoctrineInvariants()`** with a **new assertion: self-mod is fail-closed by default** (`isSelfModArmed` returns false unless the three arming conditions hold).
+- **`tests/doctrine-conformance.test.ts`** — amended *in the same PR* to assert the new fail-closed default + that the path-(a) invariants still hold, so CI fails the build if self-mod ever becomes armed-by-accident OR the Worker fence is ever weakened.
 
-Rejected alternative: rewriting the central `executionAllowed` invariant into a conditional — more dangerous (touches the fence protecting *all* execution). The parallel-path structure above is strictly additive.
+Rejected alternative: rewriting the central `executionAllowed` invariant into a conditional — more dangerous (touches the fence protecting *all* execution). Self-mod rides path (b) instead, so path (a) needs no change.
 
 ## 5. The operational gauntlet (every attempt)
 
@@ -76,8 +81,9 @@ Rejected alternative: rewriting the central `executionAllowed` invariant into a 
 
 **The constitution is drafted now, but ratified + armed only AFTER the enforcing machinery exists and is tested.** You do not grant auto-deploy before the cap / post-deploy-net / tiering are implemented. The conformance test keeps self-mod disarmed-by-default until deliberate arming.
 
-- **This amendment PR contains only governance:** `CONSTITUTION.md` §6 + the `doctrine.ts` self-mod clause + the conformance assertion (fail-closed default). It changes no behavior and arms nothing.
-- **Authorized by the constitution, deferred to integration (6.8–6.19):** the Tier-1 auto-deploy pipeline, post-deploy verify+revert, the size/tier classifier, the circuit breaker + rate cap, the decision-engine self-mod intents, the `"self-mod"` ProposalDomain, the Wolverine self-mod-drift detector, the cockpit amendment/proposal panel, live-runner routing.
+- **The amendment PR amends the doctrine *contract*** — `CONSTITUTION.md` §6 + the amended `human-approval`/`fail-closed` clauses + the new `self-modification` clause + the conformance assertions. This is a real governance change, but it changes **no runtime behavior** and **arms nothing** (the auto-deploy capability it authorizes does not exist until the integration is built; the conformance test pins disarmed-by-default).
+- **Authorized by the constitution, deferred to integration (6.8–6.19) — the bulk of the build:** the Tier-1 auto-deploy pipeline, post-deploy verify+revert, the size/tier classifier, the circuit breaker + rate cap, the decision-engine self-mod intents, the `"self-mod"` ProposalDomain, the Wolverine self-mod-drift detector, the cockpit amendment/proposal panel, live-runner routing. Each is its own reviewed increment (the small-PR pattern P6 has used throughout).
+- **Build order:** the doctrine amendment can land **early** (it only *adds checks* and asserts disarmed) → integration machinery built disarmed in increments → Hart ratifies §6 + arms last.
 - **Arming sequence (all Hart's hands):** build + test the machinery (disarmed) → Hart **ratifies §6** (formal written approval) → Hart flips `HARTOS_SELFMOD_AMENDMENT_APPROVED` + `HARTOS_ALLOW_SELF_MOD` → self-mod live, kill-switch ready.
 
 ## 7. Safety invariants (must always hold)
