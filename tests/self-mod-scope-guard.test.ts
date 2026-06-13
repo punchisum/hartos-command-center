@@ -48,8 +48,30 @@ test("self-mod may NOT edit the secret detector its post-verify relies on", () =
   assert.equal(isInSelfModScope("src/llm/redaction.ts").allowed, false);
 });
 
+test("self-mod may NOT edit the dispatch/verify/audit spine that executes + audits it", () => {
+  assert.equal(isInSelfModScope("src/execution/execution-verification.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/execution-verification-audit.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/execution-adapter.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/execution-dispatch.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/approved-executor.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/rollback-executor.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/audit-tail.ts").allowed, false);
+});
+
+// Case-fold regression: a case-insensitive FS (Windows daemon) aliases these to the real
+// guardrails, and `git status` reports an untracked path's verbatim casing — they MUST deny.
+test("self-mod denial is case-folded (no case-variant bypass)", () => {
+  assert.equal(isInSelfModScope("src/Doctrine/doctrine.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/DOCTRINE/doctrine.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/llm/REDACTION.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/Claude-Task-Executor.ts").allowed, false);
+  assert.equal(isInSelfModScope("src/execution/Self-Mod-Scope-Guard.ts").allowed, false);
+  assert.equal(isInSelfModScope("SRC/DOCTRINE/EXECUTION-GATE.TS").allowed, false);
+});
+
 test("self-mod MAY still edit non-protected runtime logic (no over-deny)", () => {
   // Only redaction.ts is protected inside src/llm — the rest of the dir is fair game.
   assert.equal(isInSelfModScope("src/llm/ask-llm.ts").allowed, true);
   assert.equal(isInSelfModScope("src/cockpit/cockpit.ts").allowed, true);
+  assert.equal(isInSelfModScope("src/sentinel/sentinel-liveness.ts").allowed, true);
 });
