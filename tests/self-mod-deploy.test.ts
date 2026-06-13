@@ -14,6 +14,7 @@ interface Over {
   verify?: { ok: boolean; detail: string };
   revert?: { ok: boolean; detail: string };
   throwOn?: "commitPush" | "deploy" | "verify" | "revert";
+  throwOnDisarm?: boolean;
 }
 
 function makePorts(over: Over = {}) {
@@ -24,7 +25,7 @@ function makePorts(over: Over = {}) {
     deploy: () => { calls.push("deploy"); if (over.throwOn === "deploy") throw new Error("deploy boom"); return over.deploy ?? { ok: true, detail: "" }; },
     verify: () => { calls.push("verify"); if (over.throwOn === "verify") throw new Error("verify boom"); return over.verify ?? { ok: true, detail: "" }; },
     revert: () => { calls.push("revert"); if (over.throwOn === "revert") throw new Error("revert boom"); return over.revert ?? { ok: true, detail: "" }; },
-    disarm: (reason: string) => { calls.push("disarm"); notes.push("disarm:" + reason); },
+    disarm: (reason: string) => { calls.push("disarm"); if (over.throwOnDisarm) throw new Error("disarm marker write failed"); notes.push("disarm:" + reason); },
     notify: (m: string) => { calls.push("notify"); notes.push(m); },
   };
   return { ports, calls, notes };
@@ -89,5 +90,15 @@ describe("deployAndVerifySelfMod", () => {
     assert.equal(r.outcome, "deploy-failed");
     assert.ok(calls.includes("disarm"));
     assert.ok(!calls.includes("revert"));
+  });
+
+  it("a thrown DISARM (failed circuit breaker) is surfaced loudly, not swallowed", () => {
+    // verify fails → revert ok, but the disarm marker write throws. A breaker that didn't trip is
+    // as dangerous as a failed revert → manual-recovery outcome + alert + error.
+    const { ports, notes } = makePorts({ verify: { ok: false, detail: "smoke failed" }, throwOnDisarm: true });
+    const r = deployAndVerifySelfMod(LAST_GOOD, ports);
+    assert.equal(r.outcome, "revert-failed", "a failed disarm escalates to the manual-recovery outcome");
+    assert.ok(r.errors.some((e) => /disarm failed/i.test(e)), "the disarm failure is in errors");
+    assert.ok(notes.some((n) => /manual recovery|DISARM FAILED/i.test(n)), "must loudly alert");
   });
 });

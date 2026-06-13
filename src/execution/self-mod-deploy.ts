@@ -37,14 +37,27 @@ function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Disarm + alert (best-effort, never throws). Used when nothing was pushed — no revert needed. */
-function abortNoRevert(reason: string, ports: DeployPorts): DeployResult {
-  try { ports.disarm(reason); } catch { /* best-effort */ }
-  try { ports.notify(`self-mod aborted (nothing deployed) + DISARMED: ${reason}`); } catch { /* best-effort */ }
-  return { outcome: "deploy-failed", reason, errors: [reason] };
+/** Disarm best-effort. Returns the failure detail if it THREW — a circuit breaker that didn't trip
+ *  is as dangerous as a failed revert, so the caller surfaces it loudly rather than swallowing it. */
+function safeDisarm(reason: string, ports: DeployPorts): string | null {
+  try { ports.disarm(reason); return null; } catch (e) { return msg(e); }
 }
 
-/** Revert to last-good + disarm + alert (best-effort). A failed revert is flagged for manual recovery. */
+/** Disarm + alert (best-effort, never throws). Used when nothing was pushed — no revert needed. */
+function abortNoRevert(reason: string, ports: DeployPorts): DeployResult {
+  const disarmErr = safeDisarm(reason, ports);
+  const errors = [reason];
+  if (disarmErr) {
+    errors.push(`disarm failed: ${disarmErr}`);
+    try { ports.notify(`⚠️ self-mod aborted (nothing deployed) but DISARM FAILED — manual recovery needed. ${reason} | disarm: ${disarmErr}`); } catch { /* best-effort */ }
+  } else {
+    try { ports.notify(`self-mod aborted (nothing deployed) + DISARMED: ${reason}`); } catch { /* best-effort */ }
+  }
+  return { outcome: "deploy-failed", reason, errors };
+}
+
+/** Revert to last-good + disarm + alert (best-effort). A failed revert OR a failed disarm is flagged
+ *  loudly for manual recovery — outcome "revert-failed" means the automatic safety net did not fully complete. */
 function revertAndDisarm(lastGoodSha: string, reason: string, ports: DeployPorts): DeployResult {
   let rev: { ok: boolean; detail: string };
   try {
@@ -52,13 +65,19 @@ function revertAndDisarm(lastGoodSha: string, reason: string, ports: DeployPorts
   } catch (e) {
     rev = { ok: false, detail: msg(e) };
   }
-  try { ports.disarm(reason); } catch { /* best-effort */ }
-  if (!rev.ok) {
-    try { ports.notify(`⚠️ self-mod FAILED + REVERT FAILED — manual recovery needed. ${reason} | revert: ${rev.detail}`); } catch { /* best-effort */ }
-    return { outcome: "revert-failed", reason, errors: [reason, `revert failed: ${rev.detail}`] };
+  const disarmErr = safeDisarm(reason, ports);
+  const errors = [reason];
+  if (!rev.ok) errors.push(`revert failed: ${rev.detail}`);
+  if (disarmErr) errors.push(`disarm failed: ${disarmErr}`);
+  if (!rev.ok || disarmErr) {
+    const bits = [reason];
+    if (!rev.ok) bits.push(`revert: ${rev.detail}`);
+    if (disarmErr) bits.push(`DISARM FAILED: ${disarmErr}`);
+    try { ports.notify(`⚠️ self-mod FAILED — manual recovery needed. ${bits.join(" | ")}`); } catch { /* best-effort */ }
+    return { outcome: "revert-failed", reason, errors };
   }
   try { ports.notify(`self-mod reverted to ${lastGoodSha} + DISARMED: ${reason}`); } catch { /* best-effort */ }
-  return { outcome: "reverted", reason, errors: [reason] };
+  return { outcome: "reverted", reason, errors };
 }
 
 /** Deploy a verified Tier-1 change with an automatic post-deploy revert net. lastGoodSha = the SHA to revert to. */
