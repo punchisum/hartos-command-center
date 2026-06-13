@@ -22,6 +22,8 @@
 
 import { spawn } from "node:child_process";
 import { gateAgentBuild } from "./agent-build-gate.js";
+import { assertCodeEditScope } from "./claude-exec-tool-scope.js";
+import { captureBaseline, changedByRun, realGitProbe, type GitProbe } from "./claude-exec-baseline.js";
 
 export const CLAUDE_EXECUTE_ARM_ENV = "HARTOS_ALLOW_CLAUDE_EXECUTE";
 export const KILL_SWITCH_ENV = "HARTOS_EXECUTION_KILL_SWITCH";
@@ -35,6 +37,10 @@ type Env = Record<string, string | undefined>;
 export interface ClaudeTaskResult {
   ok: boolean;
   detail: string;
+  /** W3 audit: the HEAD sha the run was anchored to (absent when skipped before baseline capture). */
+  baselineSha?: string | null;
+  /** W3 audit: working-tree files attributable to this run (empty array when the run wrote nothing). */
+  filesChanged?: string[];
 }
 
 /** Run headless claude with edit tools; returns success + the model's summary text. Injectable for tests. */
@@ -102,14 +108,13 @@ export async function runClaudeTask(
   task: string,
   env: Env = process.env,
   runner: ClaudeTaskRunner = spawnClaudeTaskRunner,
+  git: GitProbe = realGitProbe,
 ): Promise<ClaudeTaskResult> {
   const gate = claudeExecuteArmed(env);
   if (!gate.armed) return { ok: false, detail: `skipped — ${gate.reason}` };
   if (!task || !task.trim()) return { ok: false, detail: "skipped — empty task" };
 
-  // SPEC-INTERROGATION GATE: HartOS must grill for specs before building an agent. A raw
-  // agent-build (not spec-locked) is refused with the required questions — it must go through the
-  // Factory interrogation first, never a blind scaffold.
+  // SPEC-INTERROGATION GATE: HartOS must grill for specs before building an agent.
   const buildGate = gateAgentBuild(task);
   if (!buildGate.allowed) {
     return {
@@ -118,15 +123,37 @@ export async function runClaudeTask(
     };
   }
 
+  // W3: the tool scope handed to the hand must be code-edit-only — asserted, not assumed.
+  const scope = assertCodeEditScope(EXEC_TOOLS);
+  if (!scope.safe) {
+    return { ok: false, detail: `refused — unsafe tool scope: ${scope.reason}`, baselineSha: null };
+  }
+
+  // W3: anchor the run to a git baseline. An unauditable run (no git) must NOT proceed.
+  const cwd = process.cwd();
+  let baseline;
+  try {
+    baseline = captureBaseline(cwd, git);
+  } catch (e) {
+    return { ok: false, detail: `skipped — cannot capture git baseline: ${e instanceof Error ? e.message : String(e)}`, baselineSha: null };
+  }
+
   const model = env["HARTOS_CLAUDE_EXECUTE_MODEL"]?.trim() || DEFAULT_MODEL;
   const timeoutMs = Number(env["HARTOS_CLAUDE_EXECUTE_TIMEOUT_MS"]) || DEFAULT_TIMEOUT_MS;
   const token = (env["CLAUDE_CODE_OAUTH_TOKEN"] ?? "").trim();
   try {
-    const r = await runner(buildTaskPrompt(task), { model, token, timeoutMs, cwd: process.cwd() });
-    return r.ok
-      ? { ok: true, detail: `claude applied (review the working tree): ${r.text.replace(/\s+/g, " ").slice(0, 280)}` }
-      : { ok: false, detail: `claude execution failed: ${r.text.replace(/\s+/g, " ").slice(0, 200)}` };
+    const r = await runner(buildTaskPrompt(task), { model, token, timeoutMs, cwd });
+    if (!r.ok) {
+      return { ok: false, detail: `claude execution failed: ${r.text.replace(/\s+/g, " ").slice(0, 200)}`, baselineSha: baseline.headSha, filesChanged: [] };
+    }
+    const filesChanged = changedByRun(cwd, baseline, git);
+    return {
+      ok: true,
+      detail: `claude applied (${filesChanged.length} file(s); review the working tree): ${r.text.replace(/\s+/g, " ").slice(0, 240)}`,
+      baselineSha: baseline.headSha,
+      filesChanged,
+    };
   } catch (e) {
-    return { ok: false, detail: `claude execution threw: ${e instanceof Error ? e.message : String(e)}` };
+    return { ok: false, detail: `claude execution threw: ${e instanceof Error ? e.message : String(e)}`, baselineSha: baseline.headSha, filesChanged: [] };
   }
 }
