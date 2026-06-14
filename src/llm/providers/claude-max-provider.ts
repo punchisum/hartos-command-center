@@ -188,8 +188,19 @@ export function buildClaudeMaxProvider(
           throw new Error(`claude-max: spawn returned failure. text=${result.text.slice(0, 100)}`);
         }
         // Parse the model's result text as JSON. The gateway validates the 8-field shape.
+        // Claude often wraps JSON in a ```json fence and/or adds prose; strip the fence and, failing
+        // that, extract the outermost {...} object before parsing. The gateway still validates the shape.
         try {
-          return JSON.parse(result.text);
+          const t = result.text.trim();
+          const fenced = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+          const candidate = fenced ? fenced[1].trim() : t;
+          try {
+            return JSON.parse(candidate);
+          } catch {
+            const obj = candidate.match(/\{[\s\S]*\}/);
+            if (obj) return JSON.parse(obj[0]);
+            throw new Error("no JSON object found");
+          }
         } catch {
           throw new Error("claude-max: result text was not valid JSON.");
         }
