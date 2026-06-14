@@ -32,9 +32,9 @@ function makePorts(over: Over = {}) {
 }
 
 describe("deployAndVerifySelfMod", () => {
-  it("happy path: push → deploy → verify → deployed (no revert/disarm)", () => {
+  it("happy path: push → deploy → verify → deployed (no revert/disarm)", async () => {
     const { ports, calls } = makePorts();
-    const r = deployAndVerifySelfMod(LAST_GOOD, ports);
+    const r = await deployAndVerifySelfMod(LAST_GOOD, ports);
     assert.equal(r.outcome, "deployed");
     assert.equal(r.deployedSha, "new-sha-111");
     assert.ok(!calls.includes("revert"));
@@ -42,61 +42,61 @@ describe("deployAndVerifySelfMod", () => {
     assert.ok(calls.includes("notify"));
   });
 
-  it("commit/push fails → disarm + alert, NO revert (nothing landed)", () => {
+  it("commit/push fails → disarm + alert, NO revert (nothing landed)", async () => {
     const { ports, calls } = makePorts({ commitPush: { ok: false, sha: "", detail: "no changes" } });
-    const r = deployAndVerifySelfMod(LAST_GOOD, ports);
+    const r = await deployAndVerifySelfMod(LAST_GOOD, ports);
     assert.equal(r.outcome, "deploy-failed");
     assert.ok(calls.includes("disarm"));
     assert.ok(!calls.includes("revert"), "nothing landed → no revert");
     assert.ok(!calls.includes("deploy"));
   });
 
-  it("deploy fails → revert + disarm + alert", () => {
+  it("deploy fails → revert + disarm + alert", async () => {
     const { ports, calls } = makePorts({ deploy: { ok: false, detail: "wrangler error" } });
-    const r = deployAndVerifySelfMod(LAST_GOOD, ports);
+    const r = await deployAndVerifySelfMod(LAST_GOOD, ports);
     assert.equal(r.outcome, "reverted");
     assert.ok(calls.includes("revert"));
     assert.ok(calls.includes("disarm"));
   });
 
-  it("post-deploy verify fails → revert + disarm + alert (the core safety net)", () => {
+  it("post-deploy verify fails → revert + disarm + alert (the core safety net)", async () => {
     const { ports, calls, notes } = makePorts({ verify: { ok: false, detail: "smoke failed" } });
-    const r = deployAndVerifySelfMod(LAST_GOOD, ports);
+    const r = await deployAndVerifySelfMod(LAST_GOOD, ports);
     assert.equal(r.outcome, "reverted");
     assert.ok(calls.includes("revert"));
     assert.ok(calls.includes("disarm"));
     assert.ok(notes.some((n) => /DISARMED|reverted/i.test(n)));
   });
 
-  it("verify fails AND revert fails → revert-failed, loud alert, still disarmed", () => {
+  it("verify fails AND revert fails → revert-failed, loud alert, still disarmed", async () => {
     const { ports, calls, notes } = makePorts({ verify: { ok: false, detail: "x" }, revert: { ok: false, detail: "git reset failed" } });
-    const r = deployAndVerifySelfMod(LAST_GOOD, ports);
+    const r = await deployAndVerifySelfMod(LAST_GOOD, ports);
     assert.equal(r.outcome, "revert-failed");
     assert.ok(calls.includes("disarm"), "disarm must still run");
     assert.ok(notes.some((n) => /manual recovery|REVERT FAILED/i.test(n)), "must loudly flag manual recovery");
   });
 
-  it("a port THROWS after push → revert + disarm, never escapes", () => {
+  it("a port THROWS after push → revert + disarm, never escapes", async () => {
     const { ports, calls } = makePorts({ throwOn: "deploy" });
-    const r = deployAndVerifySelfMod(LAST_GOOD, ports);
+    const r = await deployAndVerifySelfMod(LAST_GOOD, ports);
     assert.equal(r.outcome, "reverted");
     assert.ok(calls.includes("revert"));
     assert.ok(calls.includes("disarm"));
   });
 
-  it("a port throws BEFORE push (commitPush throws) → disarm, no revert, never escapes", () => {
+  it("a port throws BEFORE push (commitPush throws) → disarm, no revert, never escapes", async () => {
     const { ports, calls } = makePorts({ throwOn: "commitPush" });
-    const r = deployAndVerifySelfMod(LAST_GOOD, ports);
+    const r = await deployAndVerifySelfMod(LAST_GOOD, ports);
     assert.equal(r.outcome, "deploy-failed");
     assert.ok(calls.includes("disarm"));
     assert.ok(!calls.includes("revert"));
   });
 
-  it("a thrown DISARM (failed circuit breaker) is surfaced loudly, not swallowed", () => {
+  it("a thrown DISARM (failed circuit breaker) is surfaced loudly, not swallowed", async () => {
     // verify fails → revert ok, but the disarm marker write throws. A breaker that didn't trip is
     // as dangerous as a failed revert → manual-recovery outcome + alert + error.
     const { ports, notes } = makePorts({ verify: { ok: false, detail: "smoke failed" }, throwOnDisarm: true });
-    const r = deployAndVerifySelfMod(LAST_GOOD, ports);
+    const r = await deployAndVerifySelfMod(LAST_GOOD, ports);
     assert.equal(r.outcome, "revert-failed", "a failed disarm escalates to the manual-recovery outcome");
     assert.ok(r.errors.some((e) => /disarm failed/i.test(e)), "the disarm failure is in errors");
     assert.ok(notes.some((n) => /manual recovery|DISARM FAILED/i.test(n)), "must loudly alert");
