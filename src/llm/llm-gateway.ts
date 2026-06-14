@@ -23,11 +23,12 @@ import type {
   LlmRequest,
   LlmRequestType,
   LlmResult,
+  LlmCouncilResult,
 } from "./llm-types.js";
 import { deterministicProvider, deterministicOutput } from "./providers/deterministic-provider.js";
 import { openAiProvider } from "./providers/openai-provider.js";
 import { geminiProvider } from "./providers/gemini-provider.js";
-import { validateLlmOutput } from "./output-validator.js";
+import { validateLlmOutput, validateCouncilSpecialistOutput } from "./output-validator.js";
 import { DEFAULT_LLM_REPORTS_DIR, writeUsageLog } from "./usage-log.js";
 
 export const DEFAULT_MODEL = "gpt-4o-mini";
@@ -244,5 +245,46 @@ export class LlmGateway {
   }
   summarizeDataSnapshot(request: string, context?: Record<string, unknown>): Promise<LlmResult> {
     return this.run("summarize_data_snapshot", request, context);
+  }
+
+  /**
+   * Run a council specialist call. The specialist's lens prompt is passed as the full request string
+   * (containing both the system instruction and the user task). The council_specialist requestType
+   * triggers an isolated prompt contract + isolated validator (validateCouncilSpecialistOutput),
+   * returning LlmCouncilResult — NEVER touching LlmResult or LlmStructuredOutput.
+   *
+   * Deterministic/fallback mode → output:null (the council treats this as no-real-LLM → honest low stub).
+   * Real provider + valid council output → { ok:true, mode, output }.
+   * Never throws.
+   */
+  async runCouncilSpecialist(request: string): Promise<LlmCouncilResult> {
+    const req: LlmRequest = { type: "council_specialist", request };
+    const chain = providerChain(this.config);
+
+    // Try each network provider in order; validate with the COUNCIL validator.
+    for (const mode of chain) {
+      const model = mode === "gemini" ? (this.config.geminiModel ?? this.config.model) : (this.config.openaiModel ?? this.config.model);
+      const callConfig: LlmGatewayConfig = {
+        ...this.config,
+        model,
+        ...(this.apiKey ? { apiKey: this.apiKey } : {}),
+        ...(this.geminiApiKey ? { geminiApiKey: this.geminiApiKey } : {}),
+      };
+      try {
+        const raw = await this.providers[mode].generate(req, callConfig);
+        const validation = validateCouncilSpecialistOutput(raw);
+        if (validation.ok && validation.value) {
+          return { ok: true, mode, output: validation.value };
+        }
+        // Malformed — try next provider in chain.
+      } catch {
+        // Provider error — try next provider in chain.
+      }
+    }
+
+    // No network provider configured, or all failed.
+    // Deterministic path → output:null so the council uses its honest low stub.
+    const mode = chain.length > 0 ? "fallback" : "deterministic";
+    return { ok: true, mode, output: null };
   }
 }
