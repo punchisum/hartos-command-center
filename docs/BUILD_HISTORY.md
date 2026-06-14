@@ -20,7 +20,10 @@ the table format, and update "Current state" + "Roadmap ahead" as milestones lan
   (`/health` reports the deployed `BUILD_SHA`; `actionExecution:"disabled"` — the public Worker fence holds).
 - **Daemon:** local `live-runner`, fully armed, idle until a task is queued. Kill-switch
   (`HARTOS_EXECUTION_KILL_SWITCH=on`) overrides everything.
-- **Test suite:** 2902/0.
+- **P7 — the Council: IN PROGRESS.** Plan 1 (single-level, propose-only, disarmed) merged (PR #45) — the
+  `src/council/` kernel: arming gate, 5-specialist roster, panel selection, no-laundering synthesis,
+  coordinator. Recursion + live LLM wiring + cockpit are Plans 2–3.
+- **Test suite:** 2941/0.
 
 ## Roadmap ahead
 
@@ -78,6 +81,12 @@ Five eras, 20 series, 2026-06-04 → 2026-06-14.
 | 18 | P4 — Rollback | Inverse-command derivation + rollback execution + cockpit Rollback button | Jun 13 |
 | 19 | P5 — Autonomous Fitness Mutations | The hand inside the fence: derive → materialize → ingest → poll → apply, live | Jun 13 |
 | 20 | **P6 — Bounded Self-Modification ★ LIVE** | §6 constitution + full gauntlet + auto-deploy net — first autonomous fix→deploy (`e073ceb`) | Jun 13–14 |
+
+### Era 6 — Orchestration (Jun 14 →) · many minds, one proposal
+
+| # | Series | What it does | When |
+|---|--------|--------------|------|
+| 21 | P7 — Multi-Level Agent Orchestration ("the Council") · *in progress* | Recursive coordinator convenes a panel of specialists (Research/CTO/Financial/M&A/Legal) + sub-coordinators → synthesizes ONE proposal with dissent surfaced. Propose-only, gated. **Plan 1 merged** (single-level kernel, disarmed); recursion + live wiring + cockpit are Plans 2–3 | Jun 14 → |
 
 ---
 
