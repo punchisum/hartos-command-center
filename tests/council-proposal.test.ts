@@ -142,3 +142,24 @@ describe("createCouncilProposal (Task 2.2)", () => {
     assert.equal(events[0]?.["event"], "created");
   });
 });
+
+// tests/council-proposal.test.ts  (append)
+import { calibrateConfidence } from "../src/council/council-calibration.js";
+
+describe("createCouncilProposal — calibratedConfidence", () => {
+  it("attaches calibratedConfidence (raw preserved) to the persisted payload", async () => {
+    const captured: any[] = [];
+    const store = { upsert: async (item: any) => { captured.push(item); } };
+    const payload = {
+      rootGoal: "g",
+      recommendation: "do x",
+      confidence: "high" as const,
+      tree: { goal: { goal: "g" }, panel: ["cto"], findings: [], synthesis: { recommendation: "do x", confidence: "high", consensus: [], dissent: [], truncated: false, notes: [] }, children: [], depth: 1 },
+      llmCallsUsed: 3,
+    };
+    await createCouncilProposal(store, payload as any, new Date("2026-06-14T00:00:00.000Z"));
+    const item = captured[0];
+    assert.equal(item.proposedPayload.confidence, "high"); // raw preserved
+    assert.equal(item.proposedPayload.calibratedConfidence, calibrateConfidence("high")); // attached
+  });
+});

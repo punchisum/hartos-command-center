@@ -13,6 +13,7 @@
 
 import type { ProposalQueueItem } from "../cockpit/proposals/proposal-types.js";
 import type { CouncilProposalPayload } from "./council-types.js";
+import { calibrateConfidence } from "./council-calibration.js";
 
 /** Minimal upserter surface (matches SelfModProposalStore pattern). */
 export interface CouncilProposalStore {
@@ -40,6 +41,10 @@ export async function createCouncilProposal(
   const recSnippet = payload.recommendation.slice(0, 120);
   const title = `Council: ${recSnippet} [${payload.confidence}]`;
 
+  // P8: demote-only calibrated band attached for the cockpit. Raw `confidence` is preserved
+  // untouched (audit + the band the aggregator measures approval against).
+  const calibratedConfidence = calibrateConfidence(payload.confidence);
+
   const item: ProposalQueueItem = {
     id,
     domain: "council",
@@ -55,6 +60,7 @@ export async function createCouncilProposal(
       rootGoal: payload.rootGoal,
       recommendation: payload.recommendation,
       confidence: payload.confidence,
+      calibratedConfidence,
       tree: payload.tree,
       llmCallsUsed: payload.llmCallsUsed,
     },
@@ -90,6 +96,7 @@ export async function createCouncilProposal(
     afterState: {
       recommendationPreview: payload.recommendation.slice(0, 500),
       confidence: payload.confidence,
+      calibratedConfidence,
     },
     rollbackOrCorrectionNote:
       "Council proposals are recommendation-only; there is nothing to roll back.",

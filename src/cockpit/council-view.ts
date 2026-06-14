@@ -32,6 +32,10 @@ export interface CouncilViewModel {
   rootGoal: string;
   recommendation: string;
   confidence: string;
+  /** P8 demote-only calibrated band for presentation; falls back to raw confidence when absent. */
+  calibratedConfidence: string;
+  /** Non-null one-liner only when the calibrated band differs (is lower) than the raw band. */
+  calibrationNote: string | null;
   findingRows: CouncilFindingRow[];
   consensus: string[];
   dissent: string[];
@@ -113,6 +117,8 @@ export function councilViewModel(payload: unknown): CouncilViewModel {
     rootGoal: "",
     recommendation: "(no recommendation)",
     confidence: "low",
+    calibratedConfidence: "low",
+    calibrationNote: null,
     findingRows: [],
     consensus: [],
     dissent: [],
@@ -134,6 +140,12 @@ export function councilViewModel(payload: unknown): CouncilViewModel {
     const recommendation = safeStr(p["recommendation"]) || "(no recommendation)";
     const rawConf = safeStr(p["confidence"]);
     const confidence = isConfidence(rawConf) ? rawConf : "low";
+    const rawCalib = safeStr(p["calibratedConfidence"]);
+    const calibratedConfidence = isConfidence(rawCalib) ? rawCalib : confidence;
+    const calibrationNote =
+      calibratedConfidence !== confidence
+        ? `Council ${confidence.toUpperCase()} calls are historically over-trusted — presenting as ${calibratedConfidence.toUpperCase()}.`
+        : null;
     const llmCallsUsed = safeNum(p["llmCallsUsed"], 0);
 
     const tree = (p["tree"] !== null && typeof p["tree"] === "object" ? p["tree"] : {}) as Record<string, unknown>;
@@ -158,6 +170,8 @@ export function councilViewModel(payload: unknown): CouncilViewModel {
       rootGoal,
       recommendation,
       confidence,
+      calibratedConfidence,
+      calibrationNote,
       findingRows,
       consensus,
       dissent,
