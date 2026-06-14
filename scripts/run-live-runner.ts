@@ -18,6 +18,7 @@ import { runSpineExecutor } from "./run-spine-executor.js";
 import { runFitnessPollPass } from "./run-fitness-poll.js";
 import { runSelfModPassOnce } from "./run-self-mod-pass.js";
 import { runCouncilOnce } from "./run-council-pass.js";
+import { runCouncilBuildBridgeOnce } from "./run-council-build-bridge.js";
 import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
 import { runFailedJobAlertPass } from "../src/telegram/run-failed-job-alert.js";
 import { runLivenessAlertPass } from "../src/telegram/run-liveness-alert.js";
@@ -75,6 +76,9 @@ if (isMain) {
   // P7 Council: ~10min cadence. DISARMED by default (HARTOS_ALLOW_COUNCIL=true required).
   // No autonomous goal source in this slice — no-op unless a goal is provided externally.
   const COUNCIL_EVERY = 120; // ~10min
+  // P7 Council→Factory bridge: ~10min cadence. DISARMED by default (HARTOS_ALLOW_COUNCIL_BUILD_BRIDGE=true required).
+  // A no-op unless the flag is set; produces propose-only factory build-plan proposals from approved council proposals.
+  const COUNCIL_BUILD_BRIDGE_EVERY = 120; // ~10min
 
   const runCycle = async (now: string): Promise<string[]> => {
     const lines = await runJobRunner(process.env, now, 3);
@@ -132,6 +136,18 @@ if (isMain) {
         for (const l of cou) console.log(`[live-runner] council · ${l}`);
       } catch (e) {
         console.error(`[live-runner] council pass failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
+
+    // COUNCIL→FACTORY BRIDGE (P7) — every ~10min. DISARMED + no-op unless HARTOS_ALLOW_COUNCIL_BUILD_BRIDGE=true.
+    // Turns simulated_approved council proposals into pending_approval factory build-plan proposals.
+    // propose-only: executable=false; no scaffolding or provisioning until Hart approves the factory proposal.
+    if (cycle % COUNCIL_BUILD_BRIDGE_EVERY === 0) {
+      try {
+        const bridge = await runCouncilBuildBridgeOnce(process.env, now);
+        for (const l of bridge) console.log(`[live-runner] council-bridge · ${l}`);
+      } catch (e) {
+        console.error(`[live-runner] council-build-bridge failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
       }
     }
 
