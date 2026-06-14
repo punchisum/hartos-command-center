@@ -25,8 +25,9 @@ the table format, and update "Current state" + "Roadmap ahead" as milestones lan
   recursive coordinator, governed `council_specialist` LLM path, real Research brain, **Claude-on-Max
   infer** (concurrency-capped), `createCouncilProposal`, `council.orchestrate` job, cockpit view +
   `GET /api/council` + P8 memory signal. Propose-only; arming (`HARTOS_ALLOW_COUNCIL`) is Hart's gate.
-  Live run executed + degraded honestly; a real-reasoning run is pending LLM-provider credit (Gemini/
-  OpenAI/Claude-on-Max all out of credit/quota at session end — no code change needed).
+  **Live run SUCCEEDED** (2026-06-14) — real Claude-on-Max reasoning, 5 differentiated specialists
+  (~34s): CTO/Financial/M&A/Legal each answered through their lens. (A Windows arg bug — empty
+  `--allowedTools ""` dropped by cmd.exe — was found + fixed, `bf66142`; the Max plan works fine.)
 - **Test suite:** 3085/0.
 
 ## Roadmap ahead
