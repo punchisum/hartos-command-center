@@ -59,6 +59,7 @@ const DOMAIN_AGENT_LABEL: Record<ProposalDomain, string> = {
   factory: "Factory Agent",
   system: "System",
   research: "Research Agent",
+  "self-mod": "Self-Mod",
 };
 
 const FLEET_BRAIN_LABEL = "Fleet Brain";
