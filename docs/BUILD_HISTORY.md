@@ -46,19 +46,29 @@ the table format, and update "Current state" + "Roadmap ahead" as milestones lan
   acquisition likelihood; the Legal specialist's MNPI warning PROPAGATED into the spec — "no investment
   advice, requires_human_gate, disclaimer"). Full vision realized: goal → council → GO → concretize →
   Factory build plan → (second GO → gated runway).
-- **Test suite:** 3200/0.
+- **P8 — Reflexive Learning Loop (council-calibration slice): CODE-COMPLETE + DISARMED.** HartOS now
+  aggregates Hart's approve/reject on council proposals into a per-band approval rate and, on a
+  well-evidenced delta, **enqueues a `recalibrate` self-mod task** that rewrites one council constant
+  (`COUNCIL_BAND_APPROVAL`) through the §6 gauntlet. The applied calibration is **demote-only** (it can
+  only present a band lower than the §19 raw band — never inflate), so the loop can only make HartOS more
+  conservative about itself. Pure aggregate + decide (never throws), responsive tuning (min-sample 4 /
+  deadband 0.05 / step 0.20), two independent locks both default-off (`HARTOS_ALLOW_LEARNING` to enqueue;
+  the self-mod triple to apply), wired into the live-runner at a ~1h cadence. Adds **zero** new execution
+  surface — it writes the same queue the proven §6 gauntlet already governs.
+- **Test suite:** 3254/0.
 
 ## Roadmap ahead
 
-- **P7 — Multi-level agent orchestration + intelligence upgrade** (the "CRM-council": delegate → research /
-  prophet / financial / CTO agents gather inputs → proposal for Hart to approve).
-- **P8 — Reflexive learning loop** (consume the track record to recalibrate its own thresholds/rules).
+- **P8 slice 2 — action-efficacy calibration** (`cockpit_decision_outcomes` → did executed fixes resolve
+  their target? → tune proposer severity/confidence thresholds), reusing the same enqueue→§6 mechanism.
+- **Beyond:** panel-aware council calibration (learn which specialist combinations Hart trusts), and
+  surfacing which brain answered each cockpit Ask.
 
 ---
 
 ## The build log
 
-Five eras, 20 series, 2026-06-04 → 2026-06-14.
+Seven eras, 22 series, 2026-06-04 → 2026-06-14.
 
 ### Era 1 — Foundation (Jun 4–6) · the spine, the runway, the law
 
@@ -110,6 +120,12 @@ Five eras, 20 series, 2026-06-04 → 2026-06-14.
 | # | Series | What it does | When |
 |---|--------|--------------|------|
 | 21 | P7 — Multi-Level Agent Orchestration ("the Council") · *code-complete, disarmed* | Recursive coordinator convenes a panel of specialists (Research/CTO/Financial/M&A/Legal) + sub-coordinators → synthesizes ONE proposal with dissent surfaced. Propose-only, gated. **Plans 1–3 merged** (kernel + recursion + live wiring + cockpit + P8 memory signal); arming is Hart's gate | Jun 14 |
+
+### Era 7 — Reflexive learning (Jun 14 →) · it tunes itself from its own track record
+
+| # | Series | What it does | When |
+|---|--------|--------------|------|
+| 22 | P8 — Reflexive Learning Loop · council-calibration · *code-complete, disarmed* | Aggregates Hart's approve/reject on council proposals into a per-band approval rate, then recalibrates one council constant (`COUNCIL_BAND_APPROVAL`) **through the §6 self-mod gauntlet** — demote-only, so it can only ever make the council more conservative (§19 intact). Adds zero execution surface; gated behind `HARTOS_ALLOW_LEARNING` (separate from the self-mod triple) | Jun 14 |
 
 ---
 
