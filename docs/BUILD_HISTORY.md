@@ -29,9 +29,13 @@ the table format, and update "Current state" + "Roadmap ahead" as milestones lan
   armed → 6 specialists (CTO/Financial/M&A/Legal on Claude-on-Max + Beezulbub + Research) → a real
   `CouncilProposal` in the cockpit (`prop-council-2026-06-14T06-59-26-651Z`, pending_approval) on goal
   "M&A Intelligence Agent". Also added: **Claude-Max as the host-side gateway primary** (Gemini fallback;
-  Worker bundle stays clean) and **Beezulbub as a council brain**. (Worker→Claude-Max routing deferred —
-  needs a tunnel/relay.)
-- **Test suite:** 3127/0.
+  Worker bundle stays clean), **Beezulbub as a council brain**, full-gather + honest-degrade (PR #50),
+  and the **Worker→Claude-Max routing design** (async Supabase relay). Hart GO'd the M&A proposal.
+- **council→Factory build bridge** (PR #51, disarmed/propose-only): an approved council plan → the Factory
+  pipeline → a `build_agent_plan` proposal awaiting a SECOND GO (never scaffolds). Ran on the M&A goal;
+  the Factory correctly **refused the vague strategic goal**, exposing the real STRATEGY→buildable-SPEC
+  seam (the bridge must mine the CTO findings for commands/dataSources/interfaces, or add a concretize pass).
+- **Test suite:** 3167/0.
 
 ## Roadmap ahead
 
