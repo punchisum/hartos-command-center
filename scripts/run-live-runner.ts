@@ -16,6 +16,7 @@ import { runLiveRunnerLoop, resolvePollMs } from "../src/jobs/live-runner.js";
 import { runJobRunner } from "./hartos-runner.js";
 import { runSpineExecutor } from "./run-spine-executor.js";
 import { runFitnessPollPass } from "./run-fitness-poll.js";
+import { runSelfModPassOnce } from "./run-self-mod-pass.js";
 import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
 import { runFailedJobAlertPass } from "../src/telegram/run-failed-job-alert.js";
 import { runLivenessAlertPass } from "../src/telegram/run-liveness-alert.js";
@@ -69,6 +70,7 @@ if (isMain) {
   const ALERT_EVERY = 6; //   ~30s at the 5s poll: approvals + execution failures (light DB reads)
   const LIVENESS_EVERY = 36; // ~3min: fleet liveness (local artifact gather + pure assess)
   const FITNESS_POLL_EVERY = 60; // ~5min: poll the fitness side for pending mutations (daily cadence; gated no-op by default)
+  const SELF_MOD_EVERY = 60; // ~5min
 
   const runCycle = async (now: string): Promise<string[]> => {
     const lines = await runJobRunner(process.env, now, 3);
@@ -101,6 +103,18 @@ if (isMain) {
         if (did) for (const l of fit) console.log(`[live-runner] fitness · ${l}`);
       } catch (e) {
         console.error(`[live-runner] fitness poll failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
+
+    // SELF-MOD (P6 §6) — every ~5min, run one self-mod pass. DISARMED + no-op unless armed AND a task
+    // source yields a task (runSelfModPassOnce returns [] otherwise). Gated; nothing applies until §6 is
+    // ratified + the flags are armed AND a proposal/deploy is gated through.
+    if (cycle % SELF_MOD_EVERY === 0) {
+      try {
+        const sm = await runSelfModPassOnce(process.env, new Date(now));
+        for (const l of sm) console.log(`[live-runner] ${l}`);
+      } catch (e) {
+        console.error(`[live-runner] self-mod pass failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
       }
     }
 
