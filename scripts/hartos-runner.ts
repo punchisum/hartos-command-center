@@ -38,8 +38,15 @@ export interface JobRunResult {
   detail: string;
 }
 
-/** Execute one job kind in-process. Every action keeps its own gates; nothing is bypassed. */
-async function executeJob(kind: AgentJobKind, arg: string, env: Record<string, string | undefined>, now: string): Promise<{ ok: boolean; detail: string }> {
+/**
+ * Execute one job kind in-process. Every action keeps its own gates; nothing is bypassed.
+ *
+ * `terminal: true` marks a STRUCTURAL refusal — a job this runner can never run (it lives in another
+ * path). The caller terminalizes such rows (→ failed) instead of reverting them to re-runnable, which
+ * is what prevented the 2026-06-14 runaway skip loop. `ok:false` WITHOUT `terminal` is a transient,
+ * armable skip (a disarmed gate) — the row stays re-runnable so arming the flag later lets it run.
+ */
+async function executeJob(kind: AgentJobKind, arg: string, env: Record<string, string | undefined>, now: string): Promise<{ ok: boolean; detail: string; terminal?: boolean }> {
   switch (kind) {
     case "beezulbub.hunt": {
       const r = await runBeezulbubHunt(arg || "general", env, now);
@@ -69,14 +76,29 @@ async function executeJob(kind: AgentJobKind, arg: string, env: Record<string, s
       // The audit CLI is a host-edge script (gathers env/git/vault); run it via its module import
       // would need its gather functions — keep it honest: direct the operator to the autopilot,
       // which runs the audit inline. The runner executes the queue-shaped kinds.
-      return { ok: false, detail: "wolverine.audit runs in the autopilot pulse (npm run hartos:autopilot) — skipped here" };
+      return { ok: false, terminal: true, detail: "wolverine.audit runs in the autopilot pulse (npm run hartos:autopilot) — not runnable in this runner; terminalized so it cannot re-loop" };
     }
     case "rinnegan.sync": {
-      return { ok: false, detail: "rinnegan.sync is a Hart-fired live DB write (npm run rinnegan:sync-pack) — skipped by policy" };
+      return { ok: false, terminal: true, detail: "rinnegan.sync is a Hart-fired live DB write (npm run rinnegan:sync-pack) — not runnable in this runner; terminalized so it cannot re-loop" };
     }
     default:
-      return { ok: false, detail: `unknown job kind "${kind}"` };
+      return { ok: false, terminal: true, detail: `unknown job kind "${kind}"` };
   }
+}
+
+/**
+ * PURE: decide the spine row's next status + audit event from a job result.
+ *   - success                       → executed            (terminal; advances the spine)
+ *   - structural refusal (terminal) → failed              (terminal; OUT of the re-runnable set)
+ *   - transient skip (armable gate) → simulated_approved  (stays re-runnable on purpose)
+ *
+ * The `failed` branch is the fix for the runaway skip loop: the runner re-selects only
+ * `simulated_approved` rows, so a terminalized row is never picked up again.
+ */
+export function jobDisposition(result: { ok: boolean; terminal?: boolean }): { newStatus: string; event: "executed" | "skipped" | "failed" } {
+  if (result.ok) return { newStatus: "executed", event: "executed" };
+  if (result.terminal) return { newStatus: "failed", event: "failed" };
+  return { newStatus: COCKPIT_APPROVED_STATUS, event: "skipped" };
 }
 
 export async function runJobRunner(env: Record<string, string | undefined>, now: string, max = 3): Promise<string[]> {
@@ -100,11 +122,10 @@ export async function runJobRunner(env: Record<string, string | undefined>, now:
     // Audit EVERY terminal outcome — executed | skipped | failed — not only successes. The runner's
     // promise is that the cockpit shows the truth; a safety system that records only successes
     // launders failure into absence. (Audit table columns: proposal_id, event, to_status.)
-    const auditOutcome = async (proposalId: string, outcome: "executed" | "skipped" | "failed"): Promise<void> => {
-      const toStatus = outcome === "executed" ? "executed" : COCKPIT_APPROVED_STATUS;
+    const auditOutcome = async (proposalId: string, event: "executed" | "skipped" | "failed", toStatus: string): Promise<void> => {
       await handle.query(
         `insert into public.cockpit_proposal_audit (proposal_id, event, to_status) values ($1, $2, $3)`,
-        [proposalId, outcome, toStatus],
+        [proposalId, event, toStatus],
       );
     };
 
@@ -120,8 +141,14 @@ export async function runJobRunner(env: Record<string, string | undefined>, now:
       // FAILED outcome (audited), never silently dropped by the dispatcher's default.
       if (!isAgentJobKind(rawKind)) {
         failed += 1;
-        out.push(`  • ${row.id} [${String(rawKind)}] → failed: unrecognized job kind (not in the allowlist)`);
-        await auditOutcome(row.id, "failed");
+        // Terminalize (→ failed) so an unrecognized kind cannot sit at simulated_approved and be
+        // re-selected every poll (the same loop class the wolverine.audit row exhibited).
+        await handle.query(
+          `update public.cockpit_proposals set status='failed', updated_at=now() where id=$1 and status=$2`,
+          [row.id, COCKPIT_APPROVED_STATUS],
+        );
+        out.push(`  • ${row.id} [${String(rawKind)}] → failed: unrecognized job kind (not in the allowlist) — terminalized`);
+        await auditOutcome(row.id, "failed", "failed");
         continue;
       }
       const kind: AgentJobKind = rawKind;
@@ -147,25 +174,25 @@ export async function runJobRunner(env: Record<string, string | undefined>, now:
         result = { ok: false, detail: `threw: ${redact(e instanceof Error ? e.message : String(e))}` };
       }
 
-      if (result.ok) {
-        await handle.query(
-          `update public.cockpit_proposals set status='executed', updated_at=now() where id=$1 and status='executing'`,
-          [row.id],
-        );
+      // Map the result to a next status + audit event. A successful job advances → executed; a
+      // STRUCTURAL refusal terminalizes → failed (out of the re-runnable set, so it cannot re-loop);
+      // a transient/armable skip reverts → simulated_approved so arming the gate later runs it.
+      const disp = jobDisposition(result);
+      await handle.query(
+        `update public.cockpit_proposals set status=$2, updated_at=now() where id=$1 and status='executing'`,
+        [row.id, disp.newStatus],
+      );
+      await auditOutcome(row.id, disp.event, disp.newStatus);
+      if (disp.event === "executed") {
         executed += 1;
-        await auditOutcome(row.id, "executed");
         out.push(`  • ${row.id} [${kind}] → executed: ${result.detail}`);
         out.push("    spine advanced → executed (+ audit row)");
+      } else if (disp.event === "failed") {
+        failed += 1;
+        out.push(`  • ${row.id} [${kind}] → failed (terminal, not re-runnable): ${result.detail}`);
       } else {
-        // Honest skip (disarmed gate / policy / error) — revert 'executing' → cockpit-approved so
-        // the row stays re-runnable, and record the skip so it is visible, not silently absent.
-        await handle.query(
-          `update public.cockpit_proposals set status=$2, updated_at=now() where id=$1 and status='executing'`,
-          [row.id, COCKPIT_APPROVED_STATUS],
-        );
         skipped += 1;
-        out.push(`  • ${row.id} [${kind}] → skipped: ${result.detail}`);
-        await auditOutcome(row.id, "skipped");
+        out.push(`  • ${row.id} [${kind}] → skipped (re-runnable): ${result.detail}`);
       }
     }
     out.push(`Summary: ${executed} executed · ${skipped} skipped · ${failed} failed.`);
