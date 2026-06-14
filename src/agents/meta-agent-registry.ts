@@ -190,8 +190,8 @@ const CATALOG: MetaAgent[] = [
     requiresLocalRunner: true,
     requiresApproval: false,
     safetyTier: "propose_only",
-    status: "partial",
-    statusReason: "Full audit (git/env/fs) needs a local runner; the cockpit shows the latest verdict + can request an audit job. Last baseline: GREEN.",
+    status: "live",
+    statusReason: "Self-audit + ranked FixProposal repair loop is LIVE — detects on every pulse and proposes fixes (propose-only; gated hands). Full git/fs audit runs on the local runner. Last baseline: GREEN.",
     sourceModules: ["src/wolverine/wolverine-audit.ts", "scripts/wolverine-audit.ts"],
     isOrgan: false,
   },
@@ -320,8 +320,8 @@ const CATALOG: MetaAgent[] = [
     requiresLocalRunner: true,
     requiresApproval: true,
     safetyTier: "propose_only",
-    status: "partial",
-    statusReason: "Cockpit summarizes existing scouts from the pack; a NEW hunt needs a local runner (gated GitHub). Proven live (markdown_editor → 10 repos).",
+    status: "live",
+    statusReason: "OSS capability scout is LIVE — hunts run on the local runner behind the gated GitHub token; the cockpit summarizes scouts from the pack. Proven live (markdown_editor → 10 repos).",
     sourceModules: ["src/beezulbub/scout.ts", "src/beezulbub/capability-dossier-note.ts", "scripts/beezulbub-hunt.ts"],
     isOrgan: false,
   },
@@ -346,8 +346,8 @@ const CATALOG: MetaAgent[] = [
     requiresLocalRunner: true,
     requiresApproval: true,
     safetyTier: "propose_only",
-    status: "partial",
-    statusReason: "Plan/officiate/simulate can run; live provisioning (repo/Supabase/deploy) is gated + needs a local runner + Hart's approval.",
+    status: "live",
+    statusReason: "Plan→officiate→simulate→PR→gated provisioning is LIVE — builds agents end-to-end on the local runner behind Hart's approval + the §6/kill-switch gate. Proven (autonomous fix→deploy e073ceb).",
     sourceModules: ["src/hartos/factory-officiator.ts", "src/hartos/manifest-compiler.ts", "src/hartos/spec-interrogator.ts"],
     isOrgan: false,
   },
@@ -562,11 +562,33 @@ const CATALOG: MetaAgent[] = [
 ];
 
 /**
+ * Capability agents whose hands are gated by the global kill-switch. Their badge is "live"
+ * (the capability is built + proven), but a thrown kill-switch HONESTLY downgrades them — the
+ * one piece of arming state the read-only cockpit can actually observe.
+ */
+const KILL_SWITCH_GATED_AGENTS = new Set<string>(["wolverine", "beezulbub", "factory", "execution-engine"]);
+
+/**
  * Resolve the canonical meta-agent registry — pure + deterministic. `now` is injected (no clock).
+ * `env` is optional: when the global kill-switch (HARTOS_EXECUTION_KILL_SWITCH=on) is set, the
+ * gated capability agents are downgraded to "partial" with an honest reason, so the cockpit badge
+ * derives from real arming state instead of always claiming "live".
  * The output is frozen (read-only; the registry describes, it never mutates).
  */
-export function resolveMetaAgentRegistry(opts: { now?: string } = {}): MetaAgentRegistry {
-  const agents = CATALOG.map((a) => Object.freeze({ ...a }));
+export function resolveMetaAgentRegistry(
+  opts: { now?: string; env?: Record<string, string | undefined> } = {},
+): MetaAgentRegistry {
+  const killSwitchOn = String(opts.env?.["HARTOS_EXECUTION_KILL_SWITCH"] ?? "").trim().toLowerCase() === "on";
+  const agents = CATALOG.map((a) => {
+    if (killSwitchOn && a.status === "live" && KILL_SWITCH_GATED_AGENTS.has(a.id)) {
+      return Object.freeze({
+        ...a,
+        status: "partial" as const,
+        statusReason: `DISARMED by the global kill-switch (HARTOS_EXECUTION_KILL_SWITCH=on). Capability intact — ${a.statusReason}`,
+      });
+    }
+    return Object.freeze({ ...a });
+  });
   const byId: Record<string, MetaAgent> = {};
   for (const a of agents) byId[a.id] = a;
   const counts: MetaRegistryCounts = {

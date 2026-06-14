@@ -196,7 +196,7 @@ function buildV5DataForRequest(
   now: string,
   state: Parameters<typeof fleetSynthesisView>[0],
 ): CockpitV5Data {
-  const reg = resolveMetaAgentRegistry({ now });
+  const reg = resolveMetaAgentRegistry({ now, env });
   const cfg = resolveLlmConfig(env);
   // Prophet cross-fleet synthesis — derived from in-memory state (cheap, safe for the 6s poll).
   const syn = fleetSynthesisView(state, now);
@@ -384,7 +384,7 @@ export async function handleCockpitRequest(
       // Technical-page diagnostics — secret-free (gate reason + presence boolean only).
       const dgCfg = resolveLlmConfig(env);
       const dgGate = explainGate(dgCfg);
-      const dgReg = resolveMetaAgentRegistry({ now: nowFor(dctx) });
+      const dgReg = resolveMetaAgentRegistry({ now: nowFor(dctx), env });
       const diagnostics = {
         providerMode: dgGate.mode,
         gateReason: dgGate.reason,
@@ -407,7 +407,7 @@ export async function handleCockpitRequest(
     }
     if (pathname === "/api/agents") {
       // The meta-agent registry (org chart + honest capability/status). Read-only, secret-free.
-      const reg = resolveMetaAgentRegistry({ now: nowFor(dctx) });
+      const reg = resolveMetaAgentRegistry({ now: nowFor(dctx), env });
       return jsonResponse(200, { ok: true, rootId: reg.rootId, counts: reg.counts, agents: reg.agents }, cors);
     }
     if (pathname === "/api/reports") {
@@ -419,7 +419,7 @@ export async function handleCockpitRequest(
       // future/garbage timestamp can never read as "up". Agents with no Worker-visible evidence
       // stay "unknown" (the local CLI covers artifact-dir evidence). Read-only; never assumes up.
       const now = nowFor(dctx);
-      const reg = resolveMetaAgentRegistry({ now });
+      const reg = resolveMetaAgentRegistry({ now, env });
       const rm = readModelStatusView(dctx.state);
       const flagEnv = env as unknown as Record<string, string | undefined>;
       const armedFlags = [
@@ -1075,7 +1075,7 @@ export async function createCockpitWorkerContext(options: { cwd?: string } = {})
 export async function runSentinelHeartbeat(env: CloudflareCockpitEnv): Promise<void> {
   try {
     const now = new Date().toISOString();
-    const reg = resolveMetaAgentRegistry({ now });
+    const reg = resolveMetaAgentRegistry({ now, env });
     const state = (await resolveHostedCockpitState(env).catch(() => null)) ?? undefined;
     const rm = readModelStatusView(state);
     const heartbeats = heartbeatsFromReadModels(rm, now, state?.generatedAt ?? null);
