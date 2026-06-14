@@ -8,6 +8,8 @@
 node_modules/
 dist/
 *.log
+# Claude Code agent worktree storage + local scratch (harness-created, never committed)
+.claude/
 wrangler.toml
 wrangler.cockpit.toml
 .migration-ledger.json
