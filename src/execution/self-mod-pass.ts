@@ -28,12 +28,12 @@ export interface SelfModPassDeps {
   classify: (selfModClass: SelfModClass, fileCount: number, changedLines: number) => TierVerdict;
   /** Circuit breaker + rate cap. */
   canAutoApply: () => AutoApplyVerdict;
-  /** Tier-1: deploy + post-deploy net. */
-  deploy: (lastGoodSha: string) => Promise<DeployResult>;
+  /** Tier-1: deploy + post-deploy net. Receives the verified changed-file set so the real adapter can stage only those files. */
+  deploy: (lastGoodSha: string, changedFiles: string[]) => Promise<DeployResult>;
   /** Record an auto-deploy (rate cap). */
   recordAutoDeploy: (at: number) => void;
-  /** Capture the kept change's diff for a Tier-2 proposal. */
-  captureDiff: () => string;
+  /** Capture the kept change's diff for a Tier-2 proposal. Receives the verified changed-file set so the real adapter can read their content. */
+  captureDiff: (changedFiles: string[]) => string;
   /** Tier-2: create a propose-only cockpit proposal. */
   propose: (task: SelfModTask, tier: TierVerdict, diff: string) => Promise<void>;
   /** Roll back the kept change from the working tree (Tier-2 / blocked auto-apply). */
@@ -63,7 +63,7 @@ export async function runSelfModPass(task: SelfModTask, deps: SelfModPassDeps): 
   if (tier.tier === "auto-apply") {
     const gate = deps.canAutoApply();
     if (gate.ok) {
-      const dep = await deps.deploy(deps.lastGoodSha);
+      const dep = await deps.deploy(deps.lastGoodSha, changed);
       if (dep.outcome === "deployed") {
         deps.recordAutoDeploy(deps.now);
         return { action: "deployed", tier: "auto-apply", detail: `auto-deployed ${dep.deployedSha ?? "?"}`, changedFiles: changed };
@@ -75,7 +75,7 @@ export async function runSelfModPass(task: SelfModTask, deps: SelfModPassDeps): 
   }
 
   // Tier-2, or a blocked Tier-1: capture the verified change as a proposal, then roll back the tree.
-  const diff = deps.captureDiff();
+  const diff = deps.captureDiff(changed);
   await deps.propose(task, tier, diff);
   deps.rollback(changed);
   return { action: "proposed", tier: "propose-only", detail: `proposed for Hart's approval — ${proposeReason}`, changedFiles: changed };

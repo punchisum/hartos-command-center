@@ -18,9 +18,9 @@ function makeDeps(over: Partial<SelfModPassDeps> = {}) {
     changedLines: () => 20,
     classify: () => ({ tier: "auto-apply", reason: "fix within cap" }),
     canAutoApply: () => ({ ok: true, reason: "clear" }),
-    deploy: async () => { calls.push("deploy"); return { outcome: "deployed", reason: "ok", deployedSha: "new-sha", errors: [] } as DeployResult; },
+    deploy: async (_lastGood, _changed) => { calls.push("deploy"); return { outcome: "deployed", reason: "ok", deployedSha: "new-sha", errors: [] } as DeployResult; },
     recordAutoDeploy: () => { calls.push("recordAutoDeploy"); },
-    captureDiff: () => "+ fix",
+    captureDiff: (_changed) => "+ fix",
     propose: async () => { calls.push("propose"); },
     rollback: () => { calls.push("rollback"); },
     ...over,
@@ -39,13 +39,21 @@ describe("runSelfModPass", () => {
   });
 
   it("kept + Tier-1 + clear breaker → auto-deploys + records the deploy (no propose/rollback)", async () => {
-    const { deps, calls } = makeDeps();
+    let deployedChangedFiles: string[] | undefined;
+    const { deps, calls } = makeDeps({
+      deploy: async (_lastGood, _changed) => {
+        deployedChangedFiles = _changed;
+        calls.push("deploy");
+        return { outcome: "deployed", reason: "ok", deployedSha: "new-sha", errors: [] } as DeployResult;
+      },
+    });
     const r = await runSelfModPass(TASK, deps);
     assert.equal(r.action, "deployed");
     assert.ok(calls.includes("deploy"));
     assert.ok(calls.includes("recordAutoDeploy"));
     assert.ok(!calls.includes("propose"));
     assert.ok(!calls.includes("rollback"));
+    assert.deepEqual(deployedChangedFiles, KEPT.changedFiles);
   });
 
   it("kept + Tier-1 deploy fails → action deploy-failed (deploy net already reverted; no extra propose/rollback)", async () => {
