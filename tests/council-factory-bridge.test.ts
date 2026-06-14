@@ -1,19 +1,25 @@
 /**
  * tests/council-factory-bridge.test.ts
  *
- * TDD tests for the P7 council→factory bridge.
+ * TDD tests for the P7 council->factory bridge (updated for the P7 concretize pass).
  *
- * All tests use injected factory functions + fake payloads — no DB, no real Factory I/O,
- * no network. The Factory state machine is driven via injectable deps.
+ * All tests use injected infer fakes + injected factory functions -- no DB, no real
+ * Factory I/O, no network, no real Claude.
+ *
+ * The bridge signature is now:
+ *   bridgeCouncilToFactory(payload, councilProposalId, now, infer, deps?) -> Promise<BridgeResult>
  *
  * Covers:
- *   1. Well-formed council payload → produces a factory/build_agent_plan
- *      pending_approval/executable:false proposal with the plan in proposedPayload.
- *   2. Refused/thin spec → {ok:false} (no proposal).
- *   3. Idempotent id is stable (same councilProposalId → same factoryProposalId).
- *   4. runCouncilBuildBridgeOnce disarmed → silent [].
- *   5. Interrogation answers cover all 5 spec-lock dimensions + measurable criteria.
- *   6. Factory already at awaiting_approval → still produces a proposal.
+ *   1. Well-formed council payload with valid concretize + real compiler
+ *      -> produces a factory/build_agent_plan pending_approval/executable:false proposal.
+ *   2. Concretize returns null -> {ok:false} no proposal.
+ *   3. Injected compileSpecToManifest throws -> {ok:false} no throw.
+ *   4. validateManifest returns violations -> {ok:false} no throw.
+ *   5. Idempotent id is stable (same councilProposalId -> same factoryProposalId).
+ *   6. runCouncilBuildBridgeOnce disarmed -> silent [].
+ *   7. buildInterrogationAnswers covers all 5 spec-lock dimensions + measurable criteria.
+ *   8. Bridge never throws (outermost guard).
+ *   9. Proposal carries concreteSpec in proposedPayload.
  */
 
 import { describe, it } from "node:test";
@@ -23,10 +29,12 @@ import {
   makeFactoryProposalId,
   buildInterrogationAnswers,
   type CouncilFactoryBridgeDeps,
+  type BridgeResult,
 } from "../src/hartos/council-factory-bridge.js";
 import { runCouncilBuildBridgeOnce } from "../scripts/run-council-build-bridge.js";
 import type { CouncilProposalPayload } from "../src/council/council-types.js";
-import type { FactoryJobState } from "../src/hartos/factory-coordinator.js";
+import type { Infer } from "../src/council/specialist.js";
+import type { ConcreteAgentSpec } from "../src/hartos/council-spec-concretizer.js";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,7 +53,9 @@ function makeCouncilPayload(
         {
           specialistId: "cto",
           lens: "cto",
-          summary: "feasible: Supabase read RPCs available, no mutation needed",
+          summary:
+            "feasible: Supabase read RPCs available (get_workout_sessions, get_adherence_score). " +
+            "Commands: read_sessions, compute_adherence, flag_missed. Interfaces: /agent/fitness/ui.",
           confidence: "high",
           risks: ["data freshness depends on workout logging cadence"],
           degraded: false,
@@ -55,7 +65,7 @@ function makeCouncilPayload(
           lens: "fitness",
           summary: "useful: adherence gaps are high-value signal for weekly review",
           confidence: "medium",
-          risks: ["definition of 'missed session' needs clarification"],
+          risks: ["definition of missed session needs clarification"],
           degraded: false,
         },
       ],
@@ -79,106 +89,155 @@ function makeCouncilPayload(
 const NOW = "2026-06-14T10:00:00.000Z";
 const COUNCIL_ID = "prop-council-2026-06-14T10-00-00-000Z";
 
-// ─── Fake factory deps that drive to awaiting_approval ─────────────────────────
+/** A valid ConcreteAgentSpec that the fake infer will return. */
+const VALID_CONCRETE_SPEC: ConcreteAgentSpec = {
+  agentName: "fitness-adherence-agent",
+  capability: "reads workout sessions from Supabase and flags missed sessions in the cockpit",
+  readSources: ["get_workout_sessions", "get_adherence_score"],
+  output: "fitness read-model + flag_missed_session proposal",
+  commands: ["read_sessions", "compute_adherence", "flag_missed"],
+  interfaces: ["/agent/fitness/ui", "cockpit fleet card"],
+  measurableAcceptance: "flags >=95% of missed sessions within 1 hour of occurrence",
+  failureMode: "returns ok:false + no proposal if Supabase is unreachable; no silent failures",
+};
 
-/**
- * Build fake factory deps that succeed through the full lifecycle:
- * inbox → interrogating → spec_ready → manifest_compiled → planned → awaiting_approval.
- *
- * Uses real `startFactoryJob` + `advanceFactoryJob` under the hood but injects them
- * transparently so the test is independent of the real Factory I/O. We just pass through
- * to the real implementations here — a more isolated approach would stub each state
- * but the real Factory functions are pure, so this is safe and correct.
- */
-function makePassthroughDeps(): CouncilFactoryBridgeDeps {
-  // No overrides: use the real pure functions (injectable no-op).
-  return {};
+/** Fake infer that returns a valid ConcreteAgentSpec JSON. */
+function makeValidInfer(): Infer {
+  return async (_prompt) => JSON.stringify(VALID_CONCRETE_SPEC);
 }
 
-/** Fake deps where startFactoryJob always refuses. */
-function makeRefuseDeps(): CouncilFactoryBridgeDeps {
-  return {
-    startFactoryJob: (_text, _opts) => ({
-      jobId: "job-refused",
-      status: "refused",
-      requestText: _text,
-      refusalReason: "Fake refusal: too vague (injected for test)",
-    }),
-    advanceFactoryJob: (state, _input, _opts) => state,
+/** Fake infer that triggers a null concretize result. */
+function makeNullInfer(): Infer {
+  return async (_prompt) => "(not json)";
+}
+
+/** Fake infer that throws. */
+function makeThrowingInfer(): Infer {
+  return async (_prompt) => {
+    throw new Error("infer crash");
   };
 }
 
-/** Fake deps where advanceFactoryJob never reaches spec_ready. */
-function makeStuckInterrogatingDeps(): CouncilFactoryBridgeDeps {
+/**
+ * Deps that inject a fake concretize returning a valid ConcreteAgentSpec,
+ * then use the real compiler/planner/validator for the rest of the lifecycle.
+ */
+function makeValidDeps(): CouncilFactoryBridgeDeps {
   return {
-    startFactoryJob: (_text, _opts) => ({
-      jobId: "job-interrogating",
-      status: "interrogating",
-      requestText: _text,
-      answers: [],
-    }),
-    advanceFactoryJob: (state, _input, _opts) => ({
-      ...state,
-      status: "interrogating" as const,
-    }),
+    concretizeCouncilToSpec: async (_payload, _infer) => VALID_CONCRETE_SPEC,
+  };
+}
+
+/**
+ * Deps that inject a null concretize (simulates LLM failure or thin result).
+ */
+function makeNullConcretizeDeps(): CouncilFactoryBridgeDeps {
+  return {
+    concretizeCouncilToSpec: async (_payload, _infer) => null,
+  };
+}
+
+/**
+ * Deps that inject a concretize returning a valid spec, but compileSpecToManifest throws.
+ */
+function makeCompileThrowsDeps(): CouncilFactoryBridgeDeps {
+  return {
+    concretizeCouncilToSpec: async (_payload, _infer) => VALID_CONCRETE_SPEC,
+    compileSpecToManifest: (_spec) => {
+      throw new Error("compile crashed");
+    },
+  };
+}
+
+/**
+ * Deps that inject a concretize returning a valid spec, but validateManifest returns violations.
+ */
+function makeViolationDeps(): CouncilFactoryBridgeDeps {
+  return {
+    concretizeCouncilToSpec: async (_payload, _infer) => VALID_CONCRETE_SPEC,
+    validateManifest: (_manifest) => [
+      { facet: "read-model", detail: "injected violation for test" },
+    ],
   };
 }
 
 // ─── Tests: bridgeCouncilToFactory ────────────────────────────────────────────
 
 describe("bridgeCouncilToFactory", () => {
-  it("well-formed payload with passthrough deps → ok:true, domain=factory, actionType=build_agent_plan", () => {
-    const payload = makeCouncilPayload();
-    const result = bridgeCouncilToFactory(payload, COUNCIL_ID, NOW, makePassthroughDeps());
+  it("well-formed payload with valid concretize + real compiler -> ok:true, domain=factory, actionType=build_agent_plan", async () => {
+    const result = await bridgeCouncilToFactory(
+      makeCouncilPayload(),
+      COUNCIL_ID,
+      NOW,
+      makeValidInfer(),
+      makeValidDeps(),
+    );
     assert.equal(result.ok, true, `Expected ok:true, got reason: ${result.reason}`);
     assert.ok(result.proposal, "proposal must be present");
     assert.equal(result.proposal.domain, "factory");
     assert.equal(result.proposal.actionType, "build_agent_plan");
   });
 
-  it("proposal has status=pending_approval and executable=false", () => {
-    const result = bridgeCouncilToFactory(makeCouncilPayload(), COUNCIL_ID, NOW, makePassthroughDeps());
+  it("proposal has status=pending_approval and executable=false", async () => {
+    const result = await bridgeCouncilToFactory(
+      makeCouncilPayload(), COUNCIL_ID, NOW, makeValidInfer(), makeValidDeps(),
+    );
     assert.equal(result.ok, true);
     assert.equal(result.proposal?.status, "pending_approval");
     assert.equal(result.proposal?.executable, false);
   });
 
-  it("proposal has tier=T3", () => {
-    const result = bridgeCouncilToFactory(makeCouncilPayload(), COUNCIL_ID, NOW, makePassthroughDeps());
+  it("proposal has tier=T3", async () => {
+    const result = await bridgeCouncilToFactory(
+      makeCouncilPayload(), COUNCIL_ID, NOW, makeValidInfer(), makeValidDeps(),
+    );
     assert.equal(result.ok, true);
     assert.equal(result.proposal?.tier, "T3");
   });
 
-  it("proposedPayload carries specId, agentName, plan, councilGoal, councilConfidence, councilRecommendation", () => {
+  it("proposedPayload carries specId, agentName, plan, councilGoal, councilConfidence, councilRecommendation, concreteSpec", async () => {
     const payload = makeCouncilPayload();
-    const result = bridgeCouncilToFactory(payload, COUNCIL_ID, NOW, makePassthroughDeps());
+    const result = await bridgeCouncilToFactory(
+      payload, COUNCIL_ID, NOW, makeValidInfer(), makeValidDeps(),
+    );
     assert.equal(result.ok, true);
     const pp = result.proposal?.proposedPayload as Record<string, unknown>;
     assert.ok(pp, "proposedPayload must exist");
     assert.ok(typeof pp["specId"] === "string", "specId must be a string");
     assert.ok(typeof pp["agentName"] === "string", "agentName must be a string");
-    // plan may be null or an object (depends on factory path), but key must exist
     assert.ok("plan" in pp, "plan key must exist in proposedPayload");
     assert.equal(pp["councilGoal"], payload.rootGoal);
     assert.equal(pp["councilConfidence"], payload.confidence);
     assert.equal(pp["councilRecommendation"], payload.recommendation);
     assert.equal(pp["councilProposalId"], COUNCIL_ID);
+    // concreteSpec is new in P7
+    const cs = pp["concreteSpec"] as Record<string, unknown>;
+    assert.ok(cs, "concreteSpec must exist in proposedPayload");
+    assert.equal(cs["agentName"], VALID_CONCRETE_SPEC.agentName);
+    assert.ok(Array.isArray(cs["commands"]), "commands must be an array");
+    assert.ok(Array.isArray(cs["interfaces"]), "interfaces must be an array");
   });
 
-  it("proposal id is stable (makeFactoryProposalId of councilProposalId)", () => {
-    const result = bridgeCouncilToFactory(makeCouncilPayload(), COUNCIL_ID, NOW, makePassthroughDeps());
+  it("proposal id is stable (makeFactoryProposalId of councilProposalId)", async () => {
+    const result = await bridgeCouncilToFactory(
+      makeCouncilPayload(), COUNCIL_ID, NOW, makeValidInfer(), makeValidDeps(),
+    );
     assert.equal(result.ok, true);
     assert.equal(result.proposal?.id, makeFactoryProposalId(COUNCIL_ID));
   });
 
-  it("proposal has sourceIntent=council-bridge:<councilProposalId>", () => {
-    const result = bridgeCouncilToFactory(makeCouncilPayload(), COUNCIL_ID, NOW, makePassthroughDeps());
+  it("proposal has sourceIntent=council-bridge:<councilProposalId>", async () => {
+    const result = await bridgeCouncilToFactory(
+      makeCouncilPayload(), COUNCIL_ID, NOW, makeValidInfer(), makeValidDeps(),
+    );
     assert.equal(result.ok, true);
     assert.equal(result.proposal?.sourceIntent, `council-bridge:${COUNCIL_ID}`);
   });
 
-  it("proposal has blockedReason mentioning propose-only and Hart approval", () => {
-    const result = bridgeCouncilToFactory(makeCouncilPayload(), COUNCIL_ID, NOW, makePassthroughDeps());
+  it("proposal has blockedReason mentioning propose-only and Hart approval", async () => {
+    const result = await bridgeCouncilToFactory(
+      makeCouncilPayload(), COUNCIL_ID, NOW, makeValidInfer(), makeValidDeps(),
+    );
     assert.equal(result.ok, true);
     const blocked = result.proposal?.blockedReason ?? "";
     assert.ok(
@@ -187,26 +246,75 @@ describe("bridgeCouncilToFactory", () => {
     );
   });
 
-  it("refuses if Factory startFactoryJob returns refused", () => {
-    const result = bridgeCouncilToFactory(makeCouncilPayload(), COUNCIL_ID, NOW, makeRefuseDeps());
-    assert.equal(result.ok, false);
-    assert.ok(!result.proposal, "no proposal when refused");
-    assert.ok(result.reason.length > 0, "reason must be non-empty");
+  it("concretize returns null -> {ok:false}, no proposal, no throw", async () => {
+    let threw = false;
+    let result: BridgeResult | undefined;
+    try {
+      result = await bridgeCouncilToFactory(
+        makeCouncilPayload(), COUNCIL_ID, NOW, makeValidInfer(), makeNullConcretizeDeps(),
+      );
+    } catch {
+      threw = true;
+    }
+    assert.equal(threw, false, "must not throw when concretize returns null");
+    assert.ok(result, "must return a result");
+    assert.equal(result!.ok, false);
+    assert.ok(!result!.proposal, "no proposal when concretize fails");
+    assert.ok(result!.reason.length > 0, "reason must be non-empty");
   });
 
-  it("refuses if Factory can't reach spec_ready (stuck interrogating)", () => {
-    const result = bridgeCouncilToFactory(makeCouncilPayload(), COUNCIL_ID, NOW, makeStuckInterrogatingDeps());
+  it("infer that returns bad JSON -> {ok:false} via null concretize", async () => {
+    const result = await bridgeCouncilToFactory(
+      makeCouncilPayload(), COUNCIL_ID, NOW, makeNullInfer(), {},
+    );
     assert.equal(result.ok, false);
-    assert.ok(!result.proposal, "no proposal when stuck");
+    assert.ok(!result.proposal);
   });
 
-  it("idempotent: same councilProposalId → same proposal id regardless of call count", () => {
+  it("throwing infer -> {ok:false} no throw", async () => {
+    let threw = false;
+    let result: BridgeResult | undefined;
+    try {
+      result = await bridgeCouncilToFactory(
+        makeCouncilPayload(), COUNCIL_ID, NOW, makeThrowingInfer(), {},
+      );
+    } catch {
+      threw = true;
+    }
+    assert.equal(threw, false, "must not throw when infer throws");
+    assert.equal(result?.ok, false);
+  });
+
+  it("compileSpecToManifest throws -> {ok:false} no throw", async () => {
+    let threw = false;
+    let result: BridgeResult | undefined;
+    try {
+      result = await bridgeCouncilToFactory(
+        makeCouncilPayload(), COUNCIL_ID, NOW, makeValidInfer(), makeCompileThrowsDeps(),
+      );
+    } catch {
+      threw = true;
+    }
+    assert.equal(threw, false, "must not throw when compile throws");
+    assert.equal(result?.ok, false);
+    assert.ok(result?.reason.includes("compile"), `reason should mention compile: ${result?.reason}`);
+  });
+
+  it("validateManifest returns violations -> {ok:false}", async () => {
+    const result = await bridgeCouncilToFactory(
+      makeCouncilPayload(), COUNCIL_ID, NOW, makeValidInfer(), makeViolationDeps(),
+    );
+    assert.equal(result.ok, false);
+    assert.ok(result.reason.toLowerCase().includes("violation"), `reason should mention violation: ${result.reason}`);
+  });
+
+  it("idempotent: same councilProposalId -> same proposal id regardless of call count", () => {
     const id1 = makeFactoryProposalId(COUNCIL_ID);
     const id2 = makeFactoryProposalId(COUNCIL_ID);
     assert.equal(id1, id2);
   });
 
-  it("different councilProposalId → different proposal id", () => {
+  it("different councilProposalId -> different proposal id", () => {
     const id1 = makeFactoryProposalId("prop-council-aaa");
     const id2 = makeFactoryProposalId("prop-council-bbb");
     assert.notEqual(id1, id2);
@@ -222,47 +330,64 @@ describe("bridgeCouncilToFactory", () => {
     assert.ok(!id.includes(":") && !id.includes("."), `id must be colon/dot free: ${id}`);
   });
 
-  it("riskLevel is high when council confidence is low", () => {
+  it("riskLevel is high when council confidence is low", async () => {
     const payload = makeCouncilPayload({ confidence: "low" });
-    const result = bridgeCouncilToFactory(payload, COUNCIL_ID, NOW, makePassthroughDeps());
+    const result = await bridgeCouncilToFactory(
+      payload, COUNCIL_ID, NOW, makeValidInfer(), makeValidDeps(),
+    );
     assert.equal(result.ok, true);
     assert.equal(result.proposal?.riskLevel, "high");
   });
 
-  it("riskLevel is low when council confidence is high (and no violations)", () => {
+  it("riskLevel is low when council confidence is high (no violations)", async () => {
     const payload = makeCouncilPayload({ confidence: "high" });
-    const result = bridgeCouncilToFactory(payload, COUNCIL_ID, NOW, makePassthroughDeps());
+    const result = await bridgeCouncilToFactory(
+      payload, COUNCIL_ID, NOW, makeValidInfer(), makeValidDeps(),
+    );
     assert.equal(result.ok, true);
-    // May be low or medium depending on Factory violations; just check it's not undefined.
-    assert.ok(["low", "medium", "high"].includes(result.proposal?.riskLevel ?? ""), "riskLevel must be a valid value");
+    assert.ok(
+      ["low", "medium", "high"].includes(result.proposal?.riskLevel ?? ""),
+      "riskLevel must be a valid value",
+    );
   });
 
-  it("createdAt and updatedAt match injected now", () => {
-    const result = bridgeCouncilToFactory(makeCouncilPayload(), COUNCIL_ID, NOW, makePassthroughDeps());
+  it("createdAt and updatedAt match injected now", async () => {
+    const result = await bridgeCouncilToFactory(
+      makeCouncilPayload(), COUNCIL_ID, NOW, makeValidInfer(), makeValidDeps(),
+    );
     assert.equal(result.ok, true);
     assert.equal(result.proposal?.createdAt, NOW);
     assert.equal(result.proposal?.updatedAt, NOW);
   });
 
-  it("auditEvents has a created event", () => {
-    const result = bridgeCouncilToFactory(makeCouncilPayload(), COUNCIL_ID, NOW, makePassthroughDeps());
+  it("auditEvents has a created event", async () => {
+    const result = await bridgeCouncilToFactory(
+      makeCouncilPayload(), COUNCIL_ID, NOW, makeValidInfer(), makeValidDeps(),
+    );
     assert.equal(result.ok, true);
     const events = result.proposal?.auditEvents ?? [];
     assert.ok(events.length >= 1, "auditEvents must be non-empty");
     assert.equal(events[0]?.event, "created");
   });
 
-  it("requiredApproval is Hart", () => {
-    const result = bridgeCouncilToFactory(makeCouncilPayload(), COUNCIL_ID, NOW, makePassthroughDeps());
+  it("requiredApproval is Hart", async () => {
+    const result = await bridgeCouncilToFactory(
+      makeCouncilPayload(), COUNCIL_ID, NOW, makeValidInfer(), makeValidDeps(),
+    );
     assert.equal(result.ok, true);
     assert.equal(result.proposal?.requiredApproval, "Hart");
   });
 
-  it("refuses when rootGoal is empty (vague)", () => {
-    // Empty rootGoal → the real Factory classifyBuildRequest should refuse it.
-    const payload = makeCouncilPayload({ rootGoal: "" });
-    const result = bridgeCouncilToFactory(payload, COUNCIL_ID, NOW);
-    assert.equal(result.ok, false, "empty rootGoal must be refused");
+  it("never throws on bizarre input (rootGoal empty string)", async () => {
+    let threw = false;
+    try {
+      await bridgeCouncilToFactory(
+        makeCouncilPayload({ rootGoal: "" }), COUNCIL_ID, NOW, makeValidInfer(), makeValidDeps(),
+      );
+    } catch {
+      threw = true;
+    }
+    assert.equal(threw, false, "must never throw even with empty rootGoal");
   });
 });
 
@@ -312,13 +437,13 @@ describe("buildInterrogationAnswers", () => {
 // ─── Tests: runCouncilBuildBridgeOnce (disarmed) ──────────────────────────────
 
 describe("runCouncilBuildBridgeOnce", () => {
-  it("disarmed (default env) → returns [] without touching any DB", async () => {
+  it("disarmed (default env) -> returns [] without touching any DB", async () => {
     const lines = await runCouncilBuildBridgeOnce({}, NOW);
     assert.ok(Array.isArray(lines), "must return array");
     assert.equal(lines.length, 0, "disarmed must return empty array");
   });
 
-  it("flag=false → returns []", async () => {
+  it("flag=false -> returns []", async () => {
     const lines = await runCouncilBuildBridgeOnce(
       { HARTOS_ALLOW_COUNCIL_BUILD_BRIDGE: "false" },
       NOW,
@@ -326,7 +451,7 @@ describe("runCouncilBuildBridgeOnce", () => {
     assert.equal(lines.length, 0);
   });
 
-  it("flag=1 (not 'true') → returns [] (strict string comparison)", async () => {
+  it("flag=1 (not 'true') -> returns [] (strict string comparison)", async () => {
     const lines = await runCouncilBuildBridgeOnce(
       { HARTOS_ALLOW_COUNCIL_BUILD_BRIDGE: "1" },
       NOW,
@@ -334,13 +459,13 @@ describe("runCouncilBuildBridgeOnce", () => {
     assert.equal(lines.length, 0);
   });
 
-  it("armed but no DB URL → returns [] (graceful no-op)", async () => {
+  it("armed but no DB URL -> returns [] (graceful no-op)", async () => {
     const lines = await runCouncilBuildBridgeOnce(
       { HARTOS_ALLOW_COUNCIL_BUILD_BRIDGE: "true" },
       NOW,
     );
     assert.ok(Array.isArray(lines), "must return array");
-    assert.equal(lines.length, 0, "no DB URL → empty array");
+    assert.equal(lines.length, 0, "no DB URL -> empty array");
   });
 
   it("never throws regardless of env", async () => {
