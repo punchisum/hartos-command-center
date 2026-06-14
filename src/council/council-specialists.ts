@@ -29,28 +29,55 @@ export interface CouncilBrains {
    * Use the real Research agent when available; a deterministic adapter is fine for this slice.
    */
   research: (goal: CouncilGoal) => Promise<{ summary: string; confidence: "low" | "medium" | "high"; risks: string[] }>;
+  /**
+   * Beezulbub capability-scout + tech-landscape lens (optional).
+   * When present, a deterministic brain specialist is added after research.
+   * Default: fixture-only (zero cost, zero network). Live scouting requires
+   * BEEZULBUB_ALLOW_NETWORK=true in the env (authoritative gate in scout.ts).
+   */
+  beezulbub?: (goal: CouncilGoal) => Promise<{ summary: string; confidence: "low" | "medium" | "high"; risks: string[] }>;
   // prophet and rinnegan remain optional; they will be wired when those brains are trivially callable.
   prophet?: (goal: CouncilGoal) => Promise<{ summary: string; confidence: "low" | "medium" | "high"; risks: string[] }>;
   rinnegan?: (goal: CouncilGoal) => Promise<{ summary: string; confidence: "low" | "medium" | "high"; risks: string[] }>;
 }
 
 /**
- * Assemble the 5 council specialists.
+ * Assemble the council specialists.
+ *
+ * Base set (always present): research + cto + financial + ma + legal.
+ * Optional brain specialists (added when the brain is provided):
+ *   - beezulbub: capability scouting + tech landscape due-diligence (after research, before LLM specialists).
  *
  * @param infer   The council Infer seam (system+user prompt → raw model text). See councilInferFromEnv.
- * @param brains  The deterministic brain adapters.
- * @returns       Array of 5 Specialists in the DEFAULT_ROSTER order.
+ * @param brains  The deterministic brain adapters (research required; beezulbub optional).
+ * @returns       Array of Specialists in DEFAULT_ROSTER order (beezulbub inserted after research when present).
  */
 export function buildCouncilSpecialists(infer: Infer, brains: CouncilBrains): Specialist[] {
-  return [
+  const specialists: Specialist[] = [
     // Deterministic brain specialist — research lens.
     makeBrainSpecialist("research", "prior art, market landscape, and domain facts", brains.research),
-    // LLM specialists for the new domains.
+  ];
+
+  // Optional: Beezulbub capability-scout brain (after research, before LLM specialists).
+  if (brains.beezulbub !== undefined) {
+    specialists.push(
+      makeBrainSpecialist(
+        "beezulbub",
+        "capability scouting + tech landscape due-diligence",
+        brains.beezulbub
+      )
+    );
+  }
+
+  // LLM specialists for the domain lenses.
+  specialists.push(
     makeLlmSpecialist("cto", infer),
     makeLlmSpecialist("financial", infer),
     makeLlmSpecialist("ma", infer),
-    makeLlmSpecialist("legal", infer),
-  ];
+    makeLlmSpecialist("legal", infer)
+  );
+
+  return specialists;
 }
 
 type Env = Record<string, string | undefined>;

@@ -4,9 +4,11 @@ import { DEFAULT_ROSTER, selectPanel } from "../src/council/panel-selection.js";
 
 describe("selectPanel", () => {
   it("no refiner → the default roster, capped at maxPanel", () => {
-    assert.deepEqual(DEFAULT_ROSTER, ["research", "cto", "financial", "ma", "legal"]);
+    // DEFAULT_ROSTER now has 6 entries (beezulbub added as capability-scout lens).
+    // maxPanel=5 caps the default panel to the first 5; "legal" is the 6th and is dropped.
+    assert.deepEqual(DEFAULT_ROSTER, ["research", "beezulbub", "cto", "financial", "ma", "legal"]);
     const panel = selectPanel({ goal: "build a CRM" });
-    assert.deepEqual(panel, ["research", "cto", "financial", "ma", "legal"]); // maxPanel=5
+    assert.deepEqual(panel, ["research", "beezulbub", "cto", "financial", "ma"]); // maxPanel=5 caps 6→5
   });
   it("refiner can trim + reorder", () => {
     const panel = selectPanel({ goal: "x" }, { refine: () => ["legal", "cto"] });
@@ -17,15 +19,17 @@ describe("selectPanel", () => {
     assert.deepEqual(panel, ["cto", "legal"]);
   });
   it("refiner returning [] → falls back to the deterministic roster (never an empty panel)", () => {
+    // Falls back to the full roster, then caps at maxPanel=5 (drops "legal", the 6th entry).
     const panel = selectPanel({ goal: "x" }, { refine: () => [] });
-    assert.deepEqual(panel, DEFAULT_ROSTER);
+    assert.deepEqual(panel, ["research", "beezulbub", "cto", "financial", "ma"]);
   });
   it("refiner throwing → deterministic roster, never throws", () => {
+    // Falls back to the full roster, then caps at maxPanel=5 (drops "legal", the 6th entry).
     const panel = selectPanel({ goal: "x" }, { refine: () => { throw new Error("boom"); } });
-    assert.deepEqual(panel, DEFAULT_ROSTER);
+    assert.deepEqual(panel, ["research", "beezulbub", "cto", "financial", "ma"]);
   });
   it("respects a smaller maxPanel", () => {
     const panel = selectPanel({ goal: "x" }, { maxPanel: 2 });
-    assert.deepEqual(panel, ["research", "cto"]);
+    assert.deepEqual(panel, ["research", "beezulbub"]);
   });
 });
