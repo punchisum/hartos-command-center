@@ -26,53 +26,55 @@ function fakeGit(over: Partial<GitDeployOps> = {}): GitDeployOps {
     revertSince: over.revertSince ?? (() => ({ ok: true, sha: "revert-sha", detail: "" })),
   };
 }
-
-const ENV = { ALLOW_CLOUDFLARE_DEPLOY: "true" };
+function deps(over: Record<string, unknown> = {}) {
+  const { store } = fakeArmory();
+  return {
+    cwd: "/r", env: { ALLOW_CLOUDFLARE_DEPLOY: "true" }, deployBranch: "trunk", changedFiles: ["src/a.ts"],
+    workerUrl: "https://x", buildTime: "t", notify: async () => {}, armory: store,
+    git: fakeGit(), wrangler: okWrangler, fetchFn: fakeFetch("pushed-sha"), ...over,
+  };
+}
 
 describe("defaultDeployPorts", () => {
-  it("commitPush delegates to git.commitAndPush", async () => {
-    const { store } = fakeArmory();
-    const ports = defaultDeployPorts({ cwd: "/r", env: ENV, workerUrl: "https://x", buildTime: "t", notify: async () => {}, armory: store, git: fakeGit(), wrangler: okWrangler, fetchFn: fakeFetch("pushed-sha") });
+  it("commitPush passes the verified changedFiles to git.commitAndPush", async () => {
+    let gotPaths: string[] = [];
+    const ports = defaultDeployPorts(deps({
+      changedFiles: ["src/a.ts", "src/b.ts"],
+      git: fakeGit({ commitAndPush: (_cwd, _br, _m, paths) => { gotPaths = paths; return { ok: true, sha: "s", detail: "" }; } }),
+    }));
     const r = await ports.commitPush();
     assert.equal(r.ok, true);
-    assert.equal(r.sha, "pushed-sha");
+    assert.deepEqual(gotPaths, ["src/a.ts", "src/b.ts"], "must stage exactly the verified set");
   });
 
   it("deploy delegates to wrangler; verify checks the deployed SHA", async () => {
-    const { store } = fakeArmory();
-    const ports = defaultDeployPorts({ cwd: "/r", env: ENV, workerUrl: "https://x", buildTime: "t", notify: async () => {}, armory: store, git: fakeGit(), wrangler: okWrangler, fetchFn: fakeFetch("sha-A") });
+    const ports = defaultDeployPorts(deps({ fetchFn: fakeFetch("sha-A") }));
     assert.equal((await ports.deploy("sha-A")).ok, true);
-    assert.equal((await ports.verify("sha-A")).ok, true, "verify ok when /health serves sha-A");
+    assert.equal((await ports.verify("sha-A")).ok, true);
     assert.equal((await ports.verify("sha-B")).ok, false, "verify fails when /health serves a different sha");
   });
 
   it("disarm writes the armory marker", async () => {
     const { store, calls } = fakeArmory();
-    const ports = defaultDeployPorts({ cwd: "/r", env: ENV, workerUrl: "https://x", buildTime: "t", notify: async () => {}, armory: store, git: fakeGit(), wrangler: okWrangler, fetchFn: fakeFetch("s") });
+    const ports = defaultDeployPorts(deps({ armory: store }));
     await ports.disarm("a failure");
     assert.ok(calls.some((c) => /setDisarmed:a failure/.test(c)));
   });
 
   it("revert REDEPLOYS and RE-VERIFIES the reverted sha (the safety contract)", async () => {
-    const { store } = fakeArmory();
-    // git revert returns revert-sha; wrangler ok; /health serves revert-sha → revert ok.
-    const ports = defaultDeployPorts({ cwd: "/r", env: ENV, workerUrl: "https://x", buildTime: "t", notify: async () => {}, armory: store, git: fakeGit(), wrangler: okWrangler, fetchFn: fakeFetch("revert-sha") });
-    const r = await ports.revert("good-sha");
-    assert.equal(r.ok, true);
+    const ports = defaultDeployPorts(deps({ git: fakeGit({ revertSince: () => ({ ok: true, sha: "revert-sha", detail: "" }) }), fetchFn: fakeFetch("revert-sha") }));
+    assert.equal((await ports.revert("good-sha")).ok, true);
   });
 
   it("revert FAILS if the re-verify shows prod is NOT serving the reverted sha", async () => {
-    const { store } = fakeArmory();
-    // /health serves a stale/other sha → re-verify fails → revert NOT ok (bad build still live!)
-    const ports = defaultDeployPorts({ cwd: "/r", env: ENV, workerUrl: "https://x", buildTime: "t", notify: async () => {}, armory: store, git: fakeGit(), wrangler: okWrangler, fetchFn: fakeFetch("STALE-sha") });
+    const ports = defaultDeployPorts(deps({ git: fakeGit({ revertSince: () => ({ ok: true, sha: "revert-sha", detail: "" }) }), fetchFn: fakeFetch("STALE-sha") }));
     const r = await ports.revert("good-sha");
     assert.equal(r.ok, false);
     assert.match(r.detail, /verif/i);
   });
 
   it("revert fails if the git revert itself fails", async () => {
-    const { store } = fakeArmory();
-    const ports = defaultDeployPorts({ cwd: "/r", env: ENV, workerUrl: "https://x", buildTime: "t", notify: async () => {}, armory: store, git: fakeGit({ revertSince: () => ({ ok: false, sha: "", detail: "merge conflict" }) }), wrangler: okWrangler, fetchFn: fakeFetch("s") });
+    const ports = defaultDeployPorts(deps({ git: fakeGit({ revertSince: () => ({ ok: false, sha: "", detail: "tree not clean" }) }) }));
     const r = await ports.revert("good-sha");
     assert.equal(r.ok, false);
     assert.match(r.detail, /revert/i);
