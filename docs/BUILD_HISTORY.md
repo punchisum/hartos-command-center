@@ -31,11 +31,13 @@ the table format, and update "Current state" + "Roadmap ahead" as milestones lan
   "M&A Intelligence Agent". Also added: **Claude-Max as the host-side gateway primary** (Gemini fallback;
   Worker bundle stays clean), **Beezulbub as a council brain**, full-gather + honest-degrade (PR #50),
   and the **Worker→Claude-Max routing design** (async Supabase relay). Hart GO'd the M&A proposal.
-- **Worker→Claude-Max relay: LIVE** (PR #53 + activated 2026-06-14). The cockpit Ask now routes to
-  Claude-on-Max via an async Supabase relay (`ask_requests` table + `relay-ask` Edge Function + a daemon
-  ask-relay sub-pass; `HARTOS_ASK_VIA_RELAY` + `HARTOS_ASK_RELAY` armed) — daemon never exposed, silent
-  Gemini fallback if it's offline. (Fixed `claude-max-provider` to use a Claude model, not the gateway's
-  `HARTOS_LLM_MODEL=gpt-5.5`.) Claude-Max is now HartOS's brain end-to-end — host AND edge.
+- **Worker→Claude-Max relay: LIVE + VERIFIED end-to-end on Claude-Max** (PR #53 + activated 2026-06-14).
+  The cockpit Ask now routes to Claude-on-Max via an async Supabase relay (`ask_requests` table +
+  `relay-ask` Edge Function + a daemon ask-relay sub-pass; `HARTOS_ASK_VIA_RELAY` + `HARTOS_ASK_RELAY`
+  armed) — daemon never exposed, silent Gemini fallback if it's offline. Proven: a live relay row came
+  back `provider=claude-max` (after two `claude-max-provider` fixes — use a Claude `--model`, not the
+  gateway's `HARTOS_LLM_MODEL=gpt-5.5`; and strip Claude's ```json fence before parsing). Claude-Max is
+  now HartOS's brain end-to-end — host AND edge.
 - **THE DECIDE→BUILD LOOP IS CLOSED + PROVEN** (PRs #51, #52, disarmed/propose-only). council→Factory
   bridge + a Claude-Max **concretize pass** (PR #52): a GO'd council plan → concretize (strategy +
   specialist findings → a concrete buildable HartOS AgentSpec, direct-spec path) → Factory manifest +
