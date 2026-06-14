@@ -27,12 +27,22 @@ Every node — root coordinator or sub-coordinator — runs the **same 6-step cy
 
 ## 4. Specialists are hybrid
 
-A "specialist" is the reasoning unit a node convenes. Two kinds, behind one `Specialist` interface:
+A "specialist" is the reasoning unit a node convenes — a **peer panelist** that produces one finding. The **Council Coordinator** is a *separate* synthesis role that fuses panelist findings (it is not itself a panelist). Two kinds of specialist, behind one `Specialist` interface:
 
-- **Reused deterministic brains** where they map: forecast → **Prophet** (`src/prophet/forecast.ts`), deep research → **Research agent** (`src/research/`), perception → **Rinnegan** (`src/rinnegan/perception.ts`). These are already live, deterministic, and synthesizable.
-- **LLM-reasoning specialists** for new domains (financial-analyst, tax-specialist, legal, CTO-synthesis): each is just a **specialist prompt-contract** (role + output shape) + **grounded facts**, run through the live `ask-llm` gateway seam (`src/llm/ask-llm.ts`, `src/llm/prompt-contracts.ts`). LLM-off → deterministic fallback (the specialist still returns an honest placeholder finding, mirroring the existing ask-llm honest-fallback).
+- **Reused deterministic brains** where they map: deep research → **Research agent** (`src/research/`), forecast → **Prophet** (`src/prophet/forecast.ts`), perception → **Rinnegan** (`src/rinnegan/perception.ts`). Already live, deterministic, synthesizable.
+- **LLM-reasoning specialists** for the new domains: each is a **specialist prompt-contract** (role + output shape) + **grounded facts**, run through the live `ask-llm` gateway seam (`src/llm/ask-llm.ts`, `src/llm/prompt-contracts.ts`). LLM-off → deterministic fallback (an honest placeholder finding, mirroring the existing ask-llm honest-fallback).
 
-New specialists are added as entries in the **meta-agent registry** (so selection can find them) + a specialist prompt-contract.
+### 4.1 Initial specialist roster (decided with Hart)
+
+| Specialist | Lens (the question it answers) | Kind |
+|---|---|---|
+| **Research** | What's known / prior art / market & domain facts | Reused brain (Research agent) |
+| **CTO** | Can we build it? Architecture, effort, technical risk/feasibility | LLM specialist |
+| **Financial** | What does it cost / return? Burn, runway, cost-vs-benefit | LLM specialist |
+| **M&A** | Build vs. buy vs. partner; acquisition/integration angle | LLM specialist |
+| **Legal** | Compliance, liability, regulatory & contractual surface | LLM specialist |
+
+**Prophet** (forecast) and **Rinnegan** (perception) remain available brains the coordinator can convene when forecast/perception is relevant to a goal — they are not in the default panel but are selectable. New specialists are added as **meta-agent registry** entries (so selection can find them) + a specialist prompt-contract.
 
 ## 5. Panel selection is hybrid
 
@@ -91,7 +101,7 @@ Every council run + Hart's approve/reject decision is captured via the existing 
 ## 11. Tunables / open items (decide during implementation)
 
 - Caps: `MAX_DEPTH=3`, `MAX_PANEL=5`/node, `MAX_LLM_CALLS=30`, token budget — starting values; tune from real runs.
-- The initial specialist roster (which LLM specialists to ship first: financial, tax, legal, CTO-synthesis?).
+- ~~Initial specialist roster~~ — **decided** (§4.1): Research (reused brain) + CTO, Financial, M&A, Legal (LLM specialists); Prophet/Rinnegan selectable.
 - Concurrency mechanism on the daemon (bounded `Promise.all` pool) + per-specialist timeout.
 - Whether sub-coordinator selection is LLM-decided per node or capped by a structural rule.
 - Exact consensus/dissent metric (agreement count + corroboration score).
