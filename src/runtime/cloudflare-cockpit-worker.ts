@@ -71,6 +71,7 @@ import { augmentGroundingWithDecisions } from "../llm/ask-decision-grounding.js"
 import { buildCockpitState } from "../cockpit/cockpit-read-model.js";
 import { composeKnowledgeSurface, deriveKnowledgeInputs, type KnowledgeSurface } from "../cockpit/knowledge-surface.js";
 import { routeCockpitCommand } from "../cockpit/command-router.js";
+import { councilViewModel } from "../cockpit/council-view.js";
 import { decide, autonomyTierLabel, type ConciergeDecision } from "../cockpit/decision-engine.js";
 import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { renderCockpitV5, buildCockpitV5Data } from "./cloudflare-cockpit-v5.js";
@@ -538,8 +539,17 @@ export async function handleCockpitRequest(
       // domain is "council", sourced from the live proposal queue snapshot.
       // Secret-free; no execution. Degrades safely to { ok: true, proposals: [] }
       // when no live source is wired, mirroring the pattern of /api/proposals.
+      // P8: each council proposal is additively enriched with the DERIVED demote-only
+      // calibration (calibratedConfidence + a one-line calibrationNote) via the pure,
+      // Worker-safe councilViewModel — so the rich view is live on the API, not dead code.
+      // Raw `confidence` in proposedPayload is untouched; existing fields are preserved.
       const queue = dctx.state?.proposalQueue ?? [];
-      const councilProposals = queue.filter((p) => p.domain === "council");
+      const councilProposals = queue
+        .filter((p) => p.domain === "council")
+        .map((p) => {
+          const view = councilViewModel(p.proposedPayload);
+          return { ...p, calibratedConfidence: view.calibratedConfidence, calibrationNote: view.calibrationNote };
+        });
       return jsonResponse(200, { ok: true, proposals: councilProposals }, cors);
     }
     if (pathname === "/api/mutation-center") {

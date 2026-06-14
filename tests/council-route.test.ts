@@ -133,4 +133,28 @@ describe("GET /api/council route", () => {
     assert.equal(data.ok, true);
     assert.equal(data.proposals.length, 3);
   });
+
+  it("P8: additively enriches each proposal with calibratedConfidence + calibrationNote", async () => {
+    // A proposal whose payload was already calibrated (demoted high→medium).
+    const demoted = makeCouncilProposal("cp-demoted");
+    (demoted.proposedPayload as Record<string, unknown>)["calibratedConfidence"] = "medium";
+
+    const stateCtx: CockpitWorkerContext = {
+      ...ctx,
+      state: { ...ctx.state!, proposalQueue: [makeCouncilProposal("cp-neutral"), demoted] },
+    };
+    const res = await handleCockpitRequest(new Request(`${BASE}/api/council`), {}, stateCtx);
+    const data = await res.json() as {
+      ok: boolean;
+      proposals: Array<{ id: string; calibratedConfidence: string; calibrationNote: string | null }>;
+    };
+    const neutral = data.proposals.find((p) => p.id === "cp-neutral")!;
+    const dem = data.proposals.find((p) => p.id === "cp-demoted")!;
+    // Neutral: no calibratedConfidence in payload → falls back to raw "high", no note.
+    assert.equal(neutral.calibratedConfidence, "high");
+    assert.equal(neutral.calibrationNote, null);
+    // Demoted: calibrated band exposed + a non-null human-readable note.
+    assert.equal(dem.calibratedConfidence, "medium");
+    assert.ok(dem.calibrationNote && /HIGH/i.test(dem.calibrationNote) && /MEDIUM/i.test(dem.calibrationNote));
+  });
 });
