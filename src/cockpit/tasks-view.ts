@@ -1,12 +1,17 @@
 /**
  * src/cockpit/tasks-view.ts — the LIVE OPERATIONS view (pure, Worker-safe).
  *
- * Projects the proposal spine's agent_job rows into "tasks in flight" so the v5 cockpit's Live
+ * Projects the proposal spine's task-bearing rows into "tasks in flight" so the v5 cockpit's Live
  * Operations page can show what HartOS is actually DOING — Wolverine sweeping, an agent building,
- * research running — with an honest lifecycle stage. In the Neural Deck metaphor a task is a signal
- * propagating through the organism: queued (awaiting authorization) → running (approved, the daemon's
- * hands are on it) → done / failed. No fabrication: stage is read straight off the row's status +
- * its audit trail.
+ * the Council deliberating, the Factory standing up a new agent — with an honest lifecycle stage. In
+ * the Neural Deck metaphor a task is a signal propagating through the organism: queued (awaiting
+ * authorization) → running (approved, the daemon's hands are on it) → done / failed. No fabrication:
+ * stage is read straight off the row's status + its audit trail.
+ *
+ * Three actionTypes are tasks: "agent_job" (jobKind-driven), "council_plan" (a multi-agent
+ * deliberation), and "build_agent_plan" (the Factory standing up a new agent). The latter two were
+ * previously dropped, so an APPROVED M&A council proposal or a factory build vanished from Live Ops
+ * the moment it left the proposal queue — this view now tracks them through their lifecycle too.
  */
 
 export type TaskStage = "queued" | "running" | "done" | "failed" | "dismissed";
@@ -106,11 +111,16 @@ export function ageLabel(updatedAt: string | null | undefined, nowIso: string): 
 }
 
 /**
- * Build the Live Operations view from the proposal queue. Only agent_job rows are tasks; everything
- * else (typed mutations, plans) is out of scope here. Newest first; dismissed rows sink to the end.
+ * Build the Live Operations view from the proposal queue. Three actionTypes are tasks: agent_job
+ * (jobKind-driven), council_plan (a Council deliberation), and build_agent_plan (a Factory build);
+ * everything else (typed mutations, fitness deltas) is out of scope here. Newest first; dismissed
+ * rows sink to the end. NEVER throws.
  */
 export function buildTasksView(rows: TaskSourceRow[] | undefined, nowIso: string): TasksView {
-  if (!rows) {
+  // NEVER throw: any non-array input (undefined, a single un-arrayed row, a number from a malformed
+  // RPC) degrades to the unavailable envelope. This view feeds the v5 deck render directly — a throw
+  // here would crash the WHOLE cockpit page, not just Live Ops.
+  if (!Array.isArray(rows)) {
     return {
       available: false,
       generatedAt: nowIso,
@@ -121,12 +131,35 @@ export function buildTasksView(rows: TaskSourceRow[] | undefined, nowIso: string
   }
   const tasks: TaskRow[] = [];
   for (const r of rows) {
+    // Defensive: a null/non-object element must not throw on the `r.payload` read below.
+    if (!r || typeof r !== "object") continue;
     // Accept BOTH row shapes: nested payload (local spine rows) and top-level (hosted RPC rows).
     const actionType = r.payload?.actionType ?? r.actionType;
-    if (actionType !== "agent_job") continue;
-    const rawKind = r.payload?.proposedPayload?.jobKind ?? r.proposedPayload?.jobKind;
-    const kind = typeof rawKind === "string" && rawKind ? rawKind : "report";
-    const [agent, color, verb] = KIND_META[kind] ?? ["Command", "#9C8CBC", "running"];
+
+    let agent: string;
+    let color: string;
+    let verb: string;
+    let kind: string;
+    if (actionType === "agent_job") {
+      const rawKind = r.payload?.proposedPayload?.jobKind ?? r.proposedPayload?.jobKind;
+      kind = typeof rawKind === "string" && rawKind ? rawKind : "report";
+      [agent, color, verb] = KIND_META[kind] ?? ["Command", "#9C8CBC", "running"];
+    } else if (actionType === "council_plan") {
+      // A multi-agent deliberation (e.g. an M&A council) — tracked from approval through execution.
+      kind = "council.plan";
+      agent = "Council";
+      color = "#A974FF";
+      verb = "deliberating";
+    } else if (actionType === "build_agent_plan") {
+      // The Factory standing up a new agent — same shop as claude.execute, hence the same color.
+      kind = "factory.build";
+      agent = "Factory";
+      color = "#FF2D9E";
+      verb = "building";
+    } else {
+      continue;
+    }
+
     const st = stageOf(typeof r.status === "string" ? r.status : "");
     tasks.push({
       id: r.id,

@@ -306,10 +306,13 @@ export interface V5SourceProposal extends TaskSourceRow {
 }
 
 function mapStatus(s: string, firing: boolean): V5Agent["status"] {
+  // Truth-layer: a CONFIRMED-down agent is never masked by an in-flight task. A proposal sitting at
+  // status "executing" is evidence of activity, but it must NOT launder a down/offline agent into
+  // "firing" — health confirmation (or its absence) outranks a task row. So down is checked FIRST.
+  if (s === "down" || s === "missing" || s === "offline") return "down";
   if (firing) return "firing";
   if (s === "live") return "healthy";
   if (s === "partial") return "watch";
-  if (s === "down" || s === "missing" || s === "offline") return "down";
   return "idle";
 }
 
