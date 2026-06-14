@@ -163,3 +163,36 @@ describe("createCouncilProposal — calibratedConfidence", () => {
     assert.equal(item.proposedPayload.calibratedConfidence, calibrateConfidence("high")); // attached
   });
 });
+
+describe("createCouncilProposal — calibration visible in the rendered proposal", () => {
+  const payloadAt = (confidence: "low" | "medium" | "high") => ({
+    rootGoal: "g",
+    recommendation: "do x",
+    confidence,
+    tree: { goal: { goal: "g" }, panel: ["cto"], findings: [], synthesis: { recommendation: "do x", confidence, consensus: [], dissent: [], truncated: false, notes: [] }, children: [], depth: 1 },
+    llmCallsUsed: 1,
+  });
+
+  it("at neutral priors: title shows the raw band, no calibration note", async () => {
+    const captured: any[] = [];
+    const store = { upsert: async (i: any) => { captured.push(i); } };
+    await createCouncilProposal(store, payloadAt("high") as any, new Date("2026-06-14T00:00:00.000Z"));
+    const item = captured[0];
+    assert.ok(item.title.includes("[high]"), `title was: ${item.title}`);
+    assert.ok(!item.safetyNotes.some((n: string) => /calibrat/i.test(n)), "no calibration note at neutral priors");
+    assert.ok(!item.description.includes("Calibrated for presentation"), "no calibration sentence in description");
+  });
+
+  it("when priors demote the band: title shows raw→calibrated + a calibration note (raw preserved)", async () => {
+    const captured: any[] = [];
+    const store = { upsert: async (i: any) => { captured.push(i); } };
+    // high prior 0.30 < 0.50 floor → demote high→medium.
+    await createCouncilProposal(store, payloadAt("high") as any, new Date("2026-06-14T00:00:00.000Z"), { low: 0.5, medium: 0.5, high: 0.3 });
+    const item = captured[0];
+    assert.ok(item.title.includes("[high→medium]"), `title was: ${item.title}`);
+    assert.equal(item.proposedPayload.confidence, "high"); // raw preserved in payload
+    assert.equal(item.proposedPayload.calibratedConfidence, "medium");
+    assert.ok(item.safetyNotes.some((n: string) => /calibrat/i.test(n) && /MEDIUM/i.test(n)), "calibration safety note present");
+    assert.ok(item.description.includes("Calibrated for presentation to medium"), "calibration sentence in description");
+  });
+});

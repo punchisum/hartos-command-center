@@ -12,8 +12,8 @@
  */
 
 import type { ProposalQueueItem } from "../cockpit/proposals/proposal-types.js";
-import type { CouncilProposalPayload } from "./council-types.js";
-import { calibrateConfidence } from "./council-calibration.js";
+import type { CouncilProposalPayload, Confidence } from "./council-types.js";
+import { calibrateConfidence, COUNCIL_BAND_APPROVAL } from "./council-calibration.js";
 
 /** Minimal upserter surface (matches SelfModProposalStore pattern). */
 export interface CouncilProposalStore {
@@ -33,17 +33,25 @@ export async function createCouncilProposal(
   store: CouncilProposalStore,
   payload: CouncilProposalPayload,
   now: Date,
+  // P8: the calibration priors to present against. Defaults to the live module constant
+  // (which P8 recalibrates via the §6 gauntlet); injectable for tests.
+  priors: Record<Confidence, number> = COUNCIL_BAND_APPROVAL,
 ): Promise<string> {
   const ts = now.toISOString();
   const id = makeCouncilProposalId(now);
 
-  // Title: "Council: <recommendation (first 120 chars)> [<confidence>]"
-  const recSnippet = payload.recommendation.slice(0, 120);
-  const title = `Council: ${recSnippet} [${payload.confidence}]`;
+  // P8: demote-only calibrated band for the cockpit. Raw `confidence` is preserved untouched
+  // (audit + the band the aggregator measures approval against). At neutral priors the
+  // calibrated band equals the raw band and nothing changes; once P8 demotes a band, Hart
+  // sees it in the title + a safety note.
+  const calibratedConfidence = calibrateConfidence(payload.confidence, priors);
+  const demoted = calibratedConfidence !== payload.confidence;
 
-  // P8: demote-only calibrated band attached for the cockpit. Raw `confidence` is preserved
-  // untouched (audit + the band the aggregator measures approval against).
-  const calibratedConfidence = calibrateConfidence(payload.confidence);
+  // Title: "Council: <recommendation (first 120 chars)> [<band>]", where <band> is the raw
+  // band, or "raw→calibrated" when P8 has demoted it (so the calibration is visible at a glance).
+  const recSnippet = payload.recommendation.slice(0, 120);
+  const bandLabel = demoted ? `${payload.confidence}→${calibratedConfidence}` : payload.confidence;
+  const title = `Council: ${recSnippet} [${bandLabel}]`;
 
   const item: ProposalQueueItem = {
     id,
@@ -53,6 +61,9 @@ export async function createCouncilProposal(
     description:
       `Council orchestration completed for goal: "${payload.rootGoal}". ` +
       `Overall confidence: ${payload.confidence}. ` +
+      (demoted
+        ? `Calibrated for presentation to ${calibratedConfidence} (P8: this band is historically over-trusted; raw band preserved). `
+        : "") +
       `${payload.llmCallsUsed} LLM call(s) used. ` +
       `The full council tree is attached in the payload; no execution has occurred.`,
     sourceIntent: `council-goal: ${payload.rootGoal}`,
@@ -77,6 +88,11 @@ export async function createCouncilProposal(
       "This council run produced a recommendation only — nothing has been executed.",
       "The council tree in the payload carries consensus, dissent, and per-specialist confidence.",
       "No mutation adapter was called; the council is exclusively a proposal-generating orchestration.",
+      ...(demoted
+        ? [
+            `Calibration: council ${payload.confidence.toUpperCase()} calls are historically over-trusted — presented as ${calibratedConfidence.toUpperCase()} (P8 demote-only; the raw ${payload.confidence} band is preserved in the payload).`,
+          ]
+        : []),
     ],
     dryRunResult: null,
     createdAt: ts,
