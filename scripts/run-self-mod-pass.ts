@@ -25,6 +25,7 @@ import { canAutoApply } from "../src/execution/self-mod-armory.js";
 import { fileArmoryStore } from "../src/execution/self-mod-armory-store.js";
 import { deployAndVerifySelfMod } from "../src/execution/self-mod-deploy.js";
 import { defaultDeployPorts } from "../src/execution/self-mod-deploy-ports.js";
+import { PROD_COCKPIT_WORKER_URL } from "../src/execution/self-mod-deploy-worker.js";
 import { captureBaseline } from "../src/execution/claude-exec-baseline.js";
 import { rollbackSelfMod } from "../src/execution/self-mod-rollback.js";
 import { createSelfModProposal } from "../src/execution/self-mod-proposal.js";
@@ -60,6 +61,17 @@ function isValidTask(t: unknown): t is SelfModTask {
     typeof (t as SelfModTask).description === "string" &&
     (t as SelfModTask).description.trim().length > 0
   );
+}
+
+/**
+ * Resolve the post-deploy verify URL. It MUST name the SAME worker the deploy targets (the live cockpit
+ * worker, hard-bound via wrangler.cockpit.toml) — so a STAGING_* var is deliberately IGNORED here
+ * (Finding 1: a staging override would verify every good deploy against the wrong worker → spurious
+ * revert+disarm). CLOUDFLARE_WORKER_URL overrides only for an explicit URL change (e.g. a custom domain);
+ * absent/blank, it defaults to the live workers.dev URL.
+ */
+export function resolveVerifyWorkerUrl(env: Env): string {
+  return (env["CLOUDFLARE_WORKER_URL"] ?? "").trim() || PROD_COCKPIT_WORKER_URL;
 }
 
 /**
@@ -104,8 +116,12 @@ export async function runSelfModPassOnce(env: Env, now: Date): Promise<string[]>
 
     const deployBranch = "feat/cloudflare-hosted-command-center"; // trunk
 
-    // The Worker URL: prefer the staging variant; fall back to the plain var (mirrors run-staging-smoke.ts).
-    const workerUrl = (env["STAGING_CLOUDFLARE_WORKER_URL"] ?? env["CLOUDFLARE_WORKER_URL"] ?? "").trim();
+    // The Worker URL for post-deploy verify MUST be the SAME worker the deploy targets (the live cockpit
+    // worker, hard-bound via wrangler.cockpit.toml). Binding to PROD_COCKPIT_WORKER_URL keeps deploy and
+    // verify on one identity — a STAGING_* override here would make every good deploy verify against the
+    // wrong worker → spurious revert+disarm (Finding 1). CLOUDFLARE_WORKER_URL only overrides for an
+    // explicit URL change (e.g. a custom domain); it defaults to the live workers.dev URL.
+    const workerUrl = resolveVerifyWorkerUrl(env);
 
     // notify(msg): send a Telegram message when configured, else silent no-op; never throws.
     const notifyCfg = telegramNotifyConfig(env);

@@ -4,7 +4,7 @@ The HartOS doctrine is enforced as code (`src/doctrine/doctrine.ts`) and rendere
 
 ## Amendment §6 — Bounded Autonomous Self-Modification
 
-**Status:** DRAFTED — not ratified. Self-mod is disarmed until Hart ratifies §6 here AND sets the arming flags.
+**Status:** RATIFIED 2026-06-14 (Hart). Ratified after the enforcing machinery was built, tested (suite 2892/0), and merged disarmed (PRs #21–#42). Self-mod is armed only when the machine-checked flags below are also set.
 
 ### Why
 HartOS should be able to fix its own bugs, recalibrate its own logic from its track record, and extend its own capabilities — without a human hand-editing the code each time. §6 grants that, narrowly and reversibly.

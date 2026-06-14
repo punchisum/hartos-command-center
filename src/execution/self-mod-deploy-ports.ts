@@ -17,7 +17,7 @@
  * NODE HOST ONLY. STILL DISARMED — no caller wires this yet.
  */
 import { spawnSync } from "node:child_process";
-import { deployCloudflareWorker, realWranglerRunner, type WranglerRunner } from "./self-mod-deploy-worker.js";
+import { deployCloudflareWorker, wranglerRunnerInCwd, type WranglerRunner } from "./self-mod-deploy-worker.js";
 import { checkDeployedSha, type FetchLike } from "./self-mod-deploy-health.js";
 import type { DeployPorts } from "./self-mod-deploy.js";
 import type { ArmoryStore } from "./self-mod-armory.js";
@@ -128,7 +128,8 @@ export interface DeployPortsDeps {
 /** Build the real DeployPorts. commitPush stages only verified files; revert redeploys + re-verifies. */
 export function defaultDeployPorts(deps: DeployPortsDeps): DeployPorts {
   const gitOps = deps.git ?? realGitDeployOps;
-  const wrangler = deps.wrangler ?? realWranglerRunner;
+  // Pin wrangler's cwd to the repo root so the relative --config always resolves (Finding 2).
+  const wrangler = deps.wrangler ?? wranglerRunnerInCwd(deps.cwd);
   const fetchFn = deps.fetchFn ?? (fetch as unknown as FetchLike);
 
   return {
