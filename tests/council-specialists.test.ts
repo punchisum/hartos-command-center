@@ -153,4 +153,15 @@ describe("councilInferFromEnv (Task 2.3)", () => {
     }
     assert.equal(threw, false, "councilInferFromEnv result must never throw");
   });
+
+  it("LLM-off (deterministic/fallback mode) yields an honest LOW-confidence stub, never 'medium' (no laundering)", async () => {
+    // Default env = deterministic provider / network off — the gateway's own stub may claim "medium";
+    // councilInferFromEnv must NOT forward it as a real finding. It returns an honest low stub instead.
+    for (const env of [{}, { HARTOS_LLM_PROVIDER: "deterministic" }, { HARTOS_LLM_PROVIDER: "gemini" /* no key → fallback */ }]) {
+      const raw = await councilInferFromEnv(env)({ system: "s", user: "u" });
+      const parsed = JSON.parse(raw) as { confidence: string; summary: string };
+      assert.equal(parsed.confidence, "low", `LLM-off must report low confidence, got ${parsed.confidence} for env ${JSON.stringify(env)}`);
+      assert.match(parsed.summary, /unavailable|stub|degraded/i, "the stub summary must admit the LLM was unavailable");
+    }
+  });
 });

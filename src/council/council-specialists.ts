@@ -58,13 +58,14 @@ type Env = Record<string, string | undefined>;
  * Build a council-scoped Infer backed by the governed LlmGateway.
  *
  * The council Infer takes { system, user } and calls the gateway's strategy-reasoning capability
- * (a natural fit for specialist advisor prompts).  When the LLM gate is off (default), the gateway
- * answers deterministically and `summarize` extracts a stub string — never throws.
+ * (a natural fit for specialist advisor prompts). Never throws.
  *
- * HONEST FALLBACK: when the gateway returns no usable output, the infer returns a JSON string with
- * confidence="low" and a summary that admits the LLM was unavailable.  This degrades the specialist
- * finding to "degraded=true" via parseFinding, which is the honest outcome and exactly the right
- * behaviour per the spec.
+ * HONEST FALLBACK: a real specialist finding is forwarded ONLY when a real network provider answered
+ * (mode gemini/openai). When the LLM gate is off — gateway mode "deterministic"/"fallback", the
+ * default first-arming state — the gateway's own stub is NOT specialist reasoning, so this returns an
+ * honest LOW-confidence stub whose summary admits the LLM was unavailable. That keeps the confidence
+ * band truthful (a stub never claims "medium") and conservatively floors synthesis to low — it never
+ * launders a stub into a confident finding for synthesis or the P8 memory signal.
  *
  * @param env   Process environment.  Defaults to empty (deterministic) when omitted.
  */
@@ -77,9 +78,13 @@ export function councilInferFromEnv(env: Env): Infer {
     const request = `${prompt.system}\n\n${prompt.user}`;
     try {
       const result = await gateway.runStrategyReasoning(request);
-      if (result && result.success && result.output) {
-        // The gateway returns a structured LlmStructuredOutput.  The council's parseFinding expects
-        // a raw JSON string of { summary, confidence, risks }.  Extract the usable fields.
+      // ONLY a real network-LLM answer is a genuine specialist finding. In "deterministic"/"fallback"
+      // mode the gateway's stub is NOT specialist reasoning — forwarding its (often "medium") summary
+      // would launder a stub into a non-degraded finding that synthesis (no-laundering) and the P8
+      // memory signal then trust. So we require a real provider; otherwise fall through to the honest
+      // low-confidence stub below.
+      const realLlm = !!result && result.success && result.mode !== "deterministic" && result.mode !== "fallback";
+      if (realLlm && result.output) {
         const { summary, confidence } = result.output;
         if (summary && typeof summary === "string" && summary.trim().length > 0) {
           const safeConf = confidence === "low" || confidence === "medium" || confidence === "high" ? confidence : "low";
