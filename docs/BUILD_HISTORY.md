@@ -31,11 +31,15 @@ the table format, and update "Current state" + "Roadmap ahead" as milestones lan
   "M&A Intelligence Agent". Also added: **Claude-Max as the host-side gateway primary** (Gemini fallback;
   Worker bundle stays clean), **Beezulbub as a council brain**, full-gather + honest-degrade (PR #50),
   and the **Worker→Claude-Max routing design** (async Supabase relay). Hart GO'd the M&A proposal.
-- **council→Factory build bridge** (PR #51, disarmed/propose-only): an approved council plan → the Factory
-  pipeline → a `build_agent_plan` proposal awaiting a SECOND GO (never scaffolds). Ran on the M&A goal;
-  the Factory correctly **refused the vague strategic goal**, exposing the real STRATEGY→buildable-SPEC
-  seam (the bridge must mine the CTO findings for commands/dataSources/interfaces, or add a concretize pass).
-- **Test suite:** 3167/0.
+- **THE DECIDE→BUILD LOOP IS CLOSED + PROVEN** (PRs #51, #52, disarmed/propose-only). council→Factory
+  bridge + a Claude-Max **concretize pass** (PR #52): a GO'd council plan → concretize (strategy +
+  specialist findings → a concrete buildable HartOS AgentSpec, direct-spec path) → Factory manifest +
+  build plan → a `build_agent_plan` proposal awaiting a SECOND GO (never scaffolds). **Ran live end-to-end
+  on the GO'd M&A plan → produced `ma-signal-scout-agent`** (reads SEC EDGAR 13D/13G + news, scores
+  acquisition likelihood; the Legal specialist's MNPI warning PROPAGATED into the spec — "no investment
+  advice, requires_human_gate, disclaimer"). Full vision realized: goal → council → GO → concretize →
+  Factory build plan → (second GO → gated runway).
+- **Test suite:** 3200/0.
 
 ## Roadmap ahead
 
