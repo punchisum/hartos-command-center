@@ -19,10 +19,13 @@ export interface CouncilRunResult {
 export async function runCouncil(goal: CouncilGoal, ports: CouncilPorts): Promise<CouncilRunResult> {
   if (!ports.isArmed()) return { skipped: true, reason: "council disarmed (HARTOS_ALLOW_COUNCIL / kill-switch)" };
 
-  const panel = ports.selectPanel(goal).slice(0, ports.caps.maxPanel);
-  const allowed = Math.min(panel.length, ports.caps.maxLlmCalls);
+  const selected = ports.selectPanel(goal);
+  const panel = selected.slice(0, Math.max(0, ports.caps.maxPanel));
+  const allowed = Math.min(panel.length, Math.max(0, ports.caps.maxLlmCalls));
   const convened = panel.slice(0, allowed);
-  const truncated = convened.length < panel.length;
+  // Truncation is measured against the SELECTED panel so a 0/negative cap that drops would-be
+  // panelists is flagged too (no silent caps). Negative caps floor to 0, never a reverse slice.
+  const truncated = convened.length < selected.length;
 
   const findings = await Promise.all(convened.map((id) => ports.runSpecialist(id, goal)));
   const synthesis = synthesize(findings, { truncated });

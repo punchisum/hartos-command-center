@@ -42,4 +42,12 @@ describe("runCouncil", () => {
     assert.equal(r.skipped, false);
     assert.ok(r.payload);
   });
+  it("a zero/negative cap that suppresses the panel is FLAGGED as truncated (no silent caps)", async () => {
+    const zero = await runCouncil({ goal: "x" }, ports({ selectPanel: () => ["a", "b"], caps: { maxPanel: 0, maxLlmCalls: 30 } }));
+    assert.equal(zero.payload?.tree.panel.length, 0);
+    assert.equal(zero.payload?.tree.synthesis.truncated, true, "0 maxPanel that drops panelists must flag truncation");
+    const neg = await runCouncil({ goal: "x" }, ports({ selectPanel: () => ["a", "b"], caps: { maxPanel: -1, maxLlmCalls: 30 } }));
+    assert.equal(neg.payload?.tree.panel.length, 0, "negative cap floors to 0, never a reverse slice");
+    assert.equal(neg.payload?.tree.synthesis.truncated, true);
+  });
 });
