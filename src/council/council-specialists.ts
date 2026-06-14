@@ -22,23 +22,39 @@ import type { CouncilGoal } from "./council-types.js";
 import { makeLlmSpecialist, makeBrainSpecialist } from "./specialist.js";
 import { councilClaudeInfer } from "./council-claude-infer.js";
 
+/** The structured return type shared by all brain adapters (research, beezulbub, etc.). */
+export interface BrainResult {
+  summary: string;
+  confidence: "low" | "medium" | "high";
+  risks: string[];
+  /**
+   * When true, the brain did NOT actually investigate (e.g. lightweight/fixture mode with no real
+   * sources). The council synthesis EXCLUDES degraded findings from the confidence floor so that a
+   * lightweight brain running in zero-cost mode does not drag the floor down when the real
+   * specialists (CTO/Financial/M&A/Legal) return medium/high confidence.
+   */
+  degraded?: boolean;
+}
+
 /** The brain adapters the council uses. Only research is required; others optional. */
 export interface CouncilBrains {
   /**
    * The research brain: takes a CouncilGoal and returns a structured finding.
    * Use the real Research agent when available; a deterministic adapter is fine for this slice.
+   * When the brain ran lightweight/gathered no sources, it SHOULD set degraded:true.
    */
-  research: (goal: CouncilGoal) => Promise<{ summary: string; confidence: "low" | "medium" | "high"; risks: string[] }>;
+  research: (goal: CouncilGoal) => Promise<BrainResult>;
   /**
    * Beezulbub capability-scout + tech-landscape lens (optional).
    * When present, a deterministic brain specialist is added after research.
    * Default: fixture-only (zero cost, zero network). Live scouting requires
    * BEEZULBUB_ALLOW_NETWORK=true in the env (authoritative gate in scout.ts).
+   * When fixture-only with zero candidates, it SHOULD set degraded:true.
    */
-  beezulbub?: (goal: CouncilGoal) => Promise<{ summary: string; confidence: "low" | "medium" | "high"; risks: string[] }>;
+  beezulbub?: (goal: CouncilGoal) => Promise<BrainResult>;
   // prophet and rinnegan remain optional; they will be wired when those brains are trivially callable.
-  prophet?: (goal: CouncilGoal) => Promise<{ summary: string; confidence: "low" | "medium" | "high"; risks: string[] }>;
-  rinnegan?: (goal: CouncilGoal) => Promise<{ summary: string; confidence: "low" | "medium" | "high"; risks: string[] }>;
+  prophet?: (goal: CouncilGoal) => Promise<BrainResult>;
+  rinnegan?: (goal: CouncilGoal) => Promise<BrainResult>;
 }
 
 /**

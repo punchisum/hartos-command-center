@@ -35,12 +35,12 @@ export function makeLlmSpecialist(id: string, infer: Infer, timeoutMs = TIMEOUT_
 /** Wrap a deterministic brain (injected) as a specialist. */
 export function makeBrainSpecialist(
   id: string, lens: string,
-  brain: (goal: CouncilGoal) => Promise<{ summary: string; confidence: SpecialistFinding["confidence"]; risks: string[] }>,
+  brain: (goal: CouncilGoal) => Promise<{ summary: string; confidence: SpecialistFinding["confidence"]; risks: string[]; degraded?: boolean }>,
 ): Specialist {
   return {
     id,
     run: async (goal) => {
-      try { const r = await brain(goal); return { specialistId: id, lens, summary: r.summary, confidence: r.confidence, risks: r.risks, degraded: false }; }
+      try { const r = await brain(goal); return { specialistId: id, lens, summary: r.summary, confidence: r.confidence, risks: r.risks, degraded: r.degraded ?? false }; }
       catch { return { specialistId: id, lens, summary: "(brain failed)", confidence: "low", risks: [], degraded: true }; }
     },
   };

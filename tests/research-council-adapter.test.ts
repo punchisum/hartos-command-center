@@ -6,12 +6,15 @@
  * No real network; all injected env or mocked paths.
  * Tests:
  *   1. Lightweight mode returns a low-confidence honest result with unknowns-as-risks.
+ *   1b. Lightweight mode returns degraded:true (no sources gathered).
  *   2. The adapter never throws (even if planResearch were somehow broken, we guard).
  *   3. Full-mode-but-gather-off falls back to lightweight (honest unknowns, no gathering).
  *   4. Confidence mapping: "unknown" → "low"; "low" → "low"; "medium" → "medium"; "high" → "high".
  *   5. isLightweightMode defaults to true (zero-cost plain run).
  *   6. Lightweight result contains "Unknown:" prefixed risks from dossier unknowns.
  *   7. The adapter result never has undefined/null summary or risks.
+ *   8. Full-gather (injected fake Claude infer returning sources) → degraded:false + real summary.
+ *   9. isLightweightMode gates on CLAUDE_CODE_OAUTH_TOKEN (not OpenAI key) for full mode.
  */
 
 import { describe, it } from "node:test";
@@ -24,6 +27,7 @@ import {
 } from "../src/research/research-council-adapter.js";
 import type { CouncilGoal } from "../src/council/council-types.js";
 import type { ResearchConfidence } from "../src/research/research-synthesis.js";
+import type { ClaudeResearchInfer } from "../src/research/research-claude.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -39,13 +43,28 @@ const FULL_MODE_GATHER_OFF: Record<string, string | undefined> = {
   // HARTOS_RESEARCH_GATHER deliberately absent → gather not armed
 };
 
-/** An env that sets lightweight=false but no LLM keys → still lightweight. */
-const FULL_MODE_NO_KEYS: Record<string, string | undefined> = {
+/** An env that sets lightweight=false + gather armed, but no Claude token → still lightweight. */
+const FULL_MODE_NO_CLAUDE_TOKEN: Record<string, string | undefined> = {
   [COUNCIL_RESEARCH_LIGHTWEIGHT_FLAG]: "false",
   HARTOS_RESEARCH_GATHER: "true",
-  HARTOS_LLM_ENABLE_NETWORK: "true",
-  // OPENAI_API_KEY absent → LLM gate closed → adapter falls to lightweight
+  // CLAUDE_CODE_OAUTH_TOKEN absent → Claude-on-Max gate closed → adapter falls to lightweight
 };
+
+/** An env that fully arms full-gather mode (all three gates). */
+const FULL_GATHER_ENV: Record<string, string | undefined> = {
+  [COUNCIL_RESEARCH_LIGHTWEIGHT_FLAG]: "false",
+  HARTOS_RESEARCH_GATHER: "true",
+  CLAUDE_CODE_OAUTH_TOKEN: "oauth-test-token",
+};
+
+/** A fake Claude infer that returns real sources for any sub-question. */
+const fakeClaudeInferWithSources: ClaudeResearchInfer = async (_subQ, _topic) => ({
+  answer: "Postgres is better for ACID compliance; SQLite is lighter for embedded use.",
+  sources: [{ url: "https://example.com/pg-vs-sqlite", title: "Postgres vs SQLite comparison" }],
+});
+
+/** A fake Claude infer that always returns null (simulates Claude unavailable). */
+const fakeClaudeInferNull: ClaudeResearchInfer = async () => null;
 
 // ── mapConfidence ─────────────────────────────────────────────────────────────
 
@@ -82,26 +101,38 @@ describe("isLightweightMode", () => {
     assert.equal(isLightweightMode({ [COUNCIL_RESEARCH_LIGHTWEIGHT_FLAG]: "false" }), true);
   });
 
-  it("is true when flag='false', gather armed, but network+key absent", () => {
+  it("is true when flag='false', gather armed, but CLAUDE_CODE_OAUTH_TOKEN absent", () => {
     assert.equal(
       isLightweightMode({
         [COUNCIL_RESEARCH_LIGHTWEIGHT_FLAG]: "false",
         HARTOS_RESEARCH_GATHER: "true",
-        // no HARTOS_LLM_ENABLE_NETWORK, no OPENAI_API_KEY
+        // no CLAUDE_CODE_OAUTH_TOKEN → Claude-on-Max gate closed
       }),
       true,
     );
   });
 
-  it("is false only when flag='false' AND gather=true AND network=true AND key present", () => {
+  it("is false only when flag='false' AND gather=true AND CLAUDE_CODE_OAUTH_TOKEN present", () => {
+    assert.equal(
+      isLightweightMode({
+        [COUNCIL_RESEARCH_LIGHTWEIGHT_FLAG]: "false",
+        HARTOS_RESEARCH_GATHER: "true",
+        CLAUDE_CODE_OAUTH_TOKEN: "oauth-token",
+      }),
+      false,
+    );
+  });
+
+  it("is true when OPENAI_API_KEY is present but CLAUDE_CODE_OAUTH_TOKEN is absent (OpenAI no longer gates full mode)", () => {
     assert.equal(
       isLightweightMode({
         [COUNCIL_RESEARCH_LIGHTWEIGHT_FLAG]: "false",
         HARTOS_RESEARCH_GATHER: "true",
         HARTOS_LLM_ENABLE_NETWORK: "true",
         OPENAI_API_KEY: "sk-test-key",
+        // CLAUDE_CODE_OAUTH_TOKEN still absent → lightweight
       }),
-      false,
+      true,
     );
   });
 });
@@ -112,6 +143,11 @@ describe("researchCouncilBrain — lightweight (default)", () => {
   it("returns a result with confidence 'low' (no sources gathered → 'unknown' mapped to 'low')", async () => {
     const result = await researchCouncilBrain(GOAL, LIGHTWEIGHT_ENV);
     assert.equal(result.confidence, "low");
+  });
+
+  it("returns degraded:true (no sources were actually gathered)", async () => {
+    const result = await researchCouncilBrain(GOAL, LIGHTWEIGHT_ENV);
+    assert.equal(result.degraded, true, "lightweight must set degraded:true — no sources gathered");
   });
 
   it("returns a non-empty summary (the dossier's honest 'no sources gathered' line)", async () => {
@@ -146,6 +182,7 @@ describe("researchCouncilBrain — lightweight (default)", () => {
   it("works for a short/scoped goal (NEEDS_SCOPING verdict — plan still returns unknowns)", async () => {
     const result = await researchCouncilBrain(SPARSE_GOAL, LIGHTWEIGHT_ENV);
     assert.equal(result.confidence, "low");
+    assert.equal(result.degraded, true);
     assert.ok(typeof result.summary === "string");
     assert.ok(Array.isArray(result.risks));
   });
@@ -189,6 +226,7 @@ describe("researchCouncilBrain — never throws", () => {
     assert.ok("summary" in result, "result must have summary");
     assert.ok("confidence" in result, "result must have confidence");
     assert.ok("risks" in result, "result must have risks");
+    assert.ok("degraded" in result, "result must have degraded");
     assert.ok(["low", "medium", "high"].includes(result.confidence), `confidence must be a valid band, got ${result.confidence}`);
   });
 });
@@ -196,20 +234,53 @@ describe("researchCouncilBrain — never throws", () => {
 // ── researchCouncilBrain — full mode with gather OFF ─────────────────────────
 
 describe("researchCouncilBrain — full-mode flag set but gather not armed → lightweight fallback", () => {
-  it("falls back to lightweight (honest unknowns) when gather flag is off", async () => {
+  it("falls back to lightweight (honest unknowns, degraded:true) when gather flag is off", async () => {
     const result = await researchCouncilBrain(GOAL, FULL_MODE_GATHER_OFF);
-    // Full mode can't gather → falls to lightweight → unknown → low
+    // Full mode can't gather → falls to lightweight → unknown → low, degraded:true
     assert.equal(result.confidence, "low");
+    assert.equal(result.degraded, true);
     assert.ok(
       result.risks.every((r) => r.startsWith("Unknown: ")),
       "fall-back must produce Unknown: prefixed risks",
     );
   });
 
-  it("falls back to lightweight when full-mode flag='false' but LLM key absent", async () => {
-    const result = await researchCouncilBrain(GOAL, FULL_MODE_NO_KEYS);
+  it("falls back to lightweight (degraded:true) when full-mode flag='false' but Claude token absent", async () => {
+    const result = await researchCouncilBrain(GOAL, FULL_MODE_NO_CLAUDE_TOKEN);
     assert.equal(result.confidence, "low");
+    assert.equal(result.degraded, true);
     assert.ok(Array.isArray(result.risks));
+  });
+});
+
+// ── researchCouncilBrain — full-gather mode ───────────────────────────────────
+
+describe("researchCouncilBrain — full-gather mode (Claude-on-Max)", () => {
+  it("full-gather with fake Claude infer returning sources → degraded:false + real summary", async () => {
+    const result = await researchCouncilBrain(GOAL, FULL_GATHER_ENV, fakeClaudeInferWithSources);
+    // At least 1 source was gathered → non-degraded
+    assert.equal(result.degraded, false, "full-gather with real sources must set degraded:false");
+    assert.ok(typeof result.summary === "string" && result.summary.length > 0, "summary must be non-empty");
+    assert.ok(["low", "medium", "high"].includes(result.confidence), "confidence must be a valid band");
+    assert.ok(Array.isArray(result.risks), "risks must be an array");
+  });
+
+  it("full-gather with Claude infer returning null (unavailable) → falls back to lightweight (degraded:true)", async () => {
+    const result = await researchCouncilBrain(GOAL, FULL_GATHER_ENV, fakeClaudeInferNull);
+    // Claude unavailable → zero sources → falls back to lightweight → degraded:true
+    assert.equal(result.degraded, true, "zero-sources gather must fall back to degraded:true");
+    assert.equal(result.confidence, "low");
+  });
+
+  it("full-gather → never throws even when infer throws", async () => {
+    const throwingInfer: ClaudeResearchInfer = async () => { throw new Error("infer kaboom"); };
+    let threw = false;
+    try {
+      await researchCouncilBrain(GOAL, FULL_GATHER_ENV, throwingInfer);
+    } catch {
+      threw = true;
+    }
+    assert.equal(threw, false, "adapter must never throw even when infer throws");
   });
 });
 
@@ -231,5 +302,10 @@ describe("researchCouncilBrain — result shape invariants", () => {
   it("confidence is one of 'low'|'medium'|'high'", async () => {
     const result = await researchCouncilBrain(GOAL, LIGHTWEIGHT_ENV);
     assert.ok(["low", "medium", "high"].includes(result.confidence));
+  });
+
+  it("degraded is always a boolean", async () => {
+    const result = await researchCouncilBrain(GOAL, LIGHTWEIGHT_ENV);
+    assert.equal(typeof result.degraded, "boolean", "degraded must always be a boolean");
   });
 });
