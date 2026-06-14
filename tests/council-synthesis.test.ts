@@ -39,4 +39,16 @@ describe("synthesize", () => {
     assert.equal(typeof s.recommendation, "string");
     assert.ok(s.recommendation.length > 0);
   });
+  it("mixed bands floor to the weakest: [high, medium] → medium", () => {
+    assert.equal(synthesize([f({ confidence: "high" }), f({ confidence: "medium" })], { truncated: false }).confidence, "medium");
+  });
+  it("a degraded high cannot inflate a live medium: [medium(live), high(degraded)] → medium", () => {
+    const s = synthesize([f({ specialistId: "fin", confidence: "medium" }), f({ specialistId: "cto", confidence: "high", degraded: true })], { truncated: false });
+    assert.equal(s.confidence, "medium");
+  });
+  it("risks trigger dissent INDEPENDENTLY of confidence (a high-confidence risk-flagger dissents but does not drag confidence down)", () => {
+    const s = synthesize([f({ specialistId: "cto", confidence: "high", risks: ["vendor lock-in"] })], { truncated: false });
+    assert.equal(s.confidence, "high");
+    assert.ok(s.dissent.some((d) => /vendor lock-in/.test(d)), "the risk must surface as dissent");
+  });
 });
