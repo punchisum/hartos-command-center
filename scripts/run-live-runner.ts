@@ -22,6 +22,7 @@ import { runCouncilBuildBridgeOnce } from "./run-council-build-bridge.js";
 // P-B2 — ask-relay daemon sub-pass. DISARMED: a no-op unless HARTOS_ASK_RELAY=on.
 import { runAskRelayOnce } from "./run-ask-relay-pass.js";
 import { runP8CalibrateOnce } from "./run-p8-calibrate-pass.js";
+import { runSentinelWolverineOnce } from "./run-sentinel-wolverine-pass.js";
 import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
 import { runFailedJobAlertPass } from "../src/telegram/run-failed-job-alert.js";
 import { runLivenessAlertPass } from "../src/telegram/run-liveness-alert.js";
@@ -83,6 +84,7 @@ if (isMain) {
   // A no-op unless the flag is set; produces propose-only factory build-plan proposals from approved council proposals.
   const COUNCIL_BUILD_BRIDGE_EVERY = 120; // ~10min
   const P8_CALIBRATE_EVERY = 720; // ~1h: P8 council-calibration learning pass (slow; learning is not time-critical)
+  const SENTINEL_WOLVERINE_EVERY = 60; // ~5min: auto-engage Wolverine on a down/stale agent (advisory, gated)
   // P-B2 ask-relay: every cycle (~1.5s at the 5s base, but we run this on EVERY cycle so the
   // daemon answers pending relay rows within ~1-2 poll cycles). DISARMED: no-op unless HARTOS_ASK_RELAY=on.
   // Independent of the 5s job poll: the relay runAskRelayOnce is cheap (single DB read when no rows).
@@ -169,6 +171,18 @@ if (isMain) {
         for (const l of p8) console.log(`[live-runner] ${l}`);
       } catch (e) {
         console.error(`[live-runner] p8 calibrate pass failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
+
+    // SENTINEL→WOLVERINE — every ~5min. DISARMED: [] unless HARTOS_ALLOW_SENTINEL_WOLVERINE=true.
+    // When Sentinel marks an expected-live agent down/stale, auto-raise an advisory Wolverine
+    // FixProposal (propose-only; idempotent upsert). Never restarts an agent. Error-isolated.
+    if (cycle % SENTINEL_WOLVERINE_EVERY === 0) {
+      try {
+        const sw = await runSentinelWolverineOnce(process.env, now);
+        for (const l of sw) console.log(`[live-runner] ${l}`);
+      } catch (e) {
+        console.error(`[live-runner] sentinel-wolverine pass failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
       }
     }
 

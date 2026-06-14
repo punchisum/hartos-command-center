@@ -106,10 +106,11 @@ Each phase is independently shippable and truth-preserving.
 - **Synapse gate:** registration requires approval (#5) — reuses the existing propose→approve spine; propose-only until approved.
 - **Fail-closed:** absent/unconfirmed health ⇒ never "live" (#4); unapproved ⇒ draft/pending, never hidden (#6).
 
-## Open decisions for Hart
+## Decisions (locked with Hart, 2026-06-14)
 
-1. Registry store: a **new `agent_registry` Supabase table** (recommended, mirrors the proposal spine) vs reusing `cockpit_proposals` with a `domain='agent_manifest'`.
-2. "Synapse approval" = the existing proposal approval gate (recommended) vs a distinct council vote.
-3. Do the already-landed stopgaps stay until Phase B, or revert now? (Recommended: keep — they're honest improvements — and let Phase B supersede them.)
+1. **Registry store = a new `agent_registry` Supabase table** in the cockpit project (Node writes elevated, Worker reads via anon RPC) — NOT overloaded onto `cockpit_proposals`.
+2. **Synapse approval = the existing proposal approval gate** — approving the agent's `build_agent_plan` proposal writes the manifest as `approved`. No separate council vote.
+3. **Stopgaps stay** (fleet-health composite; Factory/Wolverine/Beezulbub→live + kill-switch downgrade) and are superseded by Phase B.
+4. **Sequencing:** finish the two in-flight cockpit fixes (Sentinel→Wolverine auto-alert; the approved-work "Building" tracker) FIRST, then build this design Phase A→D.
 
 🤖 Designed with [Claude Code](https://claude.com/claude-code)
