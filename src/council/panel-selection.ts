@@ -3,7 +3,7 @@
 import { COUNCIL_CAPS } from "./council-arming.js";
 import type { CouncilGoal } from "./council-types.js";
 
-export const DEFAULT_ROSTER = ["research", "cto", "financial", "ma", "legal"] as const;
+export const DEFAULT_ROSTER = ["research", "beezulbub", "cto", "financial", "ma", "legal"] as const;
 
 /** Set used for fast O(1) membership checks when filtering refiner output. */
 const ROSTER_SET = new Set<string>(DEFAULT_ROSTER);

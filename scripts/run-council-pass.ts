@@ -22,6 +22,7 @@ import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-propo
 import { redact } from "../src/llm/redaction.js";
 import { COUNCIL_CAPS } from "../src/council/council-arming.js";
 import { researchCouncilBrain } from "../src/research/research-council-adapter.js";
+import { beezulbubCouncilBrain } from "../src/beezulbub/council-adapter.js";
 
 type Env = Record<string, string | undefined>;
 
@@ -48,6 +49,7 @@ export async function runCouncilOnce(env: Env, goal: string, now: Date): Promise
     const infer = selectCouncilInfer(env);
     const specialists = buildCouncilSpecialists(infer, {
       research: (g) => researchCouncilBrain(g, env),
+      beezulbub: (g) => beezulbubCouncilBrain(g, env),
     });
 
     // Build a specialist map for CouncilPorts.runSpecialist.
