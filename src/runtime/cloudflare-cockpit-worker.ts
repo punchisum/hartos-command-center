@@ -132,6 +132,7 @@ export const SUPPORTED_ROUTES = [
   "GET /api/v5",
   "GET /api/control-surface",
   "GET /api/reports",
+  "GET /api/agents",
   "GET /api/threads",
   "GET /api/freshness",
   "GET /api/read-models/status",
