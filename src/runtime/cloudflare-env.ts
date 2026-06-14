@@ -44,6 +44,12 @@ export const COCKPIT_ENV_VARS: string[] = [
   // key); both are optional — absent ⇒ the Ask box stays advisory (no write).
   "HARTOS_ASK_WRITE_URL",
   "HARTOS_ASK_WRITE_TOKEN",
+  // Worker→Claude-Max async relay (Option B). With the flag + URL set (and the write token +
+  // fitness read key as secrets), cockpit Ask routes to the daemon's Claude-Max brain instead of
+  // Gemini. Absent/incomplete ⇒ the relay is skipped and Ask uses the Gemini→deterministic chain.
+  // Surfaced here so /api/debug/status shows whether the live-brain relay is actually armed.
+  "HARTOS_ASK_VIA_RELAY",
+  "HARTOS_ASK_RELAY_URL",
   // Sentinel heartbeat — optional alert sink (e.g. a Telegram/Slack webhook). Absent ⇒ alerts log only.
   "HARTOS_SENTINEL_ALERT_WEBHOOK",
 ];

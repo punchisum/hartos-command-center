@@ -50,12 +50,20 @@ export interface BuildAskInferOptions {
  * deterministic and makes NO network call. Tests inject a mock provider.
  */
 export function buildAskInfer(opts: BuildAskInferOptions = {}): AskInfer {
-  const gateway =
-    opts.gateway ??
-    new LlmGateway({
-      ...(opts.env ? { env: opts.env } : {}),
-      ...(opts.providers ? { providers: opts.providers } : {}),
-    });
+  let gateway: LlmGateway;
+  try {
+    gateway =
+      opts.gateway ??
+      new LlmGateway({
+        ...(opts.env ? { env: opts.env } : {}),
+        ...(opts.providers ? { providers: opts.providers } : {}),
+      });
+  } catch {
+    // Gateway construction failed (bad/incomplete config) — NEVER throw out of the builder.
+    // Degrade to the rule-based path so the orchestrator records an honest deterministic answer
+    // rather than surfacing a scary "infer-threw". (The whole point of the Ask gate is graceful.)
+    return async () => null;
+  }
 
   return async (redactedRequest, context) => {
     try {
