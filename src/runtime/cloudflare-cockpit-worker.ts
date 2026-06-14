@@ -151,6 +151,7 @@ export const SUPPORTED_ROUTES = [
   "GET /agent/fitness/ui",
   "GET /agent/ops/ui",
   "GET /api/proposals",
+  "GET /api/council",
   "GET /api/debug/status",
   "POST /api/login",
   "POST /api/ask",
@@ -528,6 +529,15 @@ export async function handleCockpitRequest(
         if (liveProposals) return jsonResponse(200, liveProposals, cors);
       }
       return jsonResponse(200, view, cors);
+    }
+    if (pathname === "/api/council") {
+      // P7 Plan 3 — Read-only council proposals view. Returns proposals whose
+      // domain is "council", sourced from the live proposal queue snapshot.
+      // Secret-free; no execution. Degrades safely to { ok: true, proposals: [] }
+      // when no live source is wired, mirroring the pattern of /api/proposals.
+      const queue = dctx.state?.proposalQueue ?? [];
+      const councilProposals = queue.filter((p) => p.domain === "council");
+      return jsonResponse(200, { ok: true, proposals: councilProposals }, cors);
     }
     if (pathname === "/api/mutation-center") {
       // Read-only Mutation Center — pending-executable proposals with tier/risk/target

@@ -24,6 +24,8 @@ describe("cloudflare cockpit routes", () => {
     assert.ok(SUPPORTED_ROUTES.includes("GET /api/state"));
     assert.ok(SUPPORTED_ROUTES.includes("GET /api/liveness"));
     assert.ok(SUPPORTED_ROUTES.includes("POST /api/orchestrator/message"));
+    // P7 Plan 3 — council route
+    assert.ok(SUPPORTED_ROUTES.includes("GET /api/council"));
   });
 
   it("POST /api/proposals/transition relays approve to the transition provider (2.4)", async () => {
