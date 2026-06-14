@@ -17,7 +17,7 @@ import { councilArmedFromEnv } from "../src/council/council-arming.js";
 import { runCouncil } from "../src/council/council-coordinator.js";
 import { selectPanel } from "../src/council/panel-selection.js";
 import { createCouncilProposal } from "../src/council/council-proposal.js";
-import { buildCouncilSpecialists, councilInferFromEnv } from "../src/council/council-specialists.js";
+import { buildCouncilSpecialists, selectCouncilInfer } from "../src/council/council-specialists.js";
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
 import { redact } from "../src/llm/redaction.js";
 import { COUNCIL_CAPS } from "../src/council/council-arming.js";
@@ -45,7 +45,7 @@ export async function runCouncilOnce(env: Env, goal: string, now: Date): Promise
 
   // Armed + a goal: assemble ports and run.
   try {
-    const infer = councilInferFromEnv(env);
+    const infer = selectCouncilInfer(env);
     const specialists = buildCouncilSpecialists(infer, {
       research: (g) => researchCouncilBrain(g, env),
     });
