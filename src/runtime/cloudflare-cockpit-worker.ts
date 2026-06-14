@@ -78,6 +78,8 @@ import { renderCockpitV5, buildCockpitV5Data } from "./cloudflare-cockpit-v5.js"
 import type { CockpitV5Data } from "./cloudflare-cockpit-v5.js";
 import { assessFleetLiveness, heartbeatsFromReadModels } from "../sentinel/sentinel-liveness.js";
 import { assembleTruthReport, fleetHealthPercent } from "../truth-layer/truth-layer-api.js";
+import { agentRegistryView, type AgentProposalRow } from "./views/agent-registry-view.js";
+import { SEED_AGENT_MANIFESTS } from "../agents/agent-manifest-seed.js";
 import { heartbeatShouldAlert, buildHeartbeatAlert, heartbeatLogLine } from "../sentinel/sentinel-heartbeat.js";
 import { parseDaemonRpcResult, daemonAlert } from "../telegram/daemon-deadman.js";
 import { telegramNotifyConfig, formatAlert } from "../telegram/alert-bus.js";
@@ -137,6 +139,7 @@ export const SUPPORTED_ROUTES = [
   "GET /api/control-surface",
   "GET /api/reports",
   "GET /api/agents",
+  "GET /api/agent-registry",
   "GET /api/threads",
   "GET /api/freshness",
   "GET /api/read-models/status",
@@ -409,6 +412,29 @@ export async function handleCockpitRequest(
       // The meta-agent registry (org chart + honest capability/status). Read-only, secret-free.
       const reg = resolveMetaAgentRegistry({ now: nowFor(dctx), env });
       return jsonResponse(200, { ok: true, rootId: reg.rootId, counts: reg.counts, agents: reg.agents }, cors);
+    }
+    if (pathname === "/api/agent-registry") {
+      // Truth-layer dynamic agent registry (Phase A). Renders the seeded AgentManifests joined with
+      // the Sentinel liveness read-model — each agent's status is DERIVED (deriveAgentStatus), and
+      // nothing reads "live" unless liveness confirms it ("up"). Read-only, secret-free.
+      // Phase B will source manifests from the agent_registry RPC + swap the v5 deck onto this view.
+      const now = nowFor(dctx);
+      const reg = resolveMetaAgentRegistry({ now, env });
+      const rm = readModelStatusView(dctx.state);
+      const flagEnv = env as unknown as Record<string, string | undefined>;
+      const report = assembleTruthReport(reg, rm, ctx.generatedAt ?? null, now, {
+        version: flagEnv["BUILD_SHA"] ?? null,
+        builtAt: flagEnv["BUILD_TIME"] ?? null,
+        armedFlags: [],
+      });
+      const killSwitchOn = String(flagEnv["HARTOS_EXECUTION_KILL_SWITCH"] ?? "").trim().toLowerCase() === "on";
+      const agents = agentRegistryView({
+        manifests: SEED_AGENT_MANIFESTS,
+        liveness: { verdicts: report.fleet.verdicts },
+        proposals: (dctx.state?.proposalQueue ?? []) as unknown as AgentProposalRow[],
+        killSwitchOn,
+      });
+      return jsonResponse(200, { ok: true, agents, generatedAt: now }, cors);
     }
     if (pathname === "/api/reports") {
       return jsonResponse(200, { reports: ctx.reports ?? [] }, cors);
