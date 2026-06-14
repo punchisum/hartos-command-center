@@ -5,9 +5,8 @@
  * pass. DISARMED by default: returns [] unless HARTOS_SELFMOD_AMENDMENT_APPROVED=true AND
  * HARTOS_ALLOW_SELF_MOD=true (AND HARTOS_EXECUTION_KILL_SWITCH != on).
  *
- * nextSelfModTask — v1: always returns null. There is no task source yet; the
- * Wolverine-finding → SelfModTask adapter is a follow-up increment. This makes
- * runSelfModPassOnce a silent no-op even when armed.
+ * nextSelfModTask: pops the next entry from Hart's out-of-repo queue file
+ * (~/.hartos-self-mod-queue.json). A missing/empty/malformed queue → null (silent no-op).
  *
  * NODE EXECUTION HOST ONLY. Never the Worker.
  */
@@ -15,6 +14,7 @@
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import os from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 import { selfModArmingFromEnv, defaultSelfModPorts, changedFileContent } from "../src/execution/self-mod-default-ports.js";
@@ -35,16 +35,52 @@ import { telegramNotifyConfig } from "../src/telegram/alert-bus.js";
 
 type Env = Record<string, string | undefined>;
 
-/**
- * v1 task source: always null. The Wolverine-finding → SelfModTask adapter is a follow-up
- * increment. The daemon is a silent no-op until both a source AND arming exist.
- */
-export function nextSelfModTask(_env: Env): SelfModTask | null {
-  return null;
+/** Minimal fs seam so the queue reader is unit-testable without touching disk. */
+export interface QueueFs {
+  exists(p: string): boolean;
+  read(p: string): string;
+  write(p: string, data: string): void;
+}
+const realQueueFs: QueueFs = {
+  exists: (p) => existsSync(p),
+  read: (p) => readFileSync(p, "utf8"),
+  write: (p, d) => writeFileSync(p, d, "utf8"),
+};
+
+/** Path of the Hart-controlled self-mod task queue (OUTSIDE the repo so it never dirties the tree). */
+export function selfModQueuePath(): string {
+  return path.join(os.homedir(), ".hartos-self-mod-queue.json");
+}
+
+function isValidTask(t: unknown): t is SelfModTask {
+  return (
+    Boolean(t) &&
+    typeof t === "object" &&
+    ["fix", "recalibrate", "extend"].includes((t as SelfModTask).selfModClass) &&
+    typeof (t as SelfModTask).description === "string" &&
+    (t as SelfModTask).description.trim().length > 0
+  );
 }
 
 /**
- * Run one self-mod pass. DISARMED → silent []. No task source in v1 → silent [].
+ * The self-mod TRIGGER: pop the next Hart-queued task from the out-of-repo queue file (FIFO).
+ * Hart controls WHAT self-mod attempts by writing a JSON array of {selfModClass, description} to
+ * selfModQueuePath(); the daemon takes one per pass. A bad/absent/empty queue → null (no-op). Never throws.
+ */
+export function nextSelfModTask(env: Env, fs: QueueFs = realQueueFs): SelfModTask | null {
+  void env;
+  const p = selfModQueuePath();
+  if (!fs.exists(p)) return null;
+  let queue: unknown;
+  try { queue = JSON.parse(fs.read(p)); } catch { return null; }
+  if (!Array.isArray(queue) || queue.length === 0) return null;
+  const [head, ...rest] = queue;
+  try { fs.write(p, JSON.stringify(rest, null, 2)); } catch { /* best-effort pop */ }
+  return isValidTask(head) ? head : null;
+}
+
+/**
+ * Run one self-mod pass. DISARMED → silent []. No queued task → silent [].
  * When armed + a task exists, assembles real deps and runs the full orchestration.
  * Never throws — errors are caught and returned as a single-element array.
  */
@@ -52,7 +88,7 @@ export async function runSelfModPassOnce(env: Env, now: Date): Promise<string[]>
   // 1. Disarmed → silent no-op (do NOT touch git or build any deps).
   if (!selfModArmingFromEnv(env)) return [];
 
-  // 2. No task source in v1 → silent no-op.
+  // 2. No queued task → silent no-op.
   const task = nextSelfModTask(env);
   if (!task) return [];
 
