@@ -56,6 +56,9 @@ import { reviewStrategy } from "../hartos/strategy-review.js";
 // deterministic, identical to before. OPENAI_API_KEY is a server-side Worker secret, never sent
 // to the browser. (Supersedes the earlier "never import the gateway" rule, by Hart's decision.)
 import { buildAskInfer } from "../llm/run-ask-llm.js";
+// P-B3 — Worker-safe relay AskInfer (pure fetch, no node imports). Returns undefined when
+// HARTOS_ASK_VIA_RELAY !== "true" (flag off → identical to today: Gemini path via buildAskInfer).
+import { buildRelayAskInfer } from "../llm/relay-ask-infer.js";
 import { explainGate, resolveLlmConfig } from "../llm/llm-gateway.js";
 // Rinnegan — the context compiler is PURE/Worker-safe; the Worker compiles the briefing in-request
 // from the Supabase context pack + live facts + memory. (No vault fs access in the Worker.)
@@ -1158,10 +1161,12 @@ export default {
       proposalTransitionProvider: async (input) => transitionCockpitProposal(env, input),
       threadsProvider: async () => resolveCockpitThreads(env),
       pulseRunsProvider: async () => resolveRecentPulseRuns(env),
-      // Step 3 — Worker-direct LLM Ask. Self-gating: a real OpenAI call happens ONLY when the
-      // gate is armed (HARTOS_LLM_PROVIDER=openai + HARTOS_LLM_ENABLE_NETWORK=true + OPENAI_API_KEY
-      // secret); otherwise deterministic. Propose-only — the LLM reasons, never executes.
-      askInfer: buildAskInfer({ env }),
+      // Step 3 / P-B3 — Worker Ask infer selection.
+      // When HARTOS_ASK_VIA_RELAY=true: use the relay AskInfer (pure fetch → daemon → Claude-Max).
+      //   On relay timeout/error → null → composeAskAnswer falls back to Gemini/deterministic.
+      // When flag is off (default): use today's key-bearing Gemini gateway (identical to before).
+      //   Both flags default-off → behavior identical to today. Hard-fallback to Gemini is preserved.
+      askInfer: buildRelayAskInfer(env) ?? buildAskInfer({ env }),
       // Rinnegan — feed the deployed Ask the vault context pack (Worker reads the Supabase mirror).
       contextPackProvider: async () => resolveContextPack(env),
     });
