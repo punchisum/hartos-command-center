@@ -11,7 +11,7 @@
  * PURE. No IO. No network. No mutation. Never throws.
  */
 
-import { CONFIDENCE_BANDS } from "../council/council-types.js";
+import { CONFIDENCE_BANDS, isConfidence } from "../council/council-types.js";
 import type { Confidence } from "../council/council-types.js";
 import type { CouncilDecision } from "../council/council-memory.js";
 
@@ -42,12 +42,18 @@ export function aggregateCalibration(records: CouncilRunRecord[]): CalibrationAg
     high: { approved: 0, decided: 0 },
   };
 
-  for (const r of records) {
-    // Skip pending — undecided is not signal.
-    if (r.decision === "pending") continue;
-    acc[r.confidence].decided += 1;
+  // Defensive: tolerate a non-array, null/undefined entries, and invalid bands —
+  // this is a "never throws" PURE module that may consume DB-derived records.
+  const list = Array.isArray(records) ? records : [];
+  for (const r of list) {
+    if (!r || typeof r !== "object") continue;
+    if (!isConfidence(r.confidence)) continue;
+    // Skip pending (and anything not approved/rejected) — undecided is not signal.
     if (r.decision === "approved") {
+      acc[r.confidence].decided += 1;
       acc[r.confidence].approved += 1;
+    } else if (r.decision === "rejected") {
+      acc[r.confidence].decided += 1;
     }
   }
 

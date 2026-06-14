@@ -1,64 +1,50 @@
-/**
- * tests/council-calibration-aggregate.test.ts — Task 2 tests for aggregateCalibration.
- */
-
+// tests/council-calibration-aggregate.test.ts
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   aggregateCalibration,
+  type CouncilRunRecord,
 } from "../src/learning/council-calibration-aggregate.js";
-import type { CouncilRunRecord } from "../src/learning/council-calibration-aggregate.js";
+
+const r = (confidence: "low" | "medium" | "high", decision: "approved" | "rejected" | "pending"): CouncilRunRecord =>
+  ({ confidence, decision });
 
 describe("aggregateCalibration", () => {
-  it("zero decided runs → every band reports neutral 0.5", () => {
-    const result = aggregateCalibration([]);
-    assert.equal(result.totalDecided, 0);
-    assert.equal(result.byBand.low.approvalRate, 0.5);
-    assert.equal(result.byBand.medium.approvalRate, 0.5);
-    assert.equal(result.byBand.high.approvalRate, 0.5);
+  it("empty input → all bands neutral 0.5, zero decided", () => {
+    const a = aggregateCalibration([]);
+    assert.equal(a.totalDecided, 0);
+    for (const band of ["low", "medium", "high"] as const) {
+      assert.equal(a.byBand[band].decided, 0);
+      assert.equal(a.byBand[band].approved, 0);
+      assert.equal(a.byBand[band].approvalRate, 0.5);
+    }
   });
 
-  it("pending records are excluded from decided count and do not affect approvalRate", () => {
-    const records: CouncilRunRecord[] = [
-      { confidence: "high", decision: "pending" },
-      { confidence: "high", decision: "pending" },
-      { confidence: "high", decision: "approved" },
-    ];
-    const result = aggregateCalibration(records);
-    assert.equal(result.byBand.high.decided, 1);
-    assert.equal(result.byBand.high.approved, 1);
-    assert.equal(result.byBand.high.approvalRate, 1.0);
-    assert.equal(result.totalDecided, 1);
+  it("pending runs are EXCLUDED from decided + rate", () => {
+    const a = aggregateCalibration([r("high", "approved"), r("high", "pending"), r("high", "pending")]);
+    assert.equal(a.byBand.high.decided, 1);
+    assert.equal(a.byBand.high.approved, 1);
+    assert.equal(a.byBand.high.approvalRate, 1);
+    assert.equal(a.totalDecided, 1);
   });
 
-  it("correct approval rate across multiple bands with mixed decisions", () => {
-    const records: CouncilRunRecord[] = [
-      { confidence: "high", decision: "approved" },
-      { confidence: "high", decision: "rejected" },
-      { confidence: "medium", decision: "approved" },
-      { confidence: "medium", decision: "approved" },
-      { confidence: "medium", decision: "rejected" },
-      { confidence: "low", decision: "rejected" },
-    ];
-    const result = aggregateCalibration(records);
-    assert.equal(result.byBand.high.decided, 2);
-    assert.equal(result.byBand.high.approved, 1);
-    assert.equal(result.byBand.high.approvalRate, 0.5);
-    assert.equal(result.byBand.medium.decided, 3);
-    assert.equal(result.byBand.medium.approved, 2);
-    assert.ok(Math.abs(result.byBand.medium.approvalRate - 2 / 3) < 0.0001);
-    assert.equal(result.byBand.low.decided, 1);
-    assert.equal(result.byBand.low.approved, 0);
-    assert.equal(result.byBand.low.approvalRate, 0.0);
-    assert.equal(result.totalDecided, 6);
+  it("computes per-band approval rate over decided runs", () => {
+    const a = aggregateCalibration([
+      r("high", "approved"), r("high", "rejected"), r("high", "rejected"), r("high", "rejected"), // 1/4 = 0.25
+      r("medium", "approved"), r("medium", "approved"), r("medium", "rejected"),                  // 2/3 ≈ 0.6667
+    ]);
+    assert.equal(a.byBand.high.decided, 4);
+    assert.equal(a.byBand.high.approvalRate, 0.25);
+    assert.equal(a.byBand.medium.decided, 3);
+    assert.ok(Math.abs(a.byBand.medium.approvalRate - 2 / 3) < 1e-9);
+    assert.equal(a.byBand.low.decided, 0);
+    assert.equal(a.byBand.low.approvalRate, 0.5); // untouched neutral
+    assert.equal(a.totalDecided, 7);
   });
 
-  it("never throws on malformed or empty input", () => {
-    assert.doesNotThrow(() => aggregateCalibration([]));
-    assert.doesNotThrow(() => aggregateCalibration([
-      { confidence: "low", decision: "pending" },
-      { confidence: "medium", decision: "pending" },
-      { confidence: "high", decision: "pending" },
-    ]));
+  it("never throws on a malformed record (defensive)", () => {
+    // @ts-expect-error intentionally malformed
+    const a = aggregateCalibration([{ confidence: "bogus", decision: "approved" }, null, undefined]);
+    assert.ok(a.totalDecided >= 0);
   });
 });
