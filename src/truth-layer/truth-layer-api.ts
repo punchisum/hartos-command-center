@@ -74,13 +74,27 @@ export function assembleTruthReport(
 }
 
 /**
- * The share of ASSESSED capabilities with fresh evidence (0-100), derived from real liveness
- * counts — not asserted catalog status. Honestly 0 (never a flattering 100) when nothing could
- * be assessed. This is the truth-layer basis for the v5 cockpit's fleet-health figure, replacing
- * the count of registry entries hand-marked "live".
+ * Composite fleet-health figure (0-100) = agent health + data freshness, per Hart's definition.
+ * Each assessed capability contributes a weight:
+ *   - "up"      (fresh evidence)               → 1.0  full health
+ *   - "unknown" (registered capability the Worker simply can't see — healthy in principle, no
+ *               live telemetry) → 0.7  mild STALENESS penalty, NOT treated as down. Most of the
+ *               fleet reports back to the daemon, not the public Worker, so "unknown" dominates
+ *               a Worker-side read; counting it as 0 made the figure read a misleading ~19%.
+ *   - "stale"   (had evidence, now aged out)   → 0.35 degraded
+ *   - "down"/missing                            → 0.0  none
+ * Honestly 0 (never a flattering 100) when nothing could be assessed. This is the truth-layer
+ * basis for the v5 cockpit's fleet-health figure.
  */
+export const FLEET_HEALTH_WEIGHTS = { up: 1.0, unknown: 0.7, stale: 0.35, down: 0.0 } as const;
+
 export function fleetHealthPercent(fleet: FleetLiveness): number {
-  const { up, assessed } = fleet.counts;
+  const { up, stale, down, unknown, assessed } = fleet.counts;
   if (assessed <= 0) return 0;
-  return Math.round((up / assessed) * 100);
+  const score =
+    up * FLEET_HEALTH_WEIGHTS.up +
+    unknown * FLEET_HEALTH_WEIGHTS.unknown +
+    stale * FLEET_HEALTH_WEIGHTS.stale +
+    down * FLEET_HEALTH_WEIGHTS.down;
+  return Math.round((score / assessed) * 100);
 }

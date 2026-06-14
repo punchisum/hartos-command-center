@@ -79,9 +79,23 @@ function fleetWithCounts(c: FleetLiveness["counts"]): FleetLiveness {
   };
 }
 
-test("fleetHealthPercent is the share of assessed capabilities with fresh evidence", () => {
+test("fleetHealthPercent is a composite of health + freshness (up=1, unknown=0.7, stale=0.35, down=0)", () => {
+  // 2*1.0 + 1*0.35 + 0 + 1*0.7 = 3.05 / 4 = 0.7625 → 76
   const pct = fleetHealthPercent(fleetWithCounts({ up: 2, stale: 1, down: 0, unknown: 1, assessed: 4 }));
-  assert.equal(pct, 50);
+  assert.equal(pct, 76);
+});
+
+test("fleetHealthPercent credits healthy-but-unseen agents — Worker-dominated 'unknown' fleet is NOT ~19%", () => {
+  // The real bug: 3 up + 14 unknown (the fleet reports to the daemon, not the public Worker).
+  // Old up/assessed math gave 3/17 ≈ 18%; the composite reads an honest ~75%.
+  const pct = fleetHealthPercent(fleetWithCounts({ up: 3, stale: 0, down: 0, unknown: 14, assessed: 17 }));
+  assert.ok(pct >= 70 && pct <= 90, `expected a healthy composite (~75), got ${pct}`);
+});
+
+test("fleetHealthPercent still drops for genuinely down agents", () => {
+  // 1 up + 3 down → 1.0 / 4 = 25%. Down is never laundered into health.
+  const pct = fleetHealthPercent(fleetWithCounts({ up: 1, stale: 0, down: 3, unknown: 0, assessed: 4 }));
+  assert.equal(pct, 25);
 });
 
 test("fleetHealthPercent is 0 when nothing is assessed (honest, never a default 100)", () => {
