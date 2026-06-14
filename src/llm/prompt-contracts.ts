@@ -77,7 +77,23 @@ function specializationFor(requestType?: LlmRequestType): string {
   }
 }
 
+/**
+ * The system prompt for council specialist calls. Returned as a standalone string (not combined
+ * with the standard 8-field contract) so the model reasons through the specialist lens and returns
+ * ONLY { summary, confidence, risks }.
+ */
+export const COUNCIL_SPECIALIST_SYSTEM_PROMPT =
+  'You are the specialist advisor described in the request; reason STRICTLY through that lens. ' +
+  'Return ONLY a JSON object {"summary": string, "confidence": "low"|"medium"|"high", "risks": string[]}. ' +
+  'No text outside the JSON.';
+
 export function buildSystemPrompt(requestType?: LlmRequestType): string {
+  // Council specialist calls use an isolated prompt — they must NOT be sent through the standard
+  // 8-field contract which ignores the lens and would hardcode risks:[].
+  if (requestType === "council_specialist") {
+    return COUNCIL_SPECIALIST_SYSTEM_PROMPT;
+  }
+
   const specialization = specializationFor(requestType);
   return [
     "You are the HartOS executive reasoning assistant for a single operator (Hart). You SUGGEST and CONTEXTUALIZE only — you never mutate anything and never request actions be executed.",

@@ -6,7 +6,7 @@
  * the deterministic provider. Token-like strings are rejected outright.
  */
 
-import type { LlmStructuredOutput, OutputValidation } from "./llm-types.js";
+import type { LlmStructuredOutput, OutputValidation, LlmCouncilSpecialistOutput, CouncilOutputValidation } from "./llm-types.js";
 import {
   ALLOWED_CONFIDENCE,
   ALLOWED_DOMAINS,
@@ -95,6 +95,50 @@ export function validateLlmOutput(raw: unknown): OutputValidation {
     riskLevel: riskLevel as LlmStructuredOutput["riskLevel"],
     nextAction: nextAction as string,
     summary: summary as string,
+  };
+  return { ok: true, value };
+}
+
+/**
+ * Validate raw provider output for a council specialist call.
+ * SEPARATE from validateLlmOutput — the 8-field contract is untouched.
+ * Never throws.
+ *
+ * Rules:
+ *   - summary: non-empty string, bounded, no secrets.
+ *   - confidence: exactly "low" | "medium" | "high".
+ *   - risks: string[] (empty array is valid; each item bounded + secret-free).
+ */
+export function validateCouncilSpecialistOutput(raw: unknown): CouncilOutputValidation {
+  if (!isPlainObject(raw)) {
+    return { ok: false, error: "Council output is not a JSON object." };
+  }
+  if (!("summary" in raw)) return { ok: false, error: "Missing required key: summary" };
+  if (!("confidence" in raw)) return { ok: false, error: "Missing required key: confidence" };
+  if (!("risks" in raw)) return { ok: false, error: "Missing required key: risks" };
+
+  const { summary, confidence, risks } = raw;
+
+  if (badSummary(summary)) return { ok: false, error: "Invalid council field: summary" };
+  if (typeof confidence !== "string" || !ALLOWED_CONFIDENCE.includes(confidence as never)) {
+    return { ok: false, error: `confidence must be one of ${ALLOWED_CONFIDENCE.join("|")}` };
+  }
+  if (!Array.isArray(risks)) {
+    return { ok: false, error: "risks must be an array" };
+  }
+  if (risks.length > MAX_ARRAY_LENGTH) {
+    return { ok: false, error: `risks must have <= ${MAX_ARRAY_LENGTH} items` };
+  }
+  for (const item of risks) {
+    if (typeof item !== "string" || item.length > MAX_ARRAY_ITEM_LENGTH || containsSecret(item)) {
+      return { ok: false, error: "risks contains an invalid item" };
+    }
+  }
+
+  const value: LlmCouncilSpecialistOutput = {
+    summary: summary as string,
+    confidence: confidence as LlmCouncilSpecialistOutput["confidence"],
+    risks: risks as string[],
   };
   return { ok: true, value };
 }
