@@ -20,6 +20,7 @@ import { LlmGateway } from "../llm/llm-gateway.js";
 import type { Specialist, Infer } from "./specialist.js";
 import type { CouncilGoal } from "./council-types.js";
 import { makeLlmSpecialist, makeBrainSpecialist } from "./specialist.js";
+import { councilClaudeInfer } from "./council-claude-infer.js";
 
 /** The brain adapters the council uses. Only research is required; others optional. */
 export interface CouncilBrains {
@@ -53,6 +54,21 @@ export function buildCouncilSpecialists(infer: Infer, brains: CouncilBrains): Sp
 }
 
 type Env = Record<string, string | undefined>;
+
+/**
+ * Select the best available council Infer for the given environment.
+ *
+ * If CLAUDE_CODE_OAUTH_TOKEN is present, the headless-Claude path (councilClaudeInfer) is used —
+ * it routes through the Max-plan subscription and does NOT touch Gemini/OpenAI keys.
+ * Otherwise, falls back to councilInferFromEnv (the governed LlmGateway path).
+ *
+ * Keep this a thin selector: all business logic lives in the respective implementations.
+ */
+export function selectCouncilInfer(env: Env): Infer {
+  const hasToken = !!(env["CLAUDE_CODE_OAUTH_TOKEN"] ?? "").trim();
+  if (hasToken) return councilClaudeInfer(env);
+  return councilInferFromEnv(env);
+}
 
 /**
  * Build a council-scoped Infer backed by the governed LlmGateway.
