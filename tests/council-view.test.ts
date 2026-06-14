@@ -194,3 +194,33 @@ describe("councilViewSummary", () => {
     assert.ok(summary.includes("no data available"));
   });
 });
+
+// tests/council-view.test.ts  (append)
+describe("councilViewModel — calibration note", () => {
+  it("adds a calibration note when calibratedConfidence is lower than raw", () => {
+    const view = councilViewModel({
+      rootGoal: "g", recommendation: "r", confidence: "high", calibratedConfidence: "medium",
+      llmCallsUsed: 0, tree: { findings: [], synthesis: { consensus: [], dissent: [], truncated: false, notes: [] }, children: [] },
+    });
+    assert.equal(view.confidence, "high");
+    assert.equal(view.calibratedConfidence, "medium");
+    assert.ok(view.calibrationNote && /HIGH/i.test(view.calibrationNote) && /MEDIUM/i.test(view.calibrationNote));
+  });
+
+  it("no calibration note when calibrated == raw", () => {
+    const view = councilViewModel({
+      rootGoal: "g", recommendation: "r", confidence: "medium", calibratedConfidence: "medium",
+      llmCallsUsed: 0, tree: { findings: [], synthesis: { consensus: [], dissent: [], truncated: false, notes: [] }, children: [] },
+    });
+    assert.equal(view.calibrationNote, null);
+  });
+
+  it("calibratedConfidence falls back to raw confidence when absent (old proposals)", () => {
+    const view = councilViewModel({
+      rootGoal: "g", recommendation: "r", confidence: "low",
+      llmCallsUsed: 0, tree: { findings: [], synthesis: { consensus: [], dissent: [], truncated: false, notes: [] }, children: [] },
+    });
+    assert.equal(view.calibratedConfidence, "low");
+    assert.equal(view.calibrationNote, null);
+  });
+});
