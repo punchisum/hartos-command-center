@@ -37,7 +37,7 @@ import { buildSystemPrompt, buildUserPrompt } from "../prompt-contracts.js";
 
 // ── Default constants ─────────────────────────────────────────────────────────
 
-/** Default model name passed to `--model`. Overridden by HARTOS_LLM_MODEL. */
+/** Default Claude model passed to `--model`. Override with HARTOS_CLAUDE_MAX_MODEL (a CLAUDE model). */
 export const CLAUDE_MAX_DEFAULT_MODEL = "sonnet";
 
 /** Default timeout (ms) before the child is killed and the provider throws. */
@@ -170,7 +170,12 @@ export function buildClaudeMaxProvider(
         throw new Error("claude-max: CLAUDE_CODE_OAUTH_TOKEN is not set.");
       }
 
-      const model = (process.env["HARTOS_LLM_MODEL"] ?? CLAUDE_MAX_DEFAULT_MODEL).trim() || CLAUDE_MAX_DEFAULT_MODEL;
+      // A CLAUDE model only. NOT HARTOS_LLM_MODEL — that names the Gemini/OpenAI gateway model
+      // (e.g. "gpt-5.5"), which `claude --model` rejects → the provider would throw → silent Gemini
+      // fallback. Use the council's claude-model var (or a dedicated one), defaulting to "sonnet".
+      const model =
+        (process.env["HARTOS_CLAUDE_MAX_MODEL"] ?? process.env["HARTOS_COUNCIL_MODEL"] ?? CLAUDE_MAX_DEFAULT_MODEL).trim() ||
+        CLAUDE_MAX_DEFAULT_MODEL;
 
       // Build the combined prompt: system contract + user request (8-field contract).
       const prompt = `${buildSystemPrompt(req.type)}\n\n${buildUserPrompt(req)}`;
