@@ -19,6 +19,8 @@ import { runFitnessPollPass } from "./run-fitness-poll.js";
 import { runSelfModPassOnce } from "./run-self-mod-pass.js";
 import { runCouncilOnce } from "./run-council-pass.js";
 import { runCouncilBuildBridgeOnce } from "./run-council-build-bridge.js";
+// P-B2 — ask-relay daemon sub-pass. DISARMED: a no-op unless HARTOS_ASK_RELAY=on.
+import { runAskRelayOnce } from "./run-ask-relay-pass.js";
 import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
 import { runFailedJobAlertPass } from "../src/telegram/run-failed-job-alert.js";
 import { runLivenessAlertPass } from "../src/telegram/run-liveness-alert.js";
@@ -79,6 +81,10 @@ if (isMain) {
   // P7 Council→Factory bridge: ~10min cadence. DISARMED by default (HARTOS_ALLOW_COUNCIL_BUILD_BRIDGE=true required).
   // A no-op unless the flag is set; produces propose-only factory build-plan proposals from approved council proposals.
   const COUNCIL_BUILD_BRIDGE_EVERY = 120; // ~10min
+  // P-B2 ask-relay: every cycle (~1.5s at the 5s base, but we run this on EVERY cycle so the
+  // daemon answers pending relay rows within ~1-2 poll cycles). DISARMED: no-op unless HARTOS_ASK_RELAY=on.
+  // Independent of the 5s job poll: the relay runAskRelayOnce is cheap (single DB read when no rows).
+  const ASK_RELAY_EVERY = 1; // every cycle — relay rows are short-lived (~2min TTL)
 
   const runCycle = async (now: string): Promise<string[]> => {
     const lines = await runJobRunner(process.env, now, 3);
@@ -148,6 +154,19 @@ if (isMain) {
         for (const l of bridge) console.log(`[live-runner] council-bridge · ${l}`);
       } catch (e) {
         console.error(`[live-runner] council-build-bridge failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
+
+    // ASK-RELAY (P-B2) — every cycle (~5s). DISARMED: returns [] unless HARTOS_ASK_RELAY=on.
+    // Pulls pending ask_request rows from the cockpit Supabase project, runs buildHostGateway()
+    // (Claude-Max primary), and writes the answer back. Error-isolated; never kills the daemon.
+    if (cycle % ASK_RELAY_EVERY === 0) {
+      try {
+        const relay = await runAskRelayOnce(process.env, now);
+        const didWork = relay.some((l) => l.includes("→ answered") || l.includes("→ error"));
+        if (didWork) for (const l of relay) console.log(`[live-runner] ask-relay · ${l}`);
+      } catch (e) {
+        console.error(`[live-runner] ask-relay pass failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
       }
     }
 
