@@ -32,4 +32,39 @@ describe("specialist runners", () => {
     const f = await s.run({ goal: "x" });
     assert.equal(f.degraded, true);
   });
+  it("brain result with degraded:true → specialist finding is degraded:true", async () => {
+    // The brain explicitly signals it ran lightweight (no real sources).
+    const s = makeBrainSpecialist("research", "prior-art", async () => ({
+      summary: "no sources gathered — lightweight",
+      confidence: "low",
+      risks: ["Unknown: sub-question 1"],
+      degraded: true,
+    }));
+    const f = await s.run({ goal: "build something" });
+    assert.equal(f.degraded, true, "brain returning degraded:true must produce a degraded specialist finding");
+    assert.equal(f.confidence, "low");
+  });
+  it("brain result with degraded:false → specialist finding is degraded:false", async () => {
+    // The brain signals it ran with real sources (full-gather).
+    const s = makeBrainSpecialist("research", "prior-art", async () => ({
+      summary: "found real sources about the topic",
+      confidence: "medium",
+      risks: [],
+      degraded: false,
+    }));
+    const f = await s.run({ goal: "build something" });
+    assert.equal(f.degraded, false, "brain returning degraded:false must produce a non-degraded specialist finding");
+    assert.equal(f.confidence, "medium");
+  });
+  it("brain result without degraded field → defaults to degraded:false (backward compat)", async () => {
+    // Older brains that don't return degraded field still work: defaults to false.
+    const s = makeBrainSpecialist("research", "prior-art", async () => ({
+      summary: "found 3 refs",
+      confidence: "high",
+      risks: [],
+      // degraded field absent
+    }));
+    const f = await s.run({ goal: "x" });
+    assert.equal(f.degraded, false, "absent degraded field must default to false");
+  });
 });
