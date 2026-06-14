@@ -21,6 +21,7 @@ import { buildCouncilSpecialists, councilInferFromEnv } from "../src/council/cou
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
 import { redact } from "../src/llm/redaction.js";
 import { COUNCIL_CAPS } from "../src/council/council-arming.js";
+import { researchCouncilBrain } from "../src/research/research-council-adapter.js";
 
 type Env = Record<string, string | undefined>;
 
@@ -46,11 +47,7 @@ export async function runCouncilOnce(env: Env, goal: string, now: Date): Promise
   try {
     const infer = councilInferFromEnv(env);
     const specialists = buildCouncilSpecialists(infer, {
-      research: async (g) => ({
-        summary: `Research placeholder for goal: ${g.goal}`,
-        confidence: "low" as const,
-        risks: ["deterministic-placeholder — real Research agent not wired in this slice"],
-      }),
+      research: (g) => researchCouncilBrain(g, env),
     });
 
     // Build a specialist map for CouncilPorts.runSpecialist.
