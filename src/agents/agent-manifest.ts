@@ -68,6 +68,15 @@ export interface AgentManifest {
   createdAt: string;
   approvedAt: string | null;
   retiredAt: string | null;
+  /** SP-Organs runtime contract (optional until an organ is registered with one). */
+  runtimeKind?: "worker" | "daemon" | "daemon-supervised" | "external-webhook" | "projection";
+  heartbeatSource?: string | null;
+  canWriteExternal?: boolean;
+  detailPage?: string | null;
+  lastRunAt?: string | null;
+  lastOutputRef?: string | null;
+  stalenessThresholdSec?: number;
+  failureState?: Record<string, unknown> | null;
 }
 
 /** Liveness read-model state for an agent (from Sentinel). null = no read-model at all. */
