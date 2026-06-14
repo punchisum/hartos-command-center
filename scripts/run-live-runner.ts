@@ -17,6 +17,7 @@ import { runJobRunner } from "./hartos-runner.js";
 import { runSpineExecutor } from "./run-spine-executor.js";
 import { runFitnessPollPass } from "./run-fitness-poll.js";
 import { runSelfModPassOnce } from "./run-self-mod-pass.js";
+import { runCouncilOnce } from "./run-council-pass.js";
 import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
 import { runFailedJobAlertPass } from "../src/telegram/run-failed-job-alert.js";
 import { runLivenessAlertPass } from "../src/telegram/run-liveness-alert.js";
@@ -71,6 +72,9 @@ if (isMain) {
   const LIVENESS_EVERY = 36; // ~3min: fleet liveness (local artifact gather + pure assess)
   const FITNESS_POLL_EVERY = 60; // ~5min: poll the fitness side for pending mutations (daily cadence; gated no-op by default)
   const SELF_MOD_EVERY = 60; // ~5min
+  // P7 Council: ~10min cadence. DISARMED by default (HARTOS_ALLOW_COUNCIL=true required).
+  // No autonomous goal source in this slice — no-op unless a goal is provided externally.
+  const COUNCIL_EVERY = 120; // ~10min
 
   const runCycle = async (now: string): Promise<string[]> => {
     const lines = await runJobRunner(process.env, now, 3);
@@ -115,6 +119,19 @@ if (isMain) {
         for (const l of sm) console.log(`[live-runner] ${l}`);
       } catch (e) {
         console.error(`[live-runner] self-mod pass failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
+
+    // COUNCIL (P7 Plan 2) — every ~10min. DISARMED + no-op unless HARTOS_ALLOW_COUNCIL=true.
+    // No autonomous goal source exists in this slice: HARTOS_COUNCIL_GOAL env var is the only way
+    // to supply a goal (absent/blank → [] no-op). Do NOT invent an autonomous goal source.
+    if (cycle % COUNCIL_EVERY === 0) {
+      try {
+        const councilGoal = (process.env["HARTOS_COUNCIL_GOAL"] ?? "").trim();
+        const cou = await runCouncilOnce(process.env, councilGoal, new Date(now));
+        for (const l of cou) console.log(`[live-runner] council · ${l}`);
+      } catch (e) {
+        console.error(`[live-runner] council pass failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
       }
     }
 

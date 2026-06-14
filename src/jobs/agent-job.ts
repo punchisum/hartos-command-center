@@ -27,6 +27,9 @@ export const AGENT_JOB_KINDS = [
   // refactor) by driving headless `claude -p` to edit the repo. Armed by HARTOS_ALLOW_CLAUDE_EXECUTE;
   // git-reversible; code-edit tools only. See execution/claude-task-executor.ts.
   "claude.execute",
+  // P7 Council (Plan 2): convene the multi-level council, synthesize a proposal for Hart's approval.
+  // Propose-only; DISARMED by default (HARTOS_ALLOW_COUNCIL=true required, kill-switch overrides).
+  "council.orchestrate",
 ] as const;
 
 export type AgentJobKind = (typeof AGENT_JOB_KINDS)[number];
