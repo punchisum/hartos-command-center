@@ -48,14 +48,53 @@ export function changedFileContent(cwd: string, paths: string[]): string {
     .join("\n");
 }
 
+/** Parse the KEYS an env-file (.env.local) declares. The self-mod test gate strips these so the suite
+ *  runs HERMETICALLY (as CI does), not against the daemon's live secrets/flags. Never throws. */
+export function envFileKeys(path: string): string[] {
+  if (!existsSync(path)) return [];
+  try {
+    return readFileSync(path, "utf8")
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith("#"))
+      // Tolerate an optional `export ` prefix and trailing space before `=` (KEY name = chars up to
+      // the first whitespace/`=`). Lines without a `=` yield no key.
+      .map((l) => l.match(/^(?:export\s+)?([^=\s]+)\s*=/)?.[1] ?? "")
+      .filter((k) => k.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+/** baseEnv minus the given keys (pure). Used to drop the daemon's injected runtime config. */
+export function stripEnvKeys(baseEnv: NodeJS.ProcessEnv, keys: Iterable<string>): NodeJS.ProcessEnv {
+  const drop = new Set(keys);
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(baseEnv)) {
+    if (!drop.has(k)) out[k] = v;
+  }
+  return out;
+}
+
+/** The env for the hermetic test subprocess: process.env MINUS everything .env.local injected. The
+ *  self-mod test gate must reproduce the CI signal ("does this code pass its own suite?"), and CI runs
+ *  with no secrets/flags — running under the daemon's live env wrongly fails tests that assume an
+ *  offline/unconfigured default (e.g. autoScoutForSpec, cockpit-agent-integration). OS env (PATH,
+ *  SystemRoot, …) is never declared in .env.local, so it is preserved and npm/node still run. */
+export function hermeticTestEnv(cwd: string, baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return stripEnvKeys(baseEnv, envFileKeys(join(cwd, ".env.local")));
+}
+
 /** Run the test suite as a fresh subprocess — the real "doctrine holds + tests pass" gate (the suite
- *  includes the doctrine conformance test). ok iff the process exits 0. */
+ *  includes the doctrine conformance test). Runs HERMETICALLY (env stripped of .env.local) so the
+ *  signal matches CI, not the armed daemon runtime. ok iff the process exits 0. */
 export function runTestSuite(cwd: string): { ok: boolean; detail: string } {
   const r = spawnSync("npm", ["test"], {
     cwd,
     encoding: "utf8",
     maxBuffer: 256 * 1024 * 1024,
     shell: process.platform === "win32", // npm is npm.cmd on Windows
+    env: hermeticTestEnv(cwd),
   });
   const ok = (r.status ?? 1) === 0;
   const tail = ((r.stdout ?? "") + (r.stderr ?? "")).replace(/\s+/g, " ").trim().slice(-200);
