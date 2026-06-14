@@ -22,7 +22,7 @@ test("toTruthSnapshot flattens a report into an append-only record with computed
   assert.equal(snap.ok, true);
   assert.equal(snap.overall, "AMBER");
   assert.equal(snap.version, "deadbee");
-  assert.equal(snap.healthPercent, 50); // 1 up / 2 assessed
+  assert.equal(snap.healthPercent, 85); // composite: 1*1.0 + 1*0.7 (unknown) = 1.7 / 2 → 85
   assert.equal(snap.assessed, 2);
 });
 
