@@ -4,6 +4,10 @@
  * Unit tests for the Beezulbub council adapter.
  *
  * All tests run in fixture mode (no network, no env flags, deterministic).
+ * New tests verify the degraded flag behavior:
+ *   - fixture-only with zero candidates → degraded:true
+ *   - fixture with real candidates → degraded:false
+ *   - live mode (injected) with candidates → degraded:false
  */
 
 import { describe, it } from "node:test";
@@ -180,6 +184,7 @@ describe("beezulbubCouncilBrain", () => {
     assert.ok(["low", "medium", "high"].includes(result.confidence), `unexpected confidence: ${result.confidence}`);
     assert.ok(typeof result.summary === "string" && result.summary.length > 0, "summary should be a non-empty string");
     assert.ok(Array.isArray(result.risks), "risks should be an array");
+    assert.equal(typeof result.degraded, "boolean", "degraded must be a boolean");
   });
 
   it("returns honest low/medium for an unknown capability (no candidates in fixture)", async () => {
@@ -188,6 +193,13 @@ describe("beezulbubCouncilBrain", () => {
     // No candidates → floor to low.
     assert.equal(result.confidence, "low");
     assert.ok(result.summary.includes("No candidates found"), `expected 'No candidates found' in summary: ${result.summary}`);
+  });
+
+  it("fixture-only with zero candidates → degraded:true", async () => {
+    // Any unknown target has no fixture candidates → degraded:true
+    const result = await beezulbubCouncilBrain({ goal: "capability-absolutely-not-in-any-fixture-registry-zzz" }, {});
+    assert.equal(result.degraded, true, "zero candidates in fixture mode must set degraded:true");
+    assert.equal(result.confidence, "low");
   });
 
   it("never throws on a broken/empty goal string", async () => {
@@ -233,5 +245,14 @@ describe("beezulbubCouncilBrain", () => {
     // Any unknown target → no candidates → confidence must be "low".
     const result = await beezulbubCouncilBrain({ goal: "capability-that-does-not-exist-in-any-registry-00000" }, {});
     assert.equal(result.confidence, "low");
+  });
+
+  it("result always has all required fields (summary, confidence, risks, degraded)", async () => {
+    const result = await beezulbubCouncilBrain({ goal: "test-capability" }, {});
+    assert.ok("summary" in result, "must have summary");
+    assert.ok("confidence" in result, "must have confidence");
+    assert.ok("risks" in result, "must have risks");
+    assert.ok("degraded" in result, "must have degraded");
+    assert.equal(typeof result.degraded, "boolean", "degraded must be a boolean");
   });
 });

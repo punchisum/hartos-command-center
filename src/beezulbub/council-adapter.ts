@@ -11,11 +11,13 @@
  *   FIXTURE (default, zero cost, zero network):
  *     allowNetwork = false → autoScoutForSpec uses fixture registry only.
  *     Honest "no candidates found — fixture scout" when the registry has no entry.
+ *     Returns degraded:true when zero candidates found (fixture didn't really scout).
  *
  *   LIVE (opt-in):
  *     BEEZULBUB_ALLOW_NETWORK=true in env (the authoritative gate, read by scout.ts).
  *     This adapter forwards allowNetwork=true only when the env gate is set.
  *     Still requires GITHUB_TOKEN for real GitHub calls.
+ *     Returns degraded:false when real candidates are found; degraded:true when zero candidates.
  *
  * CONFIDENCE MAPPING (0-1 number → council band):
  *   >= 0.7  → "high"
@@ -23,6 +25,10 @@
  *   < 0.4   → "low"
  *   FLOOR rule: 0 candidates OR high unknowns (>= 3) → forced "low" regardless.
  *   NEVER launders upward (plan §19 invariant).
+ *
+ * DEGRADED FLAG:
+ *   degraded:true  → zero candidates (fixture or live miss); excluded from confidence floor.
+ *   degraded:false → real candidates found (live scouting with results).
  *
  * NEVER THROWS — every path is wrapped; errors → degraded sentinel.
  *
@@ -35,11 +41,16 @@ import type { CouncilGoal } from "../council/council-types.js";
 
 type Env = Record<string, string | undefined>;
 
-/** The council-brain result shape (matches CouncilBrains.beezulbub). */
+/** The council-brain result shape (matches CouncilBrains.beezulbub / BrainResult). */
 export interface BeezulbubCouncilBrainResult {
   summary: string;
   confidence: "low" | "medium" | "high";
   risks: string[];
+  /**
+   * When true, the brain ran but found zero candidates (fixture-only or live miss).
+   * The council synthesis excludes degraded findings from the confidence floor.
+   */
+  degraded: boolean;
 }
 
 /** Maximum number of risk items to surface. */
@@ -50,6 +61,7 @@ const DEGRADED_RESULT: BeezulbubCouncilBrainResult = {
   summary: "(Beezulbub scout unavailable — degraded)",
   confidence: "low",
   risks: ["Beezulbub council adapter encountered an internal error"],
+  degraded: true,
 };
 
 // ── Flag names ──────────────────────────────────────────────────────────────
@@ -157,6 +169,8 @@ export function buildBeezulbubRisks(
  * - FIXTURE by default (zero network, zero cost, deterministic).
  * - LIVE mode requires BEEZULBUB_ALLOW_NETWORK=true in env (the authoritative gate in scout.ts).
  * - Honest confidence — floors to "low" on 0 candidates or high unknowns. Never launders up.
+ * - degraded:true when zero candidates (fixture-only with no entry, or live miss).
+ * - degraded:false when real candidates were found (live scouting with results).
  */
 export async function beezulbubCouncilBrain(
   goal: CouncilGoal,
@@ -181,7 +195,11 @@ export async function beezulbubCouncilBrain(
     const confidence = mapBeezulbubConfidence(report);
     const risks = buildBeezulbubRisks(report);
 
-    return { summary, confidence, risks };
+    // degraded:true when no candidates found (fixture-only with no entry, or live miss).
+    // degraded:false when real candidates were found.
+    const degraded = report.candidateSources.length === 0;
+
+    return { summary, confidence, risks, degraded };
   } catch {
     // Last-resort safety net — the adapter must never throw.
     return DEGRADED_RESULT;
