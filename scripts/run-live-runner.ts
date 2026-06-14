@@ -21,6 +21,7 @@ import { runCouncilOnce } from "./run-council-pass.js";
 import { runCouncilBuildBridgeOnce } from "./run-council-build-bridge.js";
 // P-B2 — ask-relay daemon sub-pass. DISARMED: a no-op unless HARTOS_ASK_RELAY=on.
 import { runAskRelayOnce } from "./run-ask-relay-pass.js";
+import { runP8CalibrateOnce } from "./run-p8-calibrate-pass.js";
 import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
 import { runFailedJobAlertPass } from "../src/telegram/run-failed-job-alert.js";
 import { runLivenessAlertPass } from "../src/telegram/run-liveness-alert.js";
@@ -81,6 +82,7 @@ if (isMain) {
   // P7 Council→Factory bridge: ~10min cadence. DISARMED by default (HARTOS_ALLOW_COUNCIL_BUILD_BRIDGE=true required).
   // A no-op unless the flag is set; produces propose-only factory build-plan proposals from approved council proposals.
   const COUNCIL_BUILD_BRIDGE_EVERY = 120; // ~10min
+  const P8_CALIBRATE_EVERY = 720; // ~1h: P8 council-calibration learning pass (slow; learning is not time-critical)
   // P-B2 ask-relay: every cycle (~1.5s at the 5s base, but we run this on EVERY cycle so the
   // daemon answers pending relay rows within ~1-2 poll cycles). DISARMED: no-op unless HARTOS_ASK_RELAY=on.
   // Independent of the 5s job poll: the relay runAskRelayOnce is cheap (single DB read when no rows).
@@ -154,6 +156,19 @@ if (isMain) {
         for (const l of bridge) console.log(`[live-runner] council-bridge · ${l}`);
       } catch (e) {
         console.error(`[live-runner] council-build-bridge failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
+
+    // P8 CALIBRATE (reflexive learning) — every ~1h. DISARMED: returns [] unless HARTOS_ALLOW_LEARNING=true.
+    // Aggregates the council approve/reject track record and, on a well-evidenced delta, ENQUEUES one
+    // recalibrate self-mod task. It applies nothing itself — the §6 gauntlet (its own arming triple)
+    // independently governs whether the enqueued change ever lands. Error-isolated; never kills the daemon.
+    if (cycle % P8_CALIBRATE_EVERY === 0) {
+      try {
+        const p8 = await runP8CalibrateOnce(process.env, new Date(now));
+        for (const l of p8) console.log(`[live-runner] ${l}`);
+      } catch (e) {
+        console.error(`[live-runner] p8 calibrate pass failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
       }
     }
 
