@@ -25,14 +25,18 @@ export interface ExecBaseline {
 function runGit(args: string[], cwd: string): { ok: boolean; stdout: string } {
   // 64MB buffer mirrors local-git.ts — large repos can emit big status/diff output.
   const r = spawnSync("git", args, { cwd, encoding: "utf8", stdio: "pipe", maxBuffer: 64 * 1024 * 1024 });
-  return { ok: (r.status ?? 1) === 0, stdout: (r.stdout ?? "").trim() };
+  // DO NOT trim here. `git status --porcelain -z` encodes the index/worktree status in the FIRST TWO
+  // columns, and for a worktree-only change column 1 is a SIGNIFICANT SPACE (" M path"). A leading
+  // trim() would eat that space, shifting parsePorcelainZ's slice(3) by one and corrupting EVERY path
+  // ("src/…" → "rc/…") — which silently breaks scope-verify AND rollback. Callers trim where it's safe.
+  return { ok: (r.status ?? 1) === 0, stdout: r.stdout ?? "" };
 }
 
 export const realGitProbe: GitProbe = {
   headSha(cwd: string): string {
     const r = runGit(["rev-parse", "HEAD"], cwd);
     if (!r.ok) throw new Error("git rev-parse HEAD failed (not a git repo?)");
-    return r.stdout;
+    return r.stdout.trim(); // rev-parse emits a trailing newline — safe to trim a plain sha
   },
   dirtyPaths(cwd: string): string[] {
     // -z: NUL-delimited, so paths with spaces/unicode are NOT C-quoted, and a rename/copy emits
