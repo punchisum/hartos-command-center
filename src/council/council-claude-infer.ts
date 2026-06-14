@@ -1,9 +1,10 @@
 /**
  * src/council/council-claude-infer.ts — council specialist Infer via headless Claude on Max.
  *
- * councilClaudeInfer: spawns `claude -p --output-format json --allowedTools ""` (NO tools —
- * a specialist only reasons; it must not read/edit/run anything). Auth identical to the execution
- * hand: CLAUDE_CODE_OAUTH_TOKEN from env, ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN stripped.
+ * councilClaudeInfer: spawns `claude -p --output-format json` (pure reasoning; headless `-p` with the
+ * default permission-mode grants no tool execution). Auth identical to the execution hand:
+ * CLAUDE_CODE_OAUTH_TOKEN from env, ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN stripped (so the Max-plan
+ * OAuth is used, never a pay-as-you-go API key).
  *
  * On success:  returns the model's `result` text (expected to be a JSON specialist finding that
  *              parseFinding in specialist-prompts.ts will parse).
@@ -71,7 +72,7 @@ export type ClaudeRunner = (
   opts: { model: string; token: string; timeoutMs: number },
 ) => Promise<{ ok: boolean; text: string }>;
 
-/** Default runner — spawns `claude -p --output-format json --allowedTools ""` (no tools). */
+/** Default runner — spawns `claude -p --output-format json` (pure reasoning, no tools granted). */
 export const spawnCouncilClaudeRunner: ClaudeRunner = (prompt, { model, token, timeoutMs }) =>
   new Promise((resolve) => {
     const childEnv: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: token };
@@ -80,8 +81,12 @@ export const spawnCouncilClaudeRunner: ClaudeRunner = (prompt, { model, token, t
 
     const child = spawn(
       "claude",
-      // --allowedTools "" means NO tools: the specialist only reasons, never reads/edits/runs.
-      ["-p", "--output-format", "json", "--model", model, "--allowedTools", ""],
+      // Pure reasoning, no tools granted. We do NOT pass `--allowedTools ""`: an empty-string arg is
+      // DROPPED by cmd.exe under `shell:true` on Windows, which makes claude exit with "argument
+      // missing". Headless `-p` with the default permission-mode grants no tool execution anyway
+      // (it would require acceptEdits / --dangerously-skip-permissions, which we never pass), so a
+      // "return JSON" specialist prompt never reads/edits/runs anything.
+      ["-p", "--output-format", "json", "--model", model],
       { env: childEnv, shell: process.platform === "win32" },
     );
 
