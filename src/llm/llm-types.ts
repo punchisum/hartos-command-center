@@ -10,7 +10,7 @@
  * cockpit and CLIs work fully offline.
  */
 
-export type LlmProviderMode = "deterministic" | "openai" | "gemini";
+export type LlmProviderMode = "deterministic" | "openai" | "gemini" | "claude-max";
 export type LlmConfidence = "low" | "medium" | "high";
 export type LlmRiskLevel = "low" | "medium" | "high";
 
@@ -73,7 +73,7 @@ export interface LlmStructuredOutput {
 }
 
 /** How the result was actually produced. */
-export type LlmMode = "deterministic" | "openai" | "gemini" | "fallback";
+export type LlmMode = "deterministic" | "openai" | "gemini" | "claude-max" | "fallback";
 
 export interface LlmResult {
   output: LlmStructuredOutput;
