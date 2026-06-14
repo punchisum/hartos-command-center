@@ -57,15 +57,17 @@ type Env = Record<string, string | undefined>;
 /**
  * Build a council-scoped Infer backed by the governed LlmGateway.
  *
- * The council Infer takes { system, user } and calls the gateway's strategy-reasoning capability
- * (a natural fit for specialist advisor prompts). Never throws.
+ * Calls gateway.runCouncilSpecialist() which uses the isolated council_specialist prompt contract
+ * and validator — so the model reasons through the specialist's own lens and returns real
+ * { summary, confidence, risks } instead of being forced through the generic 8-field classifier
+ * (which ignored the lens and hardcoded risks:[]).
  *
  * HONEST FALLBACK: a real specialist finding is forwarded ONLY when a real network provider answered
- * (mode gemini/openai). When the LLM gate is off — gateway mode "deterministic"/"fallback", the
- * default first-arming state — the gateway's own stub is NOT specialist reasoning, so this returns an
- * honest LOW-confidence stub whose summary admits the LLM was unavailable. That keeps the confidence
- * band truthful (a stub never claims "medium") and conservatively floors synthesis to low — it never
- * launders a stub into a confident finding for synthesis or the P8 memory signal.
+ * AND result.output is present. When the LLM gate is off — gateway returns output:null for
+ * deterministic/fallback mode — this returns an honest LOW-confidence stub whose summary admits the
+ * LLM was unavailable. That keeps the confidence band truthful (a stub never claims "medium") and
+ * conservatively floors synthesis to low — it never launders a stub into a confident finding for
+ * synthesis or the P8 memory signal.
  *
  * @param env   Process environment.  Defaults to empty (deterministic) when omitted.
  */
@@ -74,22 +76,16 @@ export function councilInferFromEnv(env: Env): Infer {
 
   return async (prompt: { system: string; user: string }): Promise<string> => {
     // Combine system + user into a single request string the gateway understands.
-    // The gateway's strategy_reasoning capability is the best semantic fit.
+    // runCouncilSpecialist uses the isolated council_specialist prompt + validator.
     const request = `${prompt.system}\n\n${prompt.user}`;
     try {
-      const result = await gateway.runStrategyReasoning(request);
-      // ONLY a real network-LLM answer is a genuine specialist finding. In "deterministic"/"fallback"
-      // mode the gateway's stub is NOT specialist reasoning — forwarding its (often "medium") summary
-      // would launder a stub into a non-degraded finding that synthesis (no-laundering) and the P8
-      // memory signal then trust. So we require a real provider; otherwise fall through to the honest
-      // low-confidence stub below.
-      const realLlm = !!result && result.success && result.mode !== "deterministic" && result.mode !== "fallback";
+      const result = await gateway.runCouncilSpecialist(request);
+      // result.output is non-null only when a real provider answered with a valid council shape.
+      // For deterministic/fallback mode the gateway returns output:null — fall through to honest stub.
+      const realLlm = result.ok && result.mode !== "deterministic" && result.mode !== "fallback";
       if (realLlm && result.output) {
-        const { summary, confidence } = result.output;
-        if (summary && typeof summary === "string" && summary.trim().length > 0) {
-          const safeConf = confidence === "low" || confidence === "medium" || confidence === "high" ? confidence : "low";
-          return JSON.stringify({ summary: summary.trim(), confidence: safeConf, risks: [] });
-        }
+        // The model returned real { summary, confidence, risks } via the specialist lens — forward it.
+        return JSON.stringify(result.output);
       }
     } catch {
       // Gateway threw (should never happen — it self-guards) — fall through to honest stub.

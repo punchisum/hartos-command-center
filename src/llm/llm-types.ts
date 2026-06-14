@@ -21,7 +21,8 @@ export type LlmRequestType =
   | "cto_reasoning"
   | "summarize_agent_status"
   | "summarize_cockpit_state"
-  | "summarize_data_snapshot";
+  | "summarize_data_snapshot"
+  | "council_specialist";
 
 /** Resolved view of how the gateway is configured. */
 export interface LlmGatewayConfig {
@@ -96,5 +97,31 @@ export interface LlmProvider {
 export interface OutputValidation {
   ok: boolean;
   value?: LlmStructuredOutput;
+  error?: string;
+}
+
+/**
+ * The structured output contract for council specialist calls.
+ * ISOLATED from LlmStructuredOutput — the 8-field classifier contract is untouched.
+ */
+export interface LlmCouncilSpecialistOutput {
+  summary: string;
+  confidence: LlmConfidence;
+  risks: string[];
+}
+
+/**
+ * The result type returned by LlmGateway.runCouncilSpecialist().
+ * Never merged into LlmResult to keep the council path's shape isolated.
+ */
+export interface LlmCouncilResult {
+  ok: boolean;
+  mode: LlmMode;
+  output: LlmCouncilSpecialistOutput | null;
+}
+
+export interface CouncilOutputValidation {
+  ok: boolean;
+  value?: LlmCouncilSpecialistOutput;
   error?: string;
 }
