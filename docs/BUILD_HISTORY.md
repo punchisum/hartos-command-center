@@ -55,7 +55,19 @@ the table format, and update "Current state" + "Roadmap ahead" as milestones lan
   deadband 0.05 / step 0.20), two independent locks both default-off (`HARTOS_ALLOW_LEARNING` to enqueue;
   the self-mod triple to apply), wired into the live-runner at a ~1h cadence. Adds **zero** new execution
   surface — it writes the same queue the proven §6 gauntlet already governs.
-- **Test suite:** 3254/0.
+- **Cockpit correctness + truth-layer Phase A (2026-06-14).** Fixed Hart's reported drifts: fleet
+  health is now a health+freshness **composite** (was a misleading ~19%); Ask `infer-threw` hardened
+  (gateway construction can't throw) + relay arming surfaced; Factory/Wolverine/Beezulbub status
+  corrected to **live** with a kill-switch-aware downgrade; **Sentinel auto-engages Wolverine** on a
+  down/stale agent (advisory, gated); **Live Ops now tracks approved council + factory-build work**
+  (an approved M&A proposal no longer vanishes) with a truth-safe firing rule. Plus the ratified
+  **dynamic-agent-registration constitution** → truth-layer **Phase A**: `AgentManifest` +
+  `deriveAgentStatus` (status derived from lifecycle + liveness + arming; nothing "live" without a
+  confirming heartbeat), a pure `agentRegistryView`, an 18-organ seed, the `agent_registry` migration
+  (designed, not applied), and a live `GET /api/agent-registry`. Built via an ultracode workflow
+  (contract → parallel impl → adversarial review). Phase B (swap the v5 deck onto the registry view)
+  is next. Design: `docs/superpowers/specs/2026-06-14-dynamic-agent-registration-cockpit.md`.
+- **Test suite:** 3284/0.
 
 ## Roadmap ahead
 
