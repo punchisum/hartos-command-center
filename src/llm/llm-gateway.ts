@@ -4,7 +4,7 @@
  * The governed LLM Gateway. Every module that wants LLM reasoning goes through
  * here — never directly to a provider. Architecture:
  *
- *   caller → LlmGateway → provider CHAIN (gemini → openai → deterministic)
+ *   caller → LlmGateway → provider CHAIN (claude-max → gemini → openai → deterministic)
  *                       → output validator → safe structured result
  *
  * Defaults to the deterministic provider. A network provider is selected only when
@@ -13,6 +13,12 @@
  * returns malformed output, the OTHER network provider (whose key is present) is
  * tried as a fallback; if that also fails, the deterministic provider answers. It
  * never crashes. Optionally writes a redacted usage log.
+ *
+ * claude-max is a HOST-ONLY provider (requires node:child_process). To use it,
+ * pass `extraProviders: { "claude-max": claudeMaxProvider }` via LlmGatewayOptions
+ * and set `config.provider = "claude-max"`. Use `buildHostGateway` from
+ * host-gateway.ts (also host-only) for convenience. The Worker never passes this
+ * option so the Worker import graph stays clean.
  */
 
 import path from "node:path";
@@ -36,8 +42,11 @@ export const DEFAULT_MODEL = "gpt-4o-mini";
 // retries transient 5xx/429 and falls back to OpenAI. Override with HARTOS_GEMINI_MODEL.
 export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
 
-/** The two network providers, in no particular order (the chain orders them per primary). */
-type NetworkMode = "gemini" | "openai";
+/**
+ * Network providers the gateway may call. "claude-max" is host-only (node:child_process);
+ * it is only reachable when injected via extraProviders and provider="claude-max".
+ */
+type NetworkMode = "claude-max" | "gemini" | "openai";
 
 type Env = Record<string, string | undefined>;
 
@@ -45,7 +54,10 @@ type Env = Record<string, string | undefined>;
 export function resolveLlmConfig(env: Env = process.env): LlmGatewayConfig {
   const providerRaw = (env["HARTOS_LLM_PROVIDER"] ?? "deterministic").toLowerCase();
   const provider: LlmProviderMode =
-    providerRaw === "gemini" ? "gemini" : providerRaw === "openai" ? "openai" : "deterministic";
+    providerRaw === "gemini" ? "gemini"
+    : providerRaw === "openai" ? "openai"
+    : providerRaw === "claude-max" ? "claude-max"
+    : "deterministic";
   const networkEnabled = env["HARTOS_LLM_ENABLE_NETWORK"] === "true";
 
   const openaiKey = env["OPENAI_API_KEY"];
@@ -77,8 +89,15 @@ export function resolveLlmConfig(env: Env = process.env): LlmGatewayConfig {
 /**
  * Decide which provider runs FIRST. A network provider requires provider≠deterministic AND the
  * network gate AND the primary key; otherwise deterministic. (Fallback ordering is providerChain.)
+ * "claude-max" is special: apiKeyPresent is not applicable (it uses CLAUDE_CODE_OAUTH_TOKEN).
+ * For claude-max the gateway trusts the chain to self-gate via the provider throwing on no-token.
  */
 export function selectProviderMode(config: LlmGatewayConfig): LlmProviderMode {
+  if (config.provider === "claude-max") {
+    // claude-max does not use networkEnabled / apiKeyPresent (those describe API-key providers).
+    // The chain gates itself: if the token is absent the provider throws → falls to gemini.
+    return "claude-max";
+  }
   if (config.provider !== "deterministic" && config.networkEnabled && config.apiKeyPresent) {
     return config.provider;
   }
@@ -86,12 +105,32 @@ export function selectProviderMode(config: LlmGatewayConfig): LlmProviderMode {
 }
 
 /**
- * The ordered list of NETWORK providers to try: primary first, then the other one IF its key is
- * present (the fallback). Empty when the network gate is off or no key is present — the gateway
- * then answers deterministically. Hand-built configs that omit openaiKeyPresent/geminiKeyPresent
- * simply get no fallback (the missing flag reads as "key absent").
+ * The ordered list of NETWORK providers to try: primary first, then fallbacks.
+ *
+ * claude-max chain: ["claude-max", "gemini", "openai"] filtered by:
+ *   - "claude-max" eligible iff it is present in the providers map (passed at construction;
+ *     checked via the `claudeMaxPresent` flag threaded from the constructor).
+ *   - "gemini" / "openai" eligible as usual (key flags).
+ * claude-max does NOT require networkEnabled — it gates itself on CLAUDE_CODE_OAUTH_TOKEN.
+ * Gemini/OpenAI fallbacks still require networkEnabled + their key.
+ *
+ * gemini/openai chains: unchanged (networkEnabled + key flags).
+ *
+ * Hand-built configs that omit openaiKeyPresent/geminiKeyPresent get no fallback
+ * for those providers (the missing flag reads as "key absent").
  */
-export function providerChain(config: LlmGatewayConfig): NetworkMode[] {
+export function providerChain(
+  config: LlmGatewayConfig,
+  opts: { claudeMaxPresent?: boolean } = {},
+): NetworkMode[] {
+  if (config.provider === "claude-max") {
+    // Primary = claude-max (host-only). Fallbacks require the network gate + their key.
+    const chain: NetworkMode[] = [];
+    if (opts.claudeMaxPresent) chain.push("claude-max");
+    if (config.networkEnabled && config.geminiKeyPresent === true) chain.push("gemini");
+    if (config.networkEnabled && config.openaiKeyPresent === true) chain.push("openai");
+    return chain;
+  }
   if (!config.networkEnabled) return [];
   const order: NetworkMode[] =
     config.provider === "gemini" ? ["gemini", "openai"]
@@ -105,6 +144,10 @@ export function providerChain(config: LlmGatewayConfig): NetworkMode[] {
  * silent mystery. Returns the resolved mode + the precise reason it's deterministic (or "armed").
  */
 export function explainGate(config: LlmGatewayConfig): { mode: LlmProviderMode; reason: string } {
+  if (config.provider === "claude-max") {
+    // claude-max is always "armed" at the config level; it self-gates on the OAuth token.
+    return { mode: "claude-max", reason: "armed (claude-max host-only; gates on CLAUDE_CODE_OAUTH_TOKEN)" };
+  }
   if (config.provider === "deterministic") {
     return { mode: "deterministic", reason: 'provider is "deterministic" (set HARTOS_LLM_PROVIDER=gemini or openai)' };
   }
@@ -121,6 +164,15 @@ export interface LlmGatewayOptions {
   env?: Env;
   /** Override providers (tests inject mocks). */
   providers?: Partial<Record<LlmProviderMode, LlmProvider>>;
+  /**
+   * Extra providers to merge on top of the defaults. Intended for HOST-ONLY providers that must
+   * never appear in the Worker bundle (e.g. "claude-max" which imports node:child_process). Host
+   * callers pass `extraProviders: hostExtraProviders(env)` from host-gateway.ts; the Worker never
+   * passes this option so the Worker import graph stays node:child_process-free.
+   *
+   * Merge order: `extraProviders` is applied first, then `providers` (so test mocks still win).
+   */
+  extraProviders?: Partial<Record<LlmProviderMode, LlmProvider>>;
   /** Default false — tests stay quiet. Scripts opt in. */
   writeUsage?: boolean;
   cwd?: string;
@@ -139,14 +191,26 @@ export class LlmGateway {
    */
   private readonly apiKey?: string;
   private readonly geminiApiKey?: string;
+  /** True iff a "claude-max" provider was wired in (via providers or extraProviders). */
+  private readonly claudeMaxPresent: boolean;
 
   constructor(options: LlmGatewayOptions = {}) {
     this.config = options.config ?? resolveLlmConfig(options.env);
-    this.providers = {
-      deterministic: options.providers?.deterministic ?? deterministicProvider,
-      openai: options.providers?.openai ?? openAiProvider,
-      gemini: options.providers?.gemini ?? geminiProvider,
-    };
+
+    // Merge order: extraProviders (host-only) → defaults → providers (test mocks, highest priority).
+    // The "claude-max" slot defaults to undefined (no provider = no spawn = Worker stays clean).
+    const merged: Record<LlmProviderMode, LlmProvider> = {
+      deterministic: deterministicProvider,
+      openai: openAiProvider,
+      gemini: geminiProvider,
+      // "claude-max" has no default — only present when the HOST explicitly wires it in.
+      ...(options.extraProviders ?? {}),
+      ...(options.providers ?? {}),
+    } as Record<LlmProviderMode, LlmProvider>;
+
+    this.providers = merged;
+    this.claudeMaxPresent = "claude-max" in merged && merged["claude-max"] != null;
+
     this.writeUsage = options.writeUsage === true;
     const cwd = options.cwd ?? process.cwd();
     this.reportsDir = options.reportsDir ?? path.join(cwd, DEFAULT_LLM_REPORTS_DIR);
@@ -157,7 +221,7 @@ export class LlmGateway {
 
   private async run(type: LlmRequestType, request: string, context?: Record<string, unknown>): Promise<LlmResult> {
     const req: LlmRequest = { type, request, ...(context ? { context } : {}) };
-    const chain = providerChain(this.config);
+    const chain = providerChain(this.config, { claudeMaxPresent: this.claudeMaxPresent });
 
     // Try each network provider in order (primary, then fallback). First valid output wins.
     let result: LlmResult | null = null;
@@ -196,20 +260,36 @@ export class LlmGateway {
   }
 
   /**
-   * Run ONE network provider (gemini|openai) with its own model + key threaded in. Returns a valid
-   * LlmResult, or null on a provider error / malformed output so `run` can try the next in the chain.
+   * Run ONE network provider (claude-max|gemini|openai) with its own model + key threaded in.
+   * Returns a valid LlmResult, or null on a provider error / malformed output so `run` can try
+   * the next in the chain.
+   *
+   * claude-max: reads CLAUDE_CODE_OAUTH_TOKEN directly from process.env (the provider handles
+   * this internally). No API key is threaded — that's an API-key-provider concern.
    */
   private async runNetworkProvider(mode: NetworkMode, req: LlmRequest): Promise<LlmResult | null> {
-    const model = mode === "gemini" ? (this.config.geminiModel ?? this.config.model) : (this.config.openaiModel ?? this.config.model);
-    // Thread BOTH keys (call-time only; never stored on the public config); the provider reads its own.
+    // claude-max uses process.env token internally — no model/key threading needed here.
+    const model =
+      mode === "claude-max"
+        ? (process.env["HARTOS_LLM_MODEL"] ?? "sonnet")
+        : mode === "gemini"
+          ? (this.config.geminiModel ?? this.config.model)
+          : (this.config.openaiModel ?? this.config.model);
+
+    // Thread BOTH API keys (call-time only; never stored on the public config); the provider reads its own.
+    // claude-max ignores these — it uses CLAUDE_CODE_OAUTH_TOKEN.
     const callConfig: LlmGatewayConfig = {
       ...this.config,
       model,
       ...(this.apiKey ? { apiKey: this.apiKey } : {}),
       ...(this.geminiApiKey ? { geminiApiKey: this.geminiApiKey } : {}),
     };
+
+    const provider = this.providers[mode];
+    if (!provider) return null; // provider not wired (e.g. claude-max not injected) → skip
+
     try {
-      const raw = await this.providers[mode].generate(req, callConfig);
+      const raw = await provider.generate(req, callConfig);
       const validation = validateLlmOutput(raw);
       if (validation.ok && validation.value) {
         return {
@@ -224,7 +304,7 @@ export class LlmGateway {
       }
       return null; // malformed → caller tries the next provider, then deterministic
     } catch {
-      return null; // provider error (network/auth/429) → caller tries the next provider
+      return null; // provider error (network/auth/429/token-absent) → caller tries next provider
     }
   }
 
@@ -259,11 +339,19 @@ export class LlmGateway {
    */
   async runCouncilSpecialist(request: string): Promise<LlmCouncilResult> {
     const req: LlmRequest = { type: "council_specialist", request };
-    const chain = providerChain(this.config);
+    const chain = providerChain(this.config, { claudeMaxPresent: this.claudeMaxPresent });
 
     // Try each network provider in order; validate with the COUNCIL validator.
     for (const mode of chain) {
-      const model = mode === "gemini" ? (this.config.geminiModel ?? this.config.model) : (this.config.openaiModel ?? this.config.model);
+      const provider = this.providers[mode];
+      if (!provider) continue; // not wired — skip
+
+      const model =
+        mode === "claude-max"
+          ? (process.env["HARTOS_LLM_MODEL"] ?? "sonnet")
+          : mode === "gemini"
+            ? (this.config.geminiModel ?? this.config.model)
+            : (this.config.openaiModel ?? this.config.model);
       const callConfig: LlmGatewayConfig = {
         ...this.config,
         model,
@@ -271,7 +359,7 @@ export class LlmGateway {
         ...(this.geminiApiKey ? { geminiApiKey: this.geminiApiKey } : {}),
       };
       try {
-        const raw = await this.providers[mode].generate(req, callConfig);
+        const raw = await provider.generate(req, callConfig);
         const validation = validateCouncilSpecialistOutput(raw);
         if (validation.ok && validation.value) {
           return { ok: true, mode, output: validation.value };
