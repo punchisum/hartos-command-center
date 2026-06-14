@@ -18,7 +18,19 @@ import { KILL_SWITCH_ENV } from "../src/execution/execution-adapter.js";
 
 const NOW = "2026-06-08T12:00:00.000Z";
 
+// The number of bind parameters a SQL statement requires = its highest $N reference
+// (0 when there are no placeholders). node-postgres/Postgres reject a Bind whose supplied
+// param count differs from this — so mirroring it here lets the fake catch the exact
+// mismatch the live runner hit ("bind message supplies 1 parameters, … requires 0").
+function requiredParamCount(text: string): number {
+  const refs = text.match(/\$(\d+)/g);
+  return refs ? Math.max(...refs.map((r) => Number(r.slice(1)))) : 0;
+}
+
 // ─── fake Queryable (mirrors the refresh-sync fakeDb spy) ─────────────────────
+// The spy enforces placeholder/param parity the way real Postgres does, so a query whose
+// supplied param count drifts from its $N placeholders fails the test instead of silently
+// passing (which is how the reject-drafts count bug reached the live runner undetected).
 function fakeDb(results: Array<{ rows: Array<Record<string, unknown>>; rowCount: number | null }>): {
   db: Queryable;
   calls: Array<{ text: string; params?: unknown[] }>;
@@ -27,6 +39,13 @@ function fakeDb(results: Array<{ rows: Array<Record<string, unknown>>; rowCount:
   let i = 0;
   const db: Queryable = {
     async query(text, params) {
+      const required = requiredParamCount(text);
+      const supplied = params?.length ?? 0;
+      if (supplied !== required) {
+        throw new Error(
+          `bind message supplies ${supplied} parameters, but prepared statement "" requires ${required}`,
+        );
+      }
       calls.push({ text, params });
       return results[i++] ?? { rows: [], rowCount: 0 };
     },
@@ -66,7 +85,19 @@ describe("reject-drafts DB store", () => {
     assert.match(calls[0]!.text, /select count\(\*\)/i);
     assert.match(calls[0]!.text, /from public\.cockpit_proposals/i);
     assert.match(calls[0]!.text, /status='draft'/i);
-    assert.deepEqual(calls[0]!.params, [NOW]);
+  });
+
+  it("countRejectableDrafts supplies NO bind params — its SQL has no $N placeholders (regression: 'bind supplies 1, requires 0')", async () => {
+    // The count filter is a literal (status='draft'); passing `now` as a bind param made
+    // Postgres reject the Bind every reconcile cycle. The parity-checking fakeDb makes a
+    // recurrence fail here instead of only in the live runner.
+    const { db, calls } = fakeDb([{ rows: [{ n: 0 }], rowCount: 1 }]);
+    await makeRejectDraftsStore(db).countRejectableDrafts(NOW);
+    assert.doesNotMatch(calls[0]!.text, /\$\d/, "the count SQL must contain no $N placeholders");
+    assert.ok(
+      calls[0]!.params === undefined || calls[0]!.params.length === 0,
+      "the count query must supply zero bind params to match its zero placeholders",
+    );
   });
 
   it("rejectDraftProposals issues a conditional UPDATE to 'rejected' on draft rows and returns rowCount", async () => {

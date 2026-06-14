@@ -59,8 +59,11 @@ async function openPool(connectionString: string, strict: boolean): Promise<Inst
 /** Build the reject-drafts store over any Queryable (the seam tests exercise). */
 export function makeRejectDraftsStore(db: Queryable): RejectDraftsStore {
   return {
-    async countRejectableDrafts(now: string): Promise<number> {
-      const r = await db.query(`select count(*)::int as n from public.cockpit_proposals where ${DRAFT_FILTER}`, [now]);
+    async countRejectableDrafts(_now: string): Promise<number> {
+      // The filter is a literal (status='draft'), so this SQL has NO $N placeholders — it must
+      // be sent with zero bind params. Passing `now` here made Postgres reject the Bind every
+      // reconcile cycle ("bind supplies 1 parameters, but … requires 0"); `_now` is unused.
+      const r = await db.query(`select count(*)::int as n from public.cockpit_proposals where ${DRAFT_FILTER}`);
       return Number(r.rows[0]?.n ?? 0);
     },
     async rejectDraftProposals(now: string): Promise<number> {
