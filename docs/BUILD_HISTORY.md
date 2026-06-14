@@ -20,12 +20,14 @@ the table format, and update "Current state" + "Roadmap ahead" as milestones lan
   (`/health` reports the deployed `BUILD_SHA`; `actionExecution:"disabled"` — the public Worker fence holds).
 - **Daemon:** local `live-runner`, fully armed, idle until a task is queued. Kill-switch
   (`HARTOS_EXECUTION_KILL_SWITCH=on`) overrides everything.
-- **P7 — the Council: CODE-COMPLETE + DISARMED.** Plans 1–3 merged (PRs #45, #46) — `src/council/` +
-  cockpit: arming gate, 5-specialist roster, panel selection, no-laundering synthesis, recursive
-  coordinator, live LLM wiring (honest fallback), `createCouncilProposal`, `council.orchestrate` job,
-  cockpit view + `GET /api/council` + P8 memory signal. Propose-only; arming (`HARTOS_ALLOW_COUNCIL`)
-  is Hart's gate. Live-LLM follow-ups noted (real Research brain, specialist-prompt fidelity).
-- **Test suite:** 3023/0.
+- **P7 — the Council: CODE-COMPLETE + WIRED + DISARMED.** Plans 1–3 + wiring merged (PRs #45–#48) —
+  `src/council/` + cockpit: arming gate, 5-specialist roster, panel selection, no-laundering synthesis,
+  recursive coordinator, governed `council_specialist` LLM path, real Research brain, **Claude-on-Max
+  infer** (concurrency-capped), `createCouncilProposal`, `council.orchestrate` job, cockpit view +
+  `GET /api/council` + P8 memory signal. Propose-only; arming (`HARTOS_ALLOW_COUNCIL`) is Hart's gate.
+  Live run executed + degraded honestly; a real-reasoning run is pending LLM-provider credit (Gemini/
+  OpenAI/Claude-on-Max all out of credit/quota at session end — no code change needed).
+- **Test suite:** 3085/0.
 
 ## Roadmap ahead
 
