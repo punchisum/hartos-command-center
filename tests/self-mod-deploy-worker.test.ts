@@ -22,19 +22,20 @@ describe("deployCloudflareWorker", () => {
     assert.equal(calls.length, 0, "must not spawn wrangler when gated off");
   });
 
-  it("armed + runner exits 0 → ok, injects BUILD_SHA + env staging by default", () => {
+  it("armed + runner exits 0 → ok, deploys via --config wrangler.cockpit.toml + injects BUILD_SHA", () => {
     const { run, calls } = recordingRunner(0);
     const r = deployCloudflareWorker("sha-abc", ARMED, "2026-06-14T00:00:00Z", run);
     assert.equal(r.ok, true);
     assert.equal(calls.length, 1);
-    assert.deepEqual(calls[0].args.slice(0, 4), ["deploy", "--env", "staging", "--var"]);
+    assert.deepEqual(calls[0].args.slice(0, 3), ["deploy", "--config", "wrangler.cockpit.toml"]);
     assert.ok(calls[0].args.includes("BUILD_SHA:sha-abc"));
+    assert.ok(calls[0].args.includes("BUILD_TIME:2026-06-14T00:00:00Z"));
   });
 
-  it("APP_ENV=production → deploys the production env", () => {
+  it("deploys the top-level worker — NEVER passes --env (which would target a different '-suffixed' worker)", () => {
     const { run, calls } = recordingRunner(0);
     deployCloudflareWorker("sha", { ...ARMED, APP_ENV: "production" }, "t", run);
-    assert.ok(calls[0].args.includes("production"));
+    assert.ok(!calls[0].args.includes("--env"), "must not pass --env: it would deploy a -production-suffixed clone, not the live worker");
   });
 
   it("runner non-zero exit → ok:false with the failure detail", () => {

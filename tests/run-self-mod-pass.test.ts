@@ -4,8 +4,10 @@ import {
   runSelfModPassOnce,
   nextSelfModTask,
   selfModQueuePath,
+  resolveVerifyWorkerUrl,
   type QueueFs,
 } from "../scripts/run-self-mod-pass.js";
+import { PROD_COCKPIT_WORKER_URL } from "../src/execution/self-mod-deploy-worker.js";
 
 // ---------------------------------------------------------------------------
 // Fake QueueFs builder — lets each test control the in-memory queue state.
@@ -90,6 +92,29 @@ describe("selfModQueuePath", () => {
     assert.ok(p.endsWith(".hartos-self-mod-queue.json"), `unexpected path: ${p}`);
     // Must NOT be inside the repo working tree (repo cwd).
     assert.ok(!p.startsWith(process.cwd()), `queue path must be outside repo: ${p}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveVerifyWorkerUrl — deploy/verify must name the SAME worker (Finding 1)
+// ---------------------------------------------------------------------------
+describe("resolveVerifyWorkerUrl (deploy/verify same-worker binding)", () => {
+  it("defaults to the live cockpit worker when nothing is set", () => {
+    assert.equal(resolveVerifyWorkerUrl({}), PROD_COCKPIT_WORKER_URL);
+  });
+
+  it("IGNORES STAGING_CLOUDFLARE_WORKER_URL — a staging override must not steer prod verify", () => {
+    const url = resolveVerifyWorkerUrl({ STAGING_CLOUDFLARE_WORKER_URL: "https://staging.example.workers.dev" });
+    assert.equal(url, PROD_COCKPIT_WORKER_URL, "staging var must never become the prod verify target");
+  });
+
+  it("CLOUDFLARE_WORKER_URL overrides for an explicit URL change (e.g. custom domain)", () => {
+    const url = resolveVerifyWorkerUrl({ CLOUDFLARE_WORKER_URL: "https://cockpit.hartos.dev" });
+    assert.equal(url, "https://cockpit.hartos.dev");
+  });
+
+  it("blank CLOUDFLARE_WORKER_URL falls back to the live worker (never an empty host)", () => {
+    assert.equal(resolveVerifyWorkerUrl({ CLOUDFLARE_WORKER_URL: "   " }), PROD_COCKPIT_WORKER_URL);
   });
 });
 
