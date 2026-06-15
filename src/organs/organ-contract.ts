@@ -6,7 +6,7 @@
  * DERIVED from evidence, never stored as truth.
  */
 
-export type OrganStatus = "REGISTERED" | "PARTIAL" | "LIVE" | "FAILED" | "RETIRED";
+export type OrganStatus = "REGISTERED" | "DISARMED" | "STANDBY" | "PARTIAL" | "LIVE" | "FAILED" | "RETIRED";
 export type OrganTrigger = "scheduled" | "on_demand" | "worker";
 
 /** The single result every organ adapter returns from one run. */

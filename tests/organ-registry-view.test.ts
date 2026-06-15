@@ -61,10 +61,10 @@ test("fresh run + output + readback => LIVE", () => {
   assert.equal(view[0]!.heartbeatSource, "organ_runs(sentinel) + worker cron");
 });
 
-test("disarmed run => PARTIAL (not LIVE)", () => {
+test("disarmed run => DISARMED (gate off, not LIVE)", () => {
   const reg = regRow({ last_run_at: "2026-06-14T11:59:30.000Z", last_output_ref: "organ_runs:43" });
   const view = buildOrganRegistryView([reg], [runRow({ disarmed: true, output_ref: "organ_runs:43" })], NOW);
-  assert.equal(view[0]!.status, "PARTIAL");
+  assert.equal(view[0]!.status, "DISARMED");
 });
 
 test("retired lifecycle => RETIRED regardless of runs", () => {
@@ -79,12 +79,12 @@ test("errored run => FAILED", () => {
   assert.equal(view[0]!.status, "FAILED");
 });
 
-test("honest ok:false (not errored) => PARTIAL, never FAILED", () => {
-  // An organ that ran and honestly reported not-yet-live (disarmed / no input / empty) is PARTIAL,
-  // not FAILED. This is the dishonest-FAILED bug the SOT verification caught.
+test("armed + ran clean + no output => STANDBY (ready, no work), never FAILED", () => {
+  // An armed organ that ran cleanly and honestly produced nothing (council w/o goal, factory w/o spec)
+  // is STANDBY — ready and waiting for a trigger — not FAILED and not the half-broken-sounding PARTIAL.
   const reg = regRow({ last_run_at: "2026-06-14T11:59:30.000Z", last_output_ref: null });
   const view = buildOrganRegistryView([reg], [runRow({ ok: false, errored: false, output_ref: null })], NOW);
-  assert.equal(view[0]!.status, "PARTIAL");
+  assert.equal(view[0]!.status, "STANDBY");
 });
 
 test("stale heartbeat (older than threshold) => FAILED", () => {

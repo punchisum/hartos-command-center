@@ -205,11 +205,16 @@ function organToAgentStatus(s: OrganStatus): AgentStatus {
   switch (s) {
     case "LIVE":
       return "live";
+    case "STANDBY":
+      // Armed + ready, no work yet — amber/partial band (never "live"), but honestly "standby".
+      return "partial";
     case "PARTIAL":
       return "partial";
     case "REGISTERED":
       // Registered but no live evidence yet — honestly amber/partial, never "live".
       return "partial";
+    case "DISARMED":
+      return "unavailable";
     case "FAILED":
       return "unavailable";
     case "RETIRED":
@@ -224,14 +229,16 @@ function statusReasonFor(v: OrganView): string {
   switch (v.status) {
     case "LIVE":
       return `LIVE — fresh run${v.lastRunSummary ? ` · ${v.lastRunSummary}` : ""}`;
+    case "STANDBY":
+      return `STANDBY — armed + ready, no work yet${v.lastRunSummary ? ` · ${v.lastRunSummary}` : ""}. Goes LIVE on a trigger.`;
+    case "DISARMED":
+      return `DISARMED — gate off${v.armingFlag ? ` (${v.armingFlag})` : ""}. Arm it to run.`;
     case "PARTIAL":
-      return v.lastOutputRef
-        ? "PARTIAL — ran, but not all four LIVE conditions met (disarmed / no readback / stale-ish)."
-        : "PARTIAL — registered with a run but no readable output yet.";
+      return "PARTIAL — ran with an output but short of the full LIVE gate (no readback / stale-ish).";
     case "REGISTERED":
       return "REGISTERED — present in the registry; no qualifying run evidence yet.";
     case "FAILED":
-      return "FAILED — last run failed or the heartbeat is stale.";
+      return "FAILED — last run errored or the heartbeat is stale.";
     case "RETIRED":
       return "RETIRED.";
     default:

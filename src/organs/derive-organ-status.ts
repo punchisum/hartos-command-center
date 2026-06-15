@@ -29,6 +29,17 @@ export function deriveOrganStatus(ev: OrganEvidence): OrganStatus {
   const hasOutput = !!(ev.lastRun && ev.lastRun.outputRef);
 
   if (fresh && realRun && hasOutput && ev.readbackOk) return "LIVE";
+
+  // DISARMED: the organ's gate is off — an honest "turned off", not idle-ready.
+  if (ev.lastRun && ev.lastRun.disarmed) return "DISARMED";
+
+  // STANDBY: armed + ran cleanly (no error) + produced nothing = ready, but no work to do right now
+  // (e.g. council with no goal, factory with no approved spec). This is NOT "PARTIAL" (half-broken) —
+  // the organ is healthy and waiting for a trigger; it goes LIVE the moment it has real work.
+  if (ev.lastRun && ev.lastRun.ok === false && !ev.lastRun.outputRef) return "STANDBY";
+
+  // PARTIAL: ran and has SOME evidence but fell short of the four-part LIVE gate (e.g. produced an
+  // output but no readback, or ok but not fresh) — genuinely part-way, not merely idle.
   if (fresh || ev.lastRun) return "PARTIAL";
   return "REGISTERED";
 }
