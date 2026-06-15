@@ -12,6 +12,9 @@
  */
 
 import { spawn } from "node:child_process";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { resolveLlmConfig } from "../llm/llm-gateway.js";
 import type { SourceFetcher } from "./research-gatherer.js";
 import type { GatheredSource } from "./research-synthesis.js";
@@ -38,26 +41,51 @@ const buildPrompt = (subQuestion: string, topic: string): string =>
   `If you could not find sources, return an empty sources array and say so in answer.`;
 
 /**
- * Default runner: spawns the real `claude` CLI. The PROMPT is piped via STDIN (not argv) so a long
- * multi-line prompt with quotes can't be mangled by the Windows shell; only simple flags ride in
- * argv, and tools are comma-joined (a space-separated value would be split by shell:true). `-p` with
- * no positional prompt makes Claude read the prompt from stdin.
+ * Default runner: spawns the real `claude` CLI. The PROMPT is delivered via a TEMP FILE + shell
+ * stdin-redirect (`claude -p … < file`), NOT node's child.stdin. On Windows `shell:true` runs claude
+ * through cmd.exe, and node's piped child.stdin does NOT reliably reach the claude shim — claude then
+ * blocks forever waiting on stdin (the daemon's claude-research hang). A file redirect is delivered
+ * by the shell itself (reliable cross-platform) and a temp file also avoids any shell-quoting of a
+ * long multi-line prompt. The whole command is one shell string so the `<` redirection is honored.
  */
 export const spawnClaudeRunner: ClaudeRunner = (prompt, { model, token, timeoutMs }) =>
   new Promise((resolve) => {
     const childEnv: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: token };
     delete childEnv["ANTHROPIC_API_KEY"];
     delete childEnv["ANTHROPIC_AUTH_TOKEN"];
-    const child = spawn(
-      "claude",
-      ["-p", "--model", model, "--allowedTools", "WebSearch,WebFetch", "--output-format", "json"],
-      { env: childEnv, shell: process.platform === "win32" },
-    );
+    const promptFile = join(tmpdir(), `hartos-research-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
+    let cleaned = false;
+    const cleanup = (): void => {
+      if (cleaned) return;
+      cleaned = true;
+      try {
+        unlinkSync(promptFile);
+      } catch {
+        /* best-effort */
+      }
+    };
+    try {
+      writeFileSync(promptFile, prompt, "utf8");
+    } catch {
+      resolve(null);
+      return;
+    }
+    // Model is a fixed slug ("sonnet"); the prompt is in the file, so the command has no untrusted
+    // interpolation. The `<` redirect makes the shell feed the prompt to claude's stdin.
+    const cmd = `claude -p --model ${model} --allowedTools WebSearch,WebFetch --output-format json < "${promptFile}"`;
+    const child = spawn(cmd, { env: childEnv, shell: true });
     let out = "";
     let settled = false;
-    const done = (v: string | null) => { if (!settled) { settled = true; clearTimeout(timer); resolve(v); } };
+    const done = (v: string | null) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        cleanup();
+        resolve(v);
+      }
+    };
     const timer = setTimeout(() => { child.kill(); done(null); }, timeoutMs);
-    child.stdout.on("data", (c) => (out += c.toString()));
+    child.stdout?.on("data", (c) => (out += c.toString()));
     child.on("error", () => done(null));
     child.on("close", () => {
       try {
@@ -68,9 +96,6 @@ export const spawnClaudeRunner: ClaudeRunner = (prompt, { model, token, timeoutM
         done(null);
       }
     });
-    child.stdin.on("error", () => {}); // ignore EPIPE if the child exits early
-    child.stdin.write(prompt);
-    child.stdin.end();
   });
 
 /** Strip ```json fences and parse the model's structured answer. */
