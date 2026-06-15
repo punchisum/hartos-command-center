@@ -33,6 +33,8 @@ import type { ArchiveRejectedStore } from "./adapters/archive-rejected.js";
 import type { RefreshSyncStore } from "./adapters/refresh-sync.js";
 import type { FitnessMutationStore } from "./adapters/fitness-mutation.js";
 import type { FitnessAdjustment } from "../fitness/fitness-adjustment-rules.js";
+import type { ObsidianWriteStore } from "./adapters/obsidian-write.js";
+import type { ObsidianNoteProposal } from "../obsidian/obsidian-types.js";
 
 /** The live stores a host injects (ClickUp + the internal proposal-queue cleanup stores). */
 export interface ApprovedExecutorStores {
@@ -45,6 +47,8 @@ export interface ApprovedExecutorStores {
   refreshSync?: RefreshSyncStore;
   /** P5: the fitness "hand" — applies a recovery adjustment to Hart's own training (inside the fence). */
   fitnessMutation?: FitnessMutationStore;
+  /** The meaning-layer "hand" — files an approved note into the local Obsidian vault (reversible). */
+  obsidianWrite?: ObsidianWriteStore;
 }
 
 /** Injected gated dispatcher (the real `dispatchMutation` in production; a fake in tests). */
@@ -147,6 +151,20 @@ export function commandFromApprovedProposal(p: ProposalQueueItem, stores: Approv
     }
     const adjustment: FitnessAdjustment = { action: action as FitnessAdjustment["action"], caloriePct, reason: str(payload, "reason") ?? "" };
     return { adapterId: "fitness-mutation", proposal: proposalRef, target: { stateDate, recoveryBand, adjustment }, store: stores.fitnessMutation };
+  }
+
+  if (route.adapterId === "obsidian-write") {
+    // The meaning-layer "hand": file an approved note into the local Obsidian vault. The note rides
+    // in the payload under `note` (the full ObsidianNoteProposal the rehearsal baked in). Reversible
+    // (delete the file) + idempotent (read-before-write no-op if the note already exists).
+    if (!stores.obsidianWrite) return { skip: "no obsidian write store injected" };
+    const note = payload.note;
+    if (!note || typeof note !== "object") return { skip: "incomplete obsidian payload (need a note object)" };
+    const n = note as Partial<ObsidianNoteProposal>;
+    if (typeof n.title !== "string" || !n.title || typeof n.folder !== "string" || !n.folder || typeof n.body !== "string" || !n.body || typeof n.noteType !== "string") {
+      return { skip: "incomplete obsidian payload (need note with title/folder/body/noteType)" };
+    }
+    return { adapterId: "obsidian-write", proposal: proposalRef, target: { note: note as ObsidianNoteProposal }, store: stores.obsidianWrite };
   }
 
   // Internal proposal-queue cleanups (bulk-by-status; no per-row target). These are the first

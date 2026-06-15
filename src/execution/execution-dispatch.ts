@@ -36,6 +36,8 @@ import { runClickUpMove, type ClickUpMoveProposal, type ClickUpMoveTarget } from
 import type { ClickUpMoveStore } from "./adapters/clickup-move-status.js";
 import { runFitnessMutation, type FitnessMutationProposal, type FitnessMutationTarget } from "./run-fitness-mutation.js";
 import type { FitnessMutationStore } from "./adapters/fitness-mutation.js";
+import { runObsidianWrite, type ObsidianWriteProposal, type ObsidianWriteTarget } from "./run-obsidian-write.js";
+import type { ObsidianWriteStore } from "./adapters/obsidian-write.js";
 
 /** The adapter ids this dispatcher knows. */
 export type MutationAdapterId =
@@ -45,7 +47,8 @@ export type MutationAdapterId =
   | "mark-reviewed"
   | "clickup-comment"
   | "clickup-move-status"
-  | "fitness-mutation";
+  | "fitness-mutation"
+  | "obsidian-write";
 
 /** The §13 fan-out facts a delta needs. Defaulted per adapter; a command may override. */
 export interface DeltaContext {
@@ -66,7 +69,8 @@ export type MutationCommand =
   | { adapterId: "mark-reviewed"; proposal: MarkReviewedProposal; store: MarkReviewedStore; delta?: Partial<DeltaContext> }
   | { adapterId: "clickup-comment"; proposal: ClickUpCommentProposal; target: ClickUpCommentTarget; store: ClickUpCommentStore; delta?: Partial<DeltaContext> }
   | { adapterId: "clickup-move-status"; proposal: ClickUpMoveProposal; target: ClickUpMoveTarget; store: ClickUpMoveStore; delta?: Partial<DeltaContext> }
-  | { adapterId: "fitness-mutation"; proposal: FitnessMutationProposal; target: FitnessMutationTarget; store: FitnessMutationStore; delta?: Partial<DeltaContext> };
+  | { adapterId: "fitness-mutation"; proposal: FitnessMutationProposal; target: FitnessMutationTarget; store: FitnessMutationStore; delta?: Partial<DeltaContext> }
+  | { adapterId: "obsidian-write"; proposal: ObsidianWriteProposal; target: ObsidianWriteTarget; store: ObsidianWriteStore; delta?: Partial<DeltaContext> };
 
 export interface DispatchOptions {
   /** Injected for determinism (never the ambient clock). Threaded to both runner + delta. */
@@ -104,6 +108,7 @@ const DEFAULT_DELTA: Record<MutationAdapterId, { domain: ProposalDomain; actionT
   "clickup-comment": { domain: "ops", actionType: "ops_followup_plan" },
   "clickup-move-status": { domain: "ops", actionType: "ops_followup_plan" },
   "fitness-mutation": { domain: "fitness", actionType: "fitness_adjustment_plan" },
+  "obsidian-write": { domain: "research", actionType: "research_plan" },
 };
 
 /** Resolve the changedEntity for a command (ClickUp uses the card name; internal uses the proposal id). */
@@ -114,6 +119,8 @@ function defaultChangedEntity(command: MutationCommand): string {
       return command.target.cardName;
     case "fitness-mutation":
       return `fitness ${command.target.stateDate}`;
+    case "obsidian-write":
+      return command.target.note.title;
     default:
       return `proposal ${command.proposal.id}`;
   }
@@ -180,6 +187,8 @@ async function runCommand(
       return runClickUpMove(command.proposal, command.target, env, { ...shared, store: command.store });
     case "fitness-mutation":
       return runFitnessMutation(command.proposal, command.target, env, { ...shared, store: command.store });
+    case "obsidian-write":
+      return runObsidianWrite(command.proposal, command.target, env, { ...shared, store: command.store });
   }
 }
 

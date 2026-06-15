@@ -22,6 +22,7 @@ import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-propo
 import { createClickUpClient } from "../src/execution/clickup-client.js";
 import { createRejectDraftsDb } from "../src/execution/run-reject-drafts-db.js";
 import { createArchiveRejectedDb } from "../src/execution/run-archive-rejected-db.js";
+import { createObsidianWriteStore } from "../src/execution/obsidian-write-store.js";
 import { EXECUTABLE_FROM } from "../src/doctrine/execution-gate.js";
 import { redact } from "../src/llm/redaction.js";
 import type { ProposalQueueItem } from "../src/cockpit/proposals/proposal-types.js";
@@ -52,6 +53,7 @@ export async function runSpineExecutor(
   const clickUp = createClickUpClient(env);
   const rejectHandle = await createRejectDraftsDb(env);
   const archiveHandle = await createArchiveRejectedDb(env);
+  const obsidianStore = createObsidianWriteStore(env);
 
   try {
     const res = await handle.query(
@@ -77,6 +79,7 @@ export async function runSpineExecutor(
         ...(clickUp ? { clickUpMove: clickUp.moveStore, clickUpComment: clickUp.commentStore } : {}),
         ...(rejectHandle ? { rejectDrafts: rejectHandle.store } : {}),
         ...(archiveHandle ? { archiveRejected: archiveHandle.store } : {}),
+        ...(obsidianStore ? { obsidianWrite: obsidianStore } : {}),
       },
       env,
       dispatch: dispatchMutation,

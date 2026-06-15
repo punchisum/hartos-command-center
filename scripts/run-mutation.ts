@@ -60,11 +60,12 @@ import type { MarkReviewedStore } from "../src/execution/adapters/mark-reviewed.
 import type { RefreshSyncStore } from "../src/execution/adapters/refresh-sync.js";
 
 /**
- * The adapter ids this manual CLI accepts. Excludes "fitness-mutation": autonomous fitness is
- * NEVER hand-dispatched per-card — it flows through the live-runner poller → spine → the gated
- * executor (its target is the deterministic recovery decision, not CLI args).
+ * The adapter ids this manual CLI accepts. Excludes "fitness-mutation" and "obsidian-write":
+ * neither is hand-dispatched per-card — both flow through the cockpit Approve → spine executor →
+ * the gated path (their target is a structured payload — the recovery decision / the note — not
+ * CLI args).
  */
-type CliMutationAdapterId = Exclude<MutationAdapterId, "fitness-mutation">;
+type CliMutationAdapterId = Exclude<MutationAdapterId, "fitness-mutation" | "obsidian-write">;
 const ADAPTER_IDS: readonly CliMutationAdapterId[] = [
   "clickup-comment",
   "clickup-move-status",

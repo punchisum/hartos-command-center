@@ -10,6 +10,17 @@ and deployed, but **zero slices have executed live with real data.** No gated wr
 No agent has been born. No memory snapshot has been captured. The deployed Ask path is deterministic
 (LLM never called). HartOS is *proven sound, not proven live.* Tomorrow must close that — not build more.
 
+> **UPDATE 2026-06-15 — the execution floor (L0 + L4) is now PROVEN LIVE.** The first external
+> execution adapter has fired end-to-end through the gated spine: a cockpit-approved proposal
+> (`obsidian-canary-2026-06-15`, status `simulated_approved`) was read by the Node spine executor,
+> dispatched to the **`obsidian-write`** adapter (`ALLOW_OBSIDIAN_WRITE` armed + vault configured),
+> which performed a **real local filesystem write** — verified by all three observables: the file on
+> disk (`HartOS/Execution Canary/hartos-execution-spine-canary.md`), the proposal flipped to
+> `executed`, and a durable `cockpit_proposal_audit` row (#17165, event=`executed`). The
+> obsidian-write adapter is the SAFE external proof (local, reversible, non-public); the
+> `clickup-comment` outward-facing canary remains unfired **by choice**, not by gap. This collapses
+> the L0/L4 NOT_PROVEN cluster: a gated write has now executed against real state, observably.
+
 ---
 
 ## 1. Truth Status
@@ -20,7 +31,7 @@ No agent has been born. No memory snapshot has been captured. The deployed Ask p
 | **L1 — Factory Agent v1** | BUILT | TESTED | **NOT_PROVEN** | coordinator (7-stage), inbox/interrogator/manifest-compiler/build-planner/officiator/repair; factory tests green | **No agent born live.** `cockpit_agents` never written (dryRun gate always on); `CockpitState` carries no factory jobs; fleet reads only `agent-integrations.local.json` (fitness/ops) | Wire factory-job → CockpitState + a go-live persist gate; birth ONE agent end-to-end |
 | **L2 — LLM Ask** | BUILT | TESTED | **NOT_PROVEN** | ask-llm.ts orchestrator, llm-gateway, openai-provider, cockpit-ask-host.ts; tests green | **Deployed Worker leaves `ctx.askInfer` undefined → `/api/ask` is deterministic only.** Real LLM never called in the live path | Wire `askInfer` into the deployed Ask surface (Edge/Node host) with key + network flag; verify `usedLlm=true` |
 | **L3 — Fleet intel + Awareness + Memory** | BUILT | TESTED | **NOT_PROVEN (BLOCKED)** | strategic-awareness, executive-memory, memory-store/capture, fleet-synthesis, perception, forecast, delta-consumer; ~55 tests green; Strategic Awareness IS surfaced in cockpit | **Memory loop never closes:** `captureSnapshot()` has zero call sites, `HARTOS_MEMORY_CAPTURE` default-OFF, no persister → Executive Memory always `INSUFFICIENT_HISTORY`. Perception/forecast computed but not surfaced in `/api/ask` | Build a Node memory-heartbeat persister (Supabase MemoryStore) + capture on a schedule; thread `ctx.memorySnapshots` live |
-| **L4 — Mutation spine + Phase 1 executor** | BUILT | TESTED | **NOT_PROVEN** | dispatcher, T0/T3 adapters, instruction→rehearsal, card-resolver, approved-executor, state-delta; spine-e2e + adapter tests green. NOTE: `.env.local` has `ALLOW_EXEC_CLICKUP_COMMENT=true` (comment flag ARMED); move flag OFF | **No real ClickUp mutation has ever fired.** No `approved_for_execution` proposal exists in the queue; move flag off | Create + approve one proposal → `npm run execute:approved` with the flag → verify card moved + `executed` + delta |
+| **L4 — Mutation spine + Phase 1 executor** | BUILT | TESTED | **PROVEN LIVE (2026-06-15)** | dispatcher, T0/T3 adapters, approved-executor, state-delta; spine-e2e + adapter tests green (3392 total). **PROVEN:** the `obsidian-write` external adapter executed end-to-end via the spine (proposal `obsidian-canary-2026-06-15` → `executed`, real fs write, audit row #17165) | ClickUp external mutation still unfired **by choice** (outward-facing); the local external adapter is proven | **DONE for the floor.** Optionally fire the `clickup-comment` canary if an outward-facing proof is wanted |
 | **Beezulbub** | BUILT | TESTED | **NOT_PROVEN** | capability-report, scout, github-search, extractor, pack-lifecycle, poison-filter; report folds into Build Planner (§19 clamp); tests green | CLI-only; never run against a real GitHub repo; factory-coordinator never invoked in the live cockpit path → report never populated live | **Defer.** (Not on the critical path to live/useful) |
 | **Cockpit V2** | BUILT | TESTED | **NOT_PROVEN** | All V2 sections render (hero/awareness/memory/focus/fleet/approvals/health); 9 structure tests; DEPLOYED `dbb4e330`, /health ok, login gate active | Not verified the **login-gated page returns real fitness/ops data**; Executive Memory will be empty (no capture) | Log in → confirm real fleet/awareness data renders; close the memory loop (above) |
 | **Research-agent pathway** | **PARTIAL** | PARTIAL | **NOT_PROVEN** | research-planner, research-job (AgentJob/boundary), storage adapters (local-folder + **obsidian** already built, gated), `research` intent → proposal; planner/job tests green | **No ResearchExecutor** — jobs can be planned + proposed, never *run*. No research-findings → CapabilityReport bridge. Flywheel inert | **Defer** to the flywheel track; build the executor first when we get there |
@@ -77,8 +88,8 @@ Everything else (agent birth, LLM depth, research flywheel, Obsidian) is downstr
 | Hosted health | **ready (done)** | `{"ok":true,"mode":"hosted","actionExecution":"disabled"}` |
 | Proposal transition route auth | **ready** | wired + smoke-tested fail-closed; not exercised with a real approval |
 | Read-model check (live data) | **unknown** | behind login — must verify real fitness/ops data renders |
-| Mutation canary | **blocked** | needs: arm `ALLOW_EXEC_CLICKUP_MOVE` (comment flag already armed) + confirm `CLICKUP_API_TOKEN` + one `approved_for_execution` proposal |
-| Audit verification | **ready** | after canary: confirm append-only audit row in `cockpit_proposal_audit` |
+| Mutation canary | **DONE (2026-06-15)** | `obsidian-write` external adapter fired end-to-end via the spine (proposal `obsidian-canary-2026-06-15` → `executed`; real fs write). ClickUp variant unfired by choice |
+| Audit verification | **DONE (2026-06-15)** | append-only `cockpit_proposal_audit` row #17165 (event=`executed`) confirmed for the canary |
 | Rollback verification | **ready** | after canary: reverse the move (or delete the comment) — confirm reversible |
 | Agent birth canary | **blocked** | needs CockpitState factory-job wiring + `cockpit_agents` persist gate (L1) |
 | Cockpit registration (born agent) | **blocked** | same wiring as above |
