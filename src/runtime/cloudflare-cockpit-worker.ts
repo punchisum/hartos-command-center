@@ -73,13 +73,12 @@ import { composeKnowledgeSurface, deriveKnowledgeInputs, type KnowledgeSurface }
 import { routeCockpitCommand } from "../cockpit/command-router.js";
 import { councilViewModel } from "../cockpit/council-view.js";
 import { decide, autonomyTierLabel, type ConciergeDecision } from "../cockpit/decision-engine.js";
-import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
+import { resolveMetaAgentRegistry, type MetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { renderCockpitV5, buildCockpitV5Data } from "./cloudflare-cockpit-v5.js";
 import type { CockpitV5Data } from "./cloudflare-cockpit-v5.js";
 import { assessFleetLiveness, heartbeatsFromReadModels } from "../sentinel/sentinel-liveness.js";
 import { assembleTruthReport, fleetHealthPercent } from "../truth-layer/truth-layer-api.js";
-import { agentRegistryView, type AgentProposalRow } from "./views/agent-registry-view.js";
-import { SEED_AGENT_MANIFESTS } from "../agents/agent-manifest-seed.js";
+import { applyOrganStatusToRegistry, type OrganView } from "../cockpit/organs/organ-registry-view.js";
 import { heartbeatShouldAlert, buildHeartbeatAlert, heartbeatLogLine } from "../sentinel/sentinel-heartbeat.js";
 import { parseDaemonRpcResult, daemonAlert } from "../telegram/daemon-deadman.js";
 import { telegramNotifyConfig, formatAlert } from "../telegram/alert-bus.js";
@@ -118,6 +117,7 @@ import {
   resolveCockpitThreads,
   resolveRecentPulseRuns,
   resolveContextPack,
+  resolveOrganRegistryView,
   type ProposalPersistResult,
   type ProposalTransitionResult,
 } from "./cloudflare-live-read-models.js";
@@ -198,8 +198,12 @@ function buildV5DataForRequest(
   env: CloudflareCockpitEnv,
   now: string,
   state: Parameters<typeof fleetSynthesisView>[0],
+  organView?: OrganView[] | null,
 ): CockpitV5Data {
-  const reg = resolveMetaAgentRegistry({ now, env });
+  // The connectome roster's status is DERIVED: overlay the organ-registry view's derived status onto
+  // the catalog skeleton (presentational metadata only). Absent a live view, the catalog is honestly
+  // downgraded (its hardcoded "live" no longer feeds the deck) by applyOrganStatusToRegistry's fallback.
+  const reg = applyOrganStatusToRegistry(resolveMetaAgentRegistry({ now, env }), organView);
   const cfg = resolveLlmConfig(env);
   // Prophet cross-fleet synthesis — derived from in-memory state (cheap, safe for the 6s poll).
   const syn = fleetSynthesisView(state, now);
@@ -328,6 +332,14 @@ export async function handleCockpitRequest(
   // unauthenticated requests never reach here, so they never trigger a read.
   const dctx = await ensureLiveState(ctx, pathname);
 
+  // SP-Organs F6 — resolve the DERIVED organ/agent registry view ONCE per request (the fleet/registry/
+  // org-panel/connectome routes share it). Status is derived from agent_registry + organ_runs evidence;
+  // nothing is read from the hardcoded catalog/seed. Null when the read declines/fails (honest fallback).
+  const organView =
+    method === "GET" && ORGAN_VIEW_ROUTES.has(pathname) && ctx.organRegistryProvider
+      ? await ctx.organRegistryProvider().catch(() => null)
+      : null;
+
   if (method === "GET") {
     // ── Phase 18F — hosted live control surface (the 18E surface + JSON API) ──
     if (pathname === "/control" || pathname === "/api/control-surface") {
@@ -361,7 +373,7 @@ export async function handleCockpitRequest(
       // v5 "Neural Deck" — flag-gated (HARTOS_COCKPIT_V5=true) or previewable via ?v5=1. Renders the
       // connectome cockpit + Live Operations page, hydrated from the live registry + proposal spine.
       if (env["HARTOS_COCKPIT_V5"] === "true" || url.searchParams.get("v5") === "1") {
-        return htmlResponse(renderCockpitV5(buildV5DataForRequest(env, nowFor(dctx), dctx.state)), cors);
+        return htmlResponse(renderCockpitV5(buildV5DataForRequest(env, nowFor(dctx), dctx.state, organView)), cors);
       }
       if (dctx.html) return htmlResponse(dctx.html, cors);
       // Phase D — surface recent threads from the spine in the activity panel.
@@ -384,10 +396,12 @@ export async function handleCockpitRequest(
           /* best-effort; the page still renders without the card */
         }
       }
+      // SP-Organs F6 — derive the org registry (status from organ evidence) ONCE; the fleet topology,
+      // org panel, constellation AND the ops diagnostics line all read status from this, not the catalog.
+      const dgReg = applyOrganStatusToRegistry(resolveMetaAgentRegistry({ now: nowFor(dctx), env }), organView);
       // Technical-page diagnostics — secret-free (gate reason + presence boolean only).
       const dgCfg = resolveLlmConfig(env);
       const dgGate = explainGate(dgCfg);
-      const dgReg = resolveMetaAgentRegistry({ now: nowFor(dctx), env });
       const diagnostics = {
         providerMode: dgGate.mode,
         gateReason: dgGate.reason,
@@ -398,7 +412,7 @@ export async function handleCockpitRequest(
         vaultNotesSynced,
         version: (env["BUILD_SHA"] ?? null) as string | null,
       };
-      return htmlResponse(hostedHtml(dctx, threads ?? undefined, knowledge, diagnostics, pulseRuns ?? undefined, env["HARTOS_COCKPIT_V4"] === "true"), cors);
+      return htmlResponse(hostedHtml(dctx, threads ?? undefined, knowledge, diagnostics, pulseRuns ?? undefined, env["HARTOS_COCKPIT_V4"] === "true", dgReg), cors);
     }
     if (pathname === "/api/state") {
       return jsonResponse(200, dctx.state ?? { hosted: true, note: "snapshot not embedded" }, cors);
@@ -406,35 +420,40 @@ export async function handleCockpitRequest(
     if (pathname === "/api/v5") {
       // The live v5 cockpit data — the SAME shape the page injects, resolved fresh each request so
       // the client can poll it and update the connectome / tasks / proposals without a page reload.
-      return jsonResponse(200, buildV5DataForRequest(env, nowFor(dctx), dctx.state), cors);
+      return jsonResponse(200, buildV5DataForRequest(env, nowFor(dctx), dctx.state, organView), cors);
     }
     if (pathname === "/api/agents") {
-      // The meta-agent registry (org chart + honest capability/status). Read-only, secret-free.
-      const reg = resolveMetaAgentRegistry({ now: nowFor(dctx), env });
-      return jsonResponse(200, { ok: true, rootId: reg.rootId, counts: reg.counts, agents: reg.agents }, cors);
+      // SP-Organs F6 — the fleet org chart with DERIVED status. The hierarchy/role/category metadata
+      // comes from the (presentational) catalog skeleton, but every node's status is overlaid from the
+      // organ-registry view (agent_registry + organ_runs evidence) — the hardcoded "live" no longer
+      // feeds this. Read-only, secret-free. Honest fallback (catalog downgraded) when no live view.
+      const now = nowFor(dctx);
+      const reg = applyOrganStatusToRegistry(resolveMetaAgentRegistry({ now, env }), organView);
+      return jsonResponse(
+        200,
+        { ok: true, rootId: reg.rootId, counts: reg.counts, agents: reg.agents, organs: organView ?? [], generatedAt: now },
+        cors,
+      );
     }
     if (pathname === "/api/agent-registry") {
-      // Truth-layer dynamic agent registry (Phase A). Renders the seeded AgentManifests joined with
-      // the Sentinel liveness read-model — each agent's status is DERIVED (deriveAgentStatus), and
-      // nothing reads "live" unless liveness confirms it ("up"). Read-only, secret-free.
-      // Phase B will source manifests from the agent_registry RPC + swap the v5 deck onto this view.
+      // SP-Organs F6 — the dynamic organ/agent registry, sourced from the cockpit-project anon RPCs
+      // (hartos_list_agent_registry + hartos_list_organ_runs) and projected by buildOrganRegistryView.
+      // Each organ's status is DERIVED from evidence (deriveOrganStatus: fresh heartbeat + real run +
+      // output_ref + readback ⇒ LIVE) — nothing reads from the seed manifests or the catalog. Read-only.
       const now = nowFor(dctx);
-      const reg = resolveMetaAgentRegistry({ now, env });
-      const rm = readModelStatusView(dctx.state);
-      const flagEnv = env as unknown as Record<string, string | undefined>;
-      const report = assembleTruthReport(reg, rm, ctx.generatedAt ?? null, now, {
-        version: flagEnv["BUILD_SHA"] ?? null,
-        builtAt: flagEnv["BUILD_TIME"] ?? null,
-        armedFlags: [],
-      });
-      const killSwitchOn = String(flagEnv["HARTOS_EXECUTION_KILL_SWITCH"] ?? "").trim().toLowerCase() === "on";
-      const agents = agentRegistryView({
-        manifests: SEED_AGENT_MANIFESTS,
-        liveness: { verdicts: report.fleet.verdicts },
-        proposals: (dctx.state?.proposalQueue ?? []) as unknown as AgentProposalRow[],
-        killSwitchOn,
-      });
-      return jsonResponse(200, { ok: true, agents, generatedAt: now }, cors);
+      const agents = organView ?? [];
+      return jsonResponse(
+        200,
+        {
+          ok: true,
+          agents,
+          generatedAt: now,
+          ...(organView == null
+            ? { available: false, note: "Organ registry unavailable (no cockpit read-model env resolved)." }
+            : { available: true }),
+        },
+        cors,
+      );
     }
     if (pathname === "/api/reports") {
       return jsonResponse(200, { reports: ctx.reports ?? [] }, cors);
@@ -922,6 +941,19 @@ function conciergeBlock(request: string): Record<string, unknown> {
   };
 }
 
+/**
+ * SP-Organs F6 — routes that render the fleet/registry/org-panel/connectome. Only these trigger the
+ * organ-registry RPC read (the home page renders the org panel + topology + v5 connectome; the two
+ * registry APIs return the view directly; /api/v5 is the deck's 6s poll).
+ */
+const ORGAN_VIEW_ROUTES = new Set<string>([
+  "/",
+  "/index.html",
+  "/api/v5",
+  "/api/agents",
+  "/api/agent-registry",
+]);
+
 /** Routes that render read-model data; only these trigger a live resolve. */
 const LIVE_DATA_ROUTES = new Set<string>([
   "/",
@@ -1012,6 +1044,7 @@ function hostedHtml(
   diagnostics?: HostedPageOptions["diagnostics"],
   pulseRuns?: PulseRun[],
   v4?: boolean,
+  organRegistry?: MetaAgentRegistry,
 ): string {
   return renderHostedCockpitPage(ctx.state, {
     runtimeMode: ctx.runtimeMode ?? "hosted",
@@ -1025,6 +1058,9 @@ function hostedHtml(
     ...(knowledge ? { knowledge } : {}),
     ...(diagnostics ? { diagnostics } : {}),
     ...(pulseRuns ? { pulseRuns } : {}),
+    // SP-Organs F6 — the fleet topology / org panel / constellation render status from this
+    // evidence-derived registry, not the hardcoded catalog.
+    ...(organRegistry ? { organRegistry } : {}),
   });
 }
 
@@ -1205,6 +1241,9 @@ export default {
       askInfer: buildRelayAskInfer(env) ?? buildAskInfer({ env }),
       // Rinnegan — feed the deployed Ask the vault context pack (Worker reads the Supabase mirror).
       contextPackProvider: async () => resolveContextPack(env),
+      // SP-Organs F6 — the DERIVED organ/agent registry (agent_registry + organ_runs evidence via the
+      // cockpit-project anon RPCs). Feeds /api/agents, /api/agent-registry, the org panel + the v5 deck.
+      organRegistryProvider: async () => resolveOrganRegistryView(env),
     });
   },
 };

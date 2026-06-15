@@ -13,8 +13,11 @@ const REAL_TRIGGERS: readonly OrganTrigger[] = ["scheduled", "on_demand", "worke
 export function deriveOrganStatus(ev: OrganEvidence): OrganStatus {
   if (ev.lifecycleRetired) return "RETIRED";
 
+  // FAILED is reserved for genuine breakage: an errored run (an escaped throw) or a stale heartbeat.
+  // An honest ok:false (disarmed-by-policy, or "ran but not yet at the LIVE bar") is NOT a failure —
+  // it is PARTIAL. Conflating the two would render disarmed/partial organs as FAILED (a dishonest cockpit).
   const stale = ev.heartbeatAgeSec !== null && ev.heartbeatAgeSec > ev.stalenessThresholdSec;
-  if (ev.lastRun && ev.lastRun.ok === false) return "FAILED";
+  if (ev.lastRun && ev.lastRun.errored) return "FAILED";
   if (stale) return "FAILED";
 
   const fresh = ev.heartbeatAgeSec !== null && ev.heartbeatAgeSec <= ev.stalenessThresholdSec;

@@ -21,6 +21,7 @@ import type { CockpitThreadSummary } from "../cockpit/threads/cockpit-thread-spi
 import type { PulseRun } from "../cockpit/pulse/pulse-run-spine.js";
 import type { AskInfer } from "../llm/ask-llm.js";
 import type { RinneganNote } from "../rinnegan/rinnegan-types.js";
+import type { OrganView } from "../cockpit/organs/organ-registry-view.js";
 
 /** Server-side env available to the hosted cockpit. Values are NEVER exposed. */
 export type CloudflareCockpitEnv = Record<string, string | undefined>;
@@ -95,6 +96,14 @@ export interface CockpitWorkerContext {
   pulseRunsProvider?: () => Promise<PulseRun[] | null>;
   /** Rinnegan — the Worker-readable vault context pack (Supabase mirror), for Ask briefings. */
   contextPackProvider?: () => Promise<RinneganNote[] | null>;
+  /**
+   * SP-Organs F6 — lazy LIVE organ/agent-registry resolver. Reads the agent_registry contract rows +
+   * recent organ_runs evidence via the cockpit-project anon RPCs and returns the organ-registry view
+   * (status DERIVED from evidence, never hardcoded). Called at most once per request, AFTER auth, for
+   * the fleet/registry/org-panel/connectome routes. Returns null to decline (no env / read failed),
+   * in which case the cockpit falls back to the (now status-honest) catalog skeleton. Never throws.
+   */
+  organRegistryProvider?: () => Promise<OrganView[] | null>;
 }
 
 /** Result of a deploy-gate check, following the Factory gate doctrine. */

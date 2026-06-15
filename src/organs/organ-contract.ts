@@ -23,7 +23,7 @@ export interface OrganEvidence {
   /** Age of the freshest liveness signal in seconds; null = no heartbeat at all. */
   heartbeatAgeSec: number | null;
   stalenessThresholdSec: number;
-  lastRun: { ok: boolean; trigger: OrganTrigger; disarmed: boolean; outputRef: string | null } | null;
+  lastRun: { ok: boolean; trigger: OrganTrigger; disarmed: boolean; errored: boolean; outputRef: string | null } | null;
   /** Can the cockpit detail route read the last output back from SOT? */
   readbackOk: boolean;
   lifecycleRetired: boolean;

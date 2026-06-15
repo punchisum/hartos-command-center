@@ -37,6 +37,7 @@ test("disarmed organ writes a skip beat and never runs", async () => {
   assert.equal(res.ok, false);
   assert.match(String(db.calls[0][0]), /insert into public\.organ_runs/);
   assert.equal((db.calls[0][1] as unknown[])[3], true); // disarmed=true
+  assert.equal((db.calls[0][1] as unknown[])[4], false); // errored=false (disarmed is policy, not failure)
 });
 
 test("armed organ runs and records ok with output_ref", async () => {
@@ -60,6 +61,7 @@ test("a throwing adapter is captured as ok:false, not propagated", async () => {
   const res = await runOrgan(db, a, {}, "2026-06-14T00:00:00Z", perfNow);
   assert.equal(res.ok, false);
   assert.match(res.summary, /threw: boom/);
+  assert.equal((db.calls[0][1] as unknown[])[4], true); // errored=true (an escaped throw IS a failure)
 });
 
 test("organArmed reads truthy env, defaults closed", () => {

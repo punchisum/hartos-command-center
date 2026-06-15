@@ -18,17 +18,19 @@ export async function recordOrganRun(
   organId: string,
   trigger: OrganTrigger,
   disarmed: boolean,
+  errored: boolean,
   res: OrganRunResult,
   durationMs: number,
 ): Promise<void> {
   await db.query(
-    `insert into public.organ_runs (organ_id, trigger, ok, disarmed, output_ref, summary, detail, duration_ms)
-     values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    `insert into public.organ_runs (organ_id, trigger, ok, disarmed, errored, output_ref, summary, detail, duration_ms)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     [
       organId,
       trigger,
       res.ok,
       disarmed,
+      errored,
       res.outputRef,
       res.summary.slice(0, 500),
       res.detail ? JSON.stringify(res.detail) : null,

@@ -23,6 +23,7 @@ import { runCouncilBuildBridgeOnce } from "./run-council-build-bridge.js";
 import { runAskRelayOnce } from "./run-ask-relay-pass.js";
 import { runP8CalibrateOnce } from "./run-p8-calibrate-pass.js";
 import { runSentinelWolverineOnce } from "./run-sentinel-wolverine-pass.js";
+import { runOrganSupervisorPass } from "./run-organ-supervisor-pass.js";
 import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
 import { runFailedJobAlertPass } from "../src/telegram/run-failed-job-alert.js";
 import { runLivenessAlertPass } from "../src/telegram/run-liveness-alert.js";
@@ -85,6 +86,10 @@ if (isMain) {
   const COUNCIL_BUILD_BRIDGE_EVERY = 120; // ~10min
   const P8_CALIBRATE_EVERY = 720; // ~1h: P8 council-calibration learning pass (slow; learning is not time-critical)
   const SENTINEL_WOLVERINE_EVERY = 60; // ~5min: auto-engage Wolverine on a down/stale agent (advisory, gated)
+  // SP-Organs supervisor: ~5min. Runs every registered organ under its own arming gate and records an
+  // organ_runs evidence row + updates agent_registry last_run_at/last_output_ref (the cockpit deriver
+  // reads these). A disarmed organ writes an honest skip beat — no fake run, no re-enqueue.
+  const ORGAN_SUPERVISE_EVERY = 60; // ~5min
   // P-B2 ask-relay: every cycle (~1.5s at the 5s base, but we run this on EVERY cycle so the
   // daemon answers pending relay rows within ~1-2 poll cycles). DISARMED: no-op unless HARTOS_ASK_RELAY=on.
   // Independent of the 5s job poll: the relay runAskRelayOnce is cheap (single DB read when no rows).
@@ -196,6 +201,17 @@ if (isMain) {
         if (didWork) for (const l of relay) console.log(`[live-runner] ask-relay · ${l}`);
       } catch (e) {
         console.error(`[live-runner] ask-relay pass failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
+
+    // SP-ORGANS SUPERVISOR — every ~5min. Runs each registered organ once under its own gate and
+    // records evidence (organ_runs + agent_registry last_run_at/last_output_ref). Error-isolated.
+    if (cycle % ORGAN_SUPERVISE_EVERY === 0) {
+      try {
+        const org = await runOrganSupervisorPass(process.env, now);
+        for (const l of org) console.log(`[live-runner] organ · ${l}`);
+      } catch (e) {
+        console.error(`[live-runner] organ supervisor failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
       }
     }
 

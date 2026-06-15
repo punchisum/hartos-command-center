@@ -79,6 +79,7 @@ import {
 import type { MemorySnapshot } from "../awareness/executive-memory.js";
 import type { RinneganNote } from "../rinnegan/rinnegan-types.js";
 import { COCKPIT_MEMORY_RPC, coerceCockpitMemoryRows } from "../awareness/cockpit-memory-spine.js";
+import { buildOrganRegistryView, type OrganView } from "../cockpit/organs/organ-registry-view.js";
 
 type Env = Record<string, string | undefined>;
 
@@ -475,6 +476,46 @@ export async function resolveContextPack(
   } catch {
     return null;
   }
+}
+
+// ─── SP-Organs F6 — the dynamic organ/agent registry, status DERIVED from evidence ────────────────
+
+/** The two anon read RPCs the cockpit organ registry view is built from (cockpit Supabase project). */
+export const ORGAN_REGISTRY_RPC = "hartos_list_agent_registry";
+export const ORGAN_RUNS_RPC = "hartos_list_organ_runs";
+
+/**
+ * Resolve the organ/agent registry LIVE from the cockpit Supabase project — the SAME anon read-only
+ * boundary as resolveCockpitProposals (these RPCs live in the cockpit project alongside the proposal
+ * spine, so they share the fitness URL/key env pair). Fetches both RPCs (the registry contract rows +
+ * the recent organ_runs evidence) and returns buildOrganRegistryView(...), so every organ's status is
+ * DERIVED from evidence (deriveOrganStatus) — never hardcoded. Returns null when env is absent / a
+ * service-role key is presented / the registry read fails, so the Worker can fall back honestly.
+ *
+ * The organ_runs read is best-effort: if it fails the view still renders from the registry contract
+ * (organs with no run evidence land REGISTERED, which is the honest truth).
+ */
+export async function resolveOrganRegistryView(
+  env: Env,
+  options: { now?: string; fetchImpl?: FetchLike; runsLimit?: number } = {},
+): Promise<OrganView[] | null> {
+  const url = env[HOSTED_READ_MODEL_ENV.fitnessUrl];
+  const key = env[HOSTED_READ_MODEL_ENV.fitnessKey];
+  if (!url || !key || isServiceRoleKey(key)) return null;
+  const now = options.now ?? new Date().toISOString();
+  const client = new SupabaseReadClient(
+    { url, key, allowedTables: [], allowedRpcs: [ORGAN_REGISTRY_RPC, ORGAN_RUNS_RPC] },
+    options.fetchImpl,
+  );
+  let registryRows: unknown;
+  try {
+    registryRows = await client.readRpc(ORGAN_REGISTRY_RPC, {});
+  } catch {
+    return null; // registry is the spine of the view — no registry, no honest view.
+  }
+  // Recent runs are evidence; a failure degrades organs to REGISTERED rather than killing the view.
+  const organRuns = await client.readRpc(ORGAN_RUNS_RPC, { p_limit: options.runsLimit ?? 5 }).catch(() => []);
+  return buildOrganRegistryView(registryRows, organRuns, now);
 }
 
 /**

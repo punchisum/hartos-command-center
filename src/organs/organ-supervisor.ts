@@ -37,16 +37,21 @@ export async function runOrgan(
 ): Promise<OrganRunResult> {
   const start = perfNow();
   if (!organArmed(adapter, env)) {
+    // Honest skip beat — disarmed by policy. NOT errored (errored=false ⇒ derives PARTIAL, not FAILED).
     const res: OrganRunResult = { ok: false, outputRef: null, summary: `disarmed (${adapter.armingFlag})` };
-    await recordOrganRun(db, adapter.organId, "scheduled", true, res, Math.round(perfNow() - start));
+    await recordOrganRun(db, adapter.organId, "scheduled", true, false, res, Math.round(perfNow() - start));
     return res;
   }
   let res: OrganRunResult;
+  let errored = false;
   try {
     res = await adapter.run(env, now);
   } catch (e) {
+    // An ESCAPED throw is a genuine error (errored=true ⇒ FAILED). An adapter that itself returns
+    // ok:false is an honest not-yet-live result (errored=false ⇒ PARTIAL), not a failure.
+    errored = true;
     res = { ok: false, outputRef: null, summary: `threw: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300) };
   }
-  await recordOrganRun(db, adapter.organId, "scheduled", false, res, Math.round(perfNow() - start));
+  await recordOrganRun(db, adapter.organId, "scheduled", false, errored, res, Math.round(perfNow() - start));
   return res;
 }

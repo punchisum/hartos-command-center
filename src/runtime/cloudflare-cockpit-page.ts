@@ -59,7 +59,7 @@ import type { KnowledgeSurface } from "../cockpit/knowledge-surface.js";
 import type { PulseRun } from "../cockpit/pulse/pulse-run-spine.js";
 import { scoreForecastAccuracy } from "../prophet/forecast-accuracy.js";
 import { synthesizeDecisions, type DecisionBrief } from "../cockpit/decision-synthesis.js";
-import { resolveMetaAgentRegistry } from "../agents/meta-agent-registry.js";
+import { resolveMetaAgentRegistry, type MetaAgentRegistry } from "../agents/meta-agent-registry.js";
 import { renderAgentOrgPanel, renderStatusStrip } from "./views/agent-org-view.js";
 import { computeStatusSplit } from "../cockpit/status-split.js";
 import { V3_STYLE, bootOverlayHtml, coreStatusHtml, fleetTopologyHtml, v3ClientScript, flightHotkeysScript } from "./views/cockpit-v3-fx.js";
@@ -109,6 +109,14 @@ export interface HostedPageOptions {
     vaultNotesSynced?: number | null;
     version?: string | null;
   };
+  /**
+   * SP-Organs F6 — the meta-agent registry with DERIVED organ status overlaid (the Worker builds it
+   * from the agent_registry + organ_runs evidence via applyOrganStatusToRegistry). The fleet topology /
+   * org panel / constellation render their node statuses from THIS, not from the hardcoded catalog.
+   * Absent (tests/local) ⇒ falls back to resolveMetaAgentRegistry — but then the Worker hasn't fed
+   * evidence, so this option is how the hosted cockpit gets status-honest org rendering.
+   */
+  organRegistry?: MetaAgentRegistry;
 }
 
 function esc(s: string): string {
@@ -1205,7 +1213,10 @@ export function renderHostedCockpitPage(state: CockpitState | undefined, opts: H
   // P1/P2/P10 — the meta-agent registry + the SPLIT status (operator vs system vs fleet vs
   // freshness vs proposals vs provider). A training/recovery risk is the OPERATOR's status, kept
   // separate so it never reads as "the HartOS system is broken".
-  const metaReg = resolveMetaAgentRegistry({ now });
+  // SP-Organs F6 — prefer the Worker-supplied registry whose status is DERIVED from organ evidence
+  // (agent_registry + organ_runs). Falls back to the catalog skeleton only when none is supplied
+  // (local/tests); on the hosted path the Worker always supplies the evidence-derived registry.
+  const metaReg = opts.organRegistry ?? resolveMetaAgentRegistry({ now });
   const opRisk = sbrief.risks.find((rk) => /training|recovery|fitness|injur|fuel|sleep/i.test(`${rk.risk} ${rk.why}`));
   const statusSplit = computeStatusSplit({
     registry: metaReg,
