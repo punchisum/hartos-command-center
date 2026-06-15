@@ -2,16 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { factoryOrgan } from "../src/organs/adapters/factory.js";
 
-const NOW = "2026-06-14T00:00:00Z";
+const NOW = "2026-06-15T00:00:00Z";
 
-test("factoryOrgan declares the contracted identity + arming gate", () => {
+test("factoryOrgan declares the contracted identity + build arming gate", () => {
   assert.equal(factoryOrgan.organId, "factory");
-  assert.equal(factoryOrgan.armingFlag, "ALLOW_CODE_BUILD");
+  // Armed to BUILD only when a real scaffold write is permitted (18A entry gate / Key 2).
+  assert.equal(factoryOrgan.armingFlag, "ALLOW_LOCAL_SCAFFOLD");
   assert.equal(typeof factoryOrgan.run, "function");
 });
 
 test("run() returns a well-formed OrganRunResult and never throws", async () => {
-  // interrogateSpec() is PURE (no fs/net/clock), so this runs offline with an empty env.
+  // Empty env ⇒ no spine DB ⇒ the side-effect-free interrogate fallback runs (offline, no fs/net).
   const res = await factoryOrgan.run({} as NodeJS.ProcessEnv, NOW);
 
   assert.equal(typeof res.ok, "boolean");
@@ -20,36 +21,28 @@ test("run() returns a well-formed OrganRunResult and never throws", async () => 
   assert.ok(res.outputRef === null || typeof res.outputRef === "string");
   assert.equal(typeof res.summary, "string");
   assert.ok(res.summary.length > 0 && res.summary.length <= 300);
-  // detail is optional; if present it must be an object.
   if (res.detail !== undefined) {
     assert.equal(typeof res.detail, "object");
   }
 });
 
-test("run() is an honest PARTIAL: ok:false because build/deploy is disarmed (#8)", async () => {
-  // The interrogator works, but a callable pipeline is interrogate-readiness, NOT a completed
-  // build. CONSTRAINT #8 forbids external execution, so ok MUST be false (never fabricated).
+test("run() with no spine DB is an honest PARTIAL: interrogate-ready, no approved spec to build", async () => {
+  // No spine DB ⇒ nothing to build. The interrogate fallback proves the spec pipeline is importable,
+  // but interrogate-readiness is NOT a completed build, so ok MUST be false (never fabricated).
   const res = await factoryOrgan.run({} as NodeJS.ProcessEnv, NOW);
 
   assert.equal(res.ok, false);
   assert.match(res.summary, /interrogate-ready/i);
-  assert.match(res.summary, /disarmed \(#8\)/i);
-});
-
-test("run() produces a questions handle as evidence the interrogation pipeline is callable", async () => {
-  const res = await factoryOrgan.run({} as NodeJS.ProcessEnv, NOW);
-
-  // outputRef is a spec/questions handle (questions:<n>) when a real question set is produced.
+  assert.match(res.summary, /no approved spec to build|PARTIAL/i);
+  // The fallback surfaces a questions handle as evidence the interrogation pipeline is callable.
   assert.ok(typeof res.outputRef === "string");
   assert.match(res.outputRef as string, /^questions:\d+$/);
-  // detail surfaces the interrogate-readiness evidence honestly.
-  assert.equal((res.detail as Record<string, unknown>).interrogateReady, true);
-  assert.ok(((res.detail as Record<string, unknown>).questionCount as number) > 0);
+  assert.equal((res.detail as Record<string, unknown>).partial, true);
 });
 
 test("run() never throws even on a junk env and an unparseable clock", async () => {
   await assert.doesNotReject(async () => {
-    await factoryOrgan.run({ ALLOW_CODE_BUILD: "true" } as NodeJS.ProcessEnv, NOW);
+    await factoryOrgan.run({ ALLOW_LOCAL_SCAFFOLD: "true" } as NodeJS.ProcessEnv, NOW);
   });
   await assert.doesNotReject(async () => {
     await factoryOrgan.run({} as NodeJS.ProcessEnv, "not-a-date");
