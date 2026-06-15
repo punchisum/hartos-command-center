@@ -187,7 +187,9 @@ export function synthesizeResearch(
         ]
       : [
           `"${topic}" (${plan.shape}) — answered ${answered}/${total} sub-question(s) from ${gathered.length} source(s).`,
-          ...keyFindings.slice(0, 3).map((f) => `• ${f.finding} [${f.sources.join(", ")}]`),
+          // No raw refs inline — the dossier renderer cites findings by compact [n] numbers and
+          // lists readable, linked sources once under ## Sources. Keep the summary clean prose.
+          ...keyFindings.slice(0, 3).map((f) => `• ${f.finding}`),
           unknowns.length ? `Still open: ${unknowns.length} sub-question(s).` : "All sub-questions answered.",
         ];
 

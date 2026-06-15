@@ -66,16 +66,24 @@ export async function runResearch(question: string, env: Record<string, string |
   for (const n of gathered.notes) push(`  - ${n}`);
 
   const dossier = synthesizeResearch(plan, gathered.sources, { now });
+  // Cite by compact [n] numbers (mirroring the dossier note) — never the giant grounding-redirect
+  // URLs inline. The numbered, readable source list is in the report's ## Sources section.
+  const refNum = new Map<string, number>();
+  for (const s of dossier.sources) if (!refNum.has(s.ref)) refNum.set(s.ref, refNum.size + 1);
+  const citeNums = (refs: string[]): string => {
+    const ns = [...new Set(refs.map((r) => refNum.get(r)).filter((n): n is number => typeof n === "number"))].sort((a, b) => a - b);
+    return ns.length ? ns.map((n) => `[${n}]`).join("") : "—";
+  };
   push(`\n${summarizeDossier(dossier)}`);
   push(`Executive summary:`);
   for (const l of dossier.executiveSummary) push(`  ${l}`);
   if (dossier.keyFindings.length) {
     push(`Key findings:`);
-    for (const f of dossier.keyFindings) push(`  • ${f.question}\n      ${f.finding}  [${f.confidence}; ${f.sources.join(", ")}]`);
+    for (const f of dossier.keyFindings) push(`  • ${f.question}\n      ${f.finding}  [${f.confidence}; ${citeNums(f.sources)}]`);
   }
   if (dossier.knowledgeItems.length) {
     push(`Reusable knowledge (usable across HartOS):`);
-    for (const k of dossier.knowledgeItems) push(`  • ${k.claim}  [${k.confidence}; ${k.sources.join(", ")}]`);
+    for (const k of dossier.knowledgeItems) push(`  • ${k.claim}  [${k.confidence}; ${citeNums(k.sources)}]`);
   }
   if (dossier.unknowns.length) {
     push(`Open questions (${dossier.unknowns.length}):`);
