@@ -22,6 +22,7 @@ import { runCouncilBuildBridgeOnce } from "./run-council-build-bridge.js";
 // P-B2 — ask-relay daemon sub-pass. DISARMED: a no-op unless HARTOS_ASK_RELAY=on.
 import { runAskRelayOnce } from "./run-ask-relay-pass.js";
 import { runP8CalibrateOnce } from "./run-p8-calibrate-pass.js";
+import { runOutcomeObserverOnce } from "./run-outcome-observer-pass.js";
 import { runSentinelWolverineOnce } from "./run-sentinel-wolverine-pass.js";
 import { runOrganSupervisorPass } from "./run-organ-supervisor-pass.js";
 import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
@@ -85,6 +86,10 @@ if (isMain) {
   // A no-op unless the flag is set; produces propose-only factory build-plan proposals from approved council proposals.
   const COUNCIL_BUILD_BRIDGE_EVERY = 120; // ~10min
   const P8_CALIBRATE_EVERY = 720; // ~1h: P8 council-calibration learning pass (slow; learning is not time-critical)
+  // OUTCOME OBSERVER — ~1h: the closed learning loop's measuring half. Scores recently-executed
+  // proposals (resolved/persisted) vs a fresh read-only audit and appends to cockpit_decision_outcomes
+  // so the table finally gets written between scheduled pulses. DISARMED: a no-op unless HARTOS_ALLOW_LEARNING=true.
+  const OUTCOME_OBSERVE_EVERY = 720; // ~1h
   const SENTINEL_WOLVERINE_EVERY = 60; // ~5min: auto-engage Wolverine on a down/stale agent (advisory, gated)
   // SP-Organs supervisor: ~5min. Runs every registered organ under its own arming gate and records an
   // organ_runs evidence row + updates agent_registry last_run_at/last_output_ref (the cockpit deriver
@@ -176,6 +181,24 @@ if (isMain) {
         for (const l of p8) console.log(`[live-runner] ${l}`);
       } catch (e) {
         console.error(`[live-runner] p8 calibrate pass failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
+
+    // OUTCOME OBSERVER — every ~1h. The closed learning loop's measuring half: score recently-executed
+    // proposals (resolved/persisted) against a fresh read-only Wolverine audit and append the verdicts
+    // to cockpit_decision_outcomes (the table is otherwise only written by the scheduled pulse). GATED
+    // behind HARTOS_ALLOW_LEARNING — honest no-op + a log line when disarmed (P8's house style).
+    // Error-isolated; a failed learn never kills the daemon. Shares ONE impl with autopilot step 5c.
+    if (cycle % OUTCOME_OBSERVE_EVERY === 0) {
+      try {
+        if (String(process.env["HARTOS_ALLOW_LEARNING"] ?? "").trim().toLowerCase() !== "true") {
+          console.log("[live-runner] outcome-observer · disarmed (HARTOS_ALLOW_LEARNING≠true) — no-op");
+        } else {
+          const oo = await runOutcomeObserverOnce(process.env, now);
+          for (const l of oo) console.log(`[live-runner] ${l}`);
+        }
+      } catch (e) {
+        console.error(`[live-runner] outcome-observer pass failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
       }
     }
 

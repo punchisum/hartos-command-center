@@ -40,7 +40,7 @@ import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-propo
 import { buildPulseRunRow, type PulseRun } from "../src/cockpit/pulse/pulse-run-spine.js";
 import { synthesizeDecisions } from "../src/cockpit/decision-synthesis.js";
 import { scoreForecastAccuracy, type ForecastAccuracy } from "../src/prophet/forecast-accuracy.js";
-import { classifyExecutedOutcomes, type ExecutedTarget } from "../src/learning/outcome-scoring.js";
+import { recordDecisionOutcomes as recordDecisionOutcomesShared } from "../src/learning/record-decision-outcomes.js";
 import { redact } from "../src/llm/redaction.js";
 import type { GitFacts } from "../src/wolverine/wolverine-types.js";
 import type { WolverineReport } from "../src/wolverine/wolverine-types.js";
@@ -96,45 +96,16 @@ async function recordPulseRun(
 async function recordDecisionOutcomes(
   env: Record<string, string | undefined>,
   audit: WolverineReport,
+  now: string,
 ): Promise<string> {
   const handle = createCockpitProposalDb(env);
   if (!handle) return "outcomes not recorded (proposal spine not configured)";
   try {
-    const res = await handle.query(
-      `select id, payload from public.cockpit_proposals where status='executed' and updated_at > now() - interval '14 days' order by updated_at desc limit 100`,
-      [],
-    );
-    const rows = res.rows as Array<{ id: string; payload: unknown }>;
-    const executed: ExecutedTarget[] = [];
-    for (const r of rows) {
-      const p = (r.payload && typeof r.payload === "object" ? r.payload : {}) as Record<string, unknown>;
-      const subject = typeof p.targetId === "string" && p.targetId ? p.targetId : typeof p.targetName === "string" ? p.targetName : "";
-      if (!subject) continue; // only finding-targeting proposals carry a measurable subject
-      executed.push({ proposalId: r.id, actionType: typeof p.actionType === "string" ? p.actionType : "unknown", subject });
-    }
-    if (executed.length === 0) return "no recently-executed targeted proposals to score";
-
+    // currentSubjects = this pulse's audit repair queue (ids + titles), the LATER observation the
+    // shared scorer compares each executed proposal's target against.
     const currentSubjects = audit.repairQueue.flatMap((f) => [f.id, f.title]);
-    const scored = classifyExecutedOutcomes(executed, currentSubjects);
-    let written = 0;
-    try {
-      for (const s of scored) {
-        await handle.query(
-          `insert into public.cockpit_decision_outcomes (proposal_id, action_type, subject, outcome) values ($1,$2,$3,$4)`,
-          [s.proposalId, s.actionType, s.subject, s.outcome],
-        );
-        written += 1;
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (/cockpit_decision_outcomes|does not exist|42P01/i.test(msg)) {
-        return `outcomes table not present — apply 2026061100000000_cockpit_decision_outcomes.sql (scored ${scored.length}, wrote 0)`;
-      }
-      return `outcomes partial: ${redact(msg)} (wrote ${written})`;
-    }
-    const resolved = scored.filter((s) => s.outcome === "resolved").length;
-    const persisted = scored.filter((s) => s.outcome === "persisted").length;
-    return `scored ${scored.length} executed proposal(s): ${resolved} resolved · ${persisted} persisted (wrote ${written})`;
+    const result = await recordDecisionOutcomesShared(handle, currentSubjects, now);
+    return result.summary;
   } catch (e) {
     return `outcomes not recorded: ${redact(e instanceof Error ? e.message : String(e))}`;
   } finally {
@@ -253,7 +224,7 @@ export async function runAutopilot(env: Record<string, string | undefined>, now:
   // 5c. LEARN — the closed loop: score whether recently-executed proposals resolved their target
   //     finding (vs persisted), and append the verdicts to cockpit_decision_outcomes. This is the
   //     EFFECT half memory never had; efficacyByActionType later turns it into a track record.
-  const learned = await recordDecisionOutcomes(env, audit);
+  const learned = await recordDecisionOutcomes(env, audit, now);
   push(`5c LEARN   ${learned}`);
 
   // 6. LOG — persist this pulse (Last-Pulse tile + forecast-accuracy scoring).
