@@ -25,6 +25,7 @@ import { runP8CalibrateOnce } from "./run-p8-calibrate-pass.js";
 import { runOutcomeObserverOnce } from "./run-outcome-observer-pass.js";
 import { runSentinelWolverineOnce } from "./run-sentinel-wolverine-pass.js";
 import { runOrganSupervisorPass } from "./run-organ-supervisor-pass.js";
+import { runFactoryBuildOnce } from "./run-factory-build-pass.js";
 import { runApprovalNotifyPass } from "../src/telegram/run-approval-notify.js";
 import { runFailedJobAlertPass } from "../src/telegram/run-failed-job-alert.js";
 import { runLivenessAlertPass } from "../src/telegram/run-liveness-alert.js";
@@ -95,6 +96,12 @@ if (isMain) {
   // organ_runs evidence row + updates agent_registry last_run_at/last_output_ref (the cockpit deriver
   // reads these). A disarmed organ writes an honest skip beat — no fake run, no re-enqueue.
   const ORGAN_SUPERVISE_EVERY = 60; // ~5min
+  // FACTORY BUILD PASS — ~5min. The HIGH-autonomy "build after approval" hand: finds Hart-APPROVED
+  // agent specs in the spine and runs the gated build pipeline (scaffold→PR→data→runtime) on ONE per
+  // tick. Each stage honors its OWN gate (a closed gate dry-runs honestly); production is hard-refused;
+  // staging-only. Honest no-op when nothing is approved. DISARMED unless ALLOW_LOCAL_SCAFFOLD=true (the
+  // 18A entry gate) — the scaffold core refuses to write otherwise, so the whole pass dry-runs.
+  const FACTORY_BUILD_EVERY = 60; // ~5min
   // P-B2 ask-relay: every cycle (~1.5s at the 5s base, but we run this on EVERY cycle so the
   // daemon answers pending relay rows within ~1-2 poll cycles). DISARMED: no-op unless HARTOS_ASK_RELAY=on.
   // Independent of the 5s job poll: the relay runAskRelayOnce is cheap (single DB read when no rows).
@@ -235,6 +242,22 @@ if (isMain) {
         for (const l of org) console.log(`[live-runner] organ · ${l}`);
       } catch (e) {
         console.error(`[live-runner] organ supervisor failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
+
+    // FACTORY BUILD PASS — every ~5min. The DEDICATED build-after-approval driver (the organ-supervisor
+    // also exercises the factory adapter, but THIS pass is what actually runs the pipeline with full
+    // per-stage logging). Finds Hart-APPROVED agent specs in the spine and runs scaffold→PR→data→runtime
+    // on ONE per tick; each stage honors its own gate (closed ⇒ honest dry-run), production hard-refused,
+    // staging-only; honest no-op when nothing is approved. Error-isolated; never kills the daemon.
+    if (cycle % FACTORY_BUILD_EVERY === 0) {
+      try {
+        const fb = await runFactoryBuildOnce(process.env, now);
+        // Quiet on the pure no-op (no approved spec / no spine DB); log when a build was attempted.
+        const builtSomething = fb.some((l) => l.startsWith("factory-build: building"));
+        if (builtSomething) for (const l of fb) console.log(`[live-runner] factory-build · ${l}`);
+      } catch (e) {
+        console.error(`[live-runner] factory build pass failed (continuing): ${redact(String(e instanceof Error ? e.message : e))}`);
       }
     }
 
