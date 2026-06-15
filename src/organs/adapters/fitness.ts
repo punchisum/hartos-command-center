@@ -28,20 +28,23 @@ export const fitnessOrgan: OrganAdapter = {
       return { ok: false, outputRef: null, summary: "no spine DB configured" };
     }
     try {
+      // Scope to fitness actions only (action_type like 'fitness%'); an unfiltered "latest by ANY
+      // agent" query would mislabel a non-fitness action as the fitness recency signal.
       const r = await handle.query(
-        "select id, created_at from public.agent_actions order by created_at desc limit 1",
+        "select id, created_at, action_type from public.agent_actions where action_type like 'fitness%' order by created_at desc limit 1",
       );
-      const row = (r.rows[0] ?? null) as { id?: unknown; created_at?: unknown } | null;
+      const row = (r.rows[0] ?? null) as { id?: unknown; created_at?: unknown; action_type?: unknown } | null;
       if (!row || row.id === undefined || row.id === null) {
         return { ok: false, outputRef: null, summary: "no fitness actions in spine" };
       }
       const id = String(row.id);
       const createdAt = String(row.created_at);
+      const actionType = String(row.action_type);
       return {
         ok: true,
         outputRef: id,
-        summary: cap(`latest fitness action ${id} @ ${createdAt}`),
-        detail: { id, created_at: createdAt },
+        summary: cap(`latest fitness action ${id} [${actionType}] @ ${createdAt}`),
+        detail: { id, created_at: createdAt, action_type: actionType },
       };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
