@@ -19,6 +19,9 @@
  */
 
 import { spawn } from "node:child_process";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Infer } from "./specialist.js";
 
 // ── Sentinel ──────────────────────────────────────────────────────────────────
@@ -79,16 +82,30 @@ export const spawnCouncilClaudeRunner: ClaudeRunner = (prompt, { model, token, t
     delete childEnv["ANTHROPIC_API_KEY"];
     delete childEnv["ANTHROPIC_AUTH_TOKEN"];
 
-    const child = spawn(
-      "claude",
-      // Pure reasoning, no tools granted. We do NOT pass `--allowedTools ""`: an empty-string arg is
-      // DROPPED by cmd.exe under `shell:true` on Windows, which makes claude exit with "argument
-      // missing". Headless `-p` with the default permission-mode grants no tool execution anyway
-      // (it would require acceptEdits / --dangerously-skip-permissions, which we never pass), so a
-      // "return JSON" specialist prompt never reads/edits/runs anything.
-      ["-p", "--output-format", "json", "--model", model],
-      { env: childEnv, shell: process.platform === "win32" },
-    );
+    // Prompt via a TEMP FILE + shell stdin-redirect (`claude -p … < file`), NOT node's child.stdin:
+    // through Windows' cmd shim (shell:true) the piped child.stdin does not reach the claude process,
+    // so it blocks forever on stdin. A `< file` redirect is delivered by the shell itself (reliable
+    // cross-platform) and avoids any shell-quoting of the long specialist prompt. Pure reasoning, no
+    // tools granted (headless `-p` grants no tool execution without acceptEdits / skip-permissions).
+    const promptFile = join(tmpdir(), `hartos-council-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
+    let cleaned = false;
+    const cleanup = (): void => {
+      if (cleaned) return;
+      cleaned = true;
+      try {
+        unlinkSync(promptFile);
+      } catch {
+        /* best-effort */
+      }
+    };
+    try {
+      writeFileSync(promptFile, prompt, "utf8");
+    } catch {
+      resolve({ ok: false, text: "prompt write failed" });
+      return;
+    }
+    const cmd = `claude -p --output-format json --model ${model} < "${promptFile}"`;
+    const child = spawn(cmd, { env: childEnv, shell: true });
 
     let out = "";
     let settled = false;
@@ -96,6 +113,7 @@ export const spawnCouncilClaudeRunner: ClaudeRunner = (prompt, { model, token, t
       if (!settled) {
         settled = true;
         clearTimeout(timer);
+        cleanup();
         resolve(v);
       }
     };
@@ -105,7 +123,7 @@ export const spawnCouncilClaudeRunner: ClaudeRunner = (prompt, { model, token, t
       done({ ok: false, text: "timeout" });
     }, timeoutMs);
 
-    child.stdout.on("data", (chunk) => (out += chunk.toString()));
+    child.stdout?.on("data", (chunk) => (out += chunk.toString()));
     child.on("error", () => done({ ok: false, text: "spawn error" }));
     child.on("close", () => {
       try {
@@ -116,10 +134,6 @@ export const spawnCouncilClaudeRunner: ClaudeRunner = (prompt, { model, token, t
         done({ ok: false, text: out.slice(0, 200) });
       }
     });
-
-    child.stdin.on("error", () => {}); // ignore EPIPE if child exits early
-    child.stdin.write(prompt);
-    child.stdin.end();
   });
 
 // ── Main export ───────────────────────────────────────────────────────────────
