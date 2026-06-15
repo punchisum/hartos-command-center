@@ -370,9 +370,10 @@ export async function handleCockpitRequest(
     }
 
     if (pathname === "/" || pathname === "/index.html") {
-      // v5 "Neural Deck" — flag-gated (HARTOS_COCKPIT_V5=true) or previewable via ?v5=1. Renders the
-      // connectome cockpit + Live Operations page, hydrated from the live registry + proposal spine.
-      if (env["HARTOS_COCKPIT_V5"] === "true" || url.searchParams.get("v5") === "1") {
+      // v5 "Neural Deck" is now the DEFAULT cockpit — the connectome + Live Operations page, hydrated
+      // from the live registry + proposal spine. Opt OUT to the legacy page with ?v5=0 (or set
+      // HARTOS_COCKPIT_V5=false). The old ?v5=1 preview link still works (it just isn't required).
+      if (env["HARTOS_COCKPIT_V5"] !== "false" && url.searchParams.get("v5") !== "0") {
         return htmlResponse(renderCockpitV5(buildV5DataForRequest(env, nowFor(dctx), dctx.state, organView)), cors);
       }
       if (dctx.html) return htmlResponse(dctx.html, cors);
