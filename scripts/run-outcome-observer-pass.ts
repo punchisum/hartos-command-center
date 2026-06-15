@@ -19,6 +19,7 @@ import { execSync } from "node:child_process";
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
 import { wolverineAudit } from "../src/wolverine/wolverine-audit.js";
 import { recordDecisionOutcomes } from "../src/learning/record-decision-outcomes.js";
+import { gatherProposalStats } from "../src/wolverine/proposal-hygiene-stats.js";
 import { redact } from "../src/llm/redaction.js";
 import type { GitFacts } from "../src/wolverine/wolverine-types.js";
 
@@ -64,10 +65,15 @@ export async function runOutcomeObserverOnce(env: Env, now: string): Promise<str
   try {
     // Fresh, READ-ONLY audit → the LATER observation. currentSubjects = the repair queue's
     // ids + titles, the loose subjects the shared scorer compares each executed proposal against.
+    // CRITICAL: gather proposalStats so the proposal-hygiene detector actually fires — without it,
+    // proposal:aging-drafts / proposal:rejected-to-archive are structurally absent from the queue and
+    // every such executed fix would FALSE-score "resolved" (the subject can never be "still present").
+    const proposalStats = await gatherProposalStats(db);
     const audit = wolverineAudit({
       now,
       env: env as Record<string, string | undefined>,
       git: gatherGitFacts(process.cwd()),
+      proposalStats,
     });
     const currentSubjects = audit.repairQueue.flatMap((f) => [f.id, f.title]);
 

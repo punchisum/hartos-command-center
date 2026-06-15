@@ -18,18 +18,7 @@ import { toQueueItem } from "../src/cockpit/proposals/proposal-queue.js";
 import { createCockpitProposalDb } from "../src/cockpit/proposals/supabase-proposal-db.js";
 import { ADAPTER_ROUTE_KEY } from "../src/cockpit/suggestions/suggestion-to-mutation.js";
 import { redact } from "../src/llm/redaction.js";
-import type { ProposalStats } from "../src/wolverine/wolverine-types.js";
-
-const AGING_HOURS = 72;
-
-/** Precise hygiene counts (pg): aging drafts; rejected NOT already archived (excludes done fixes). */
-const HYGIENE_SQL = `
-  select
-    count(*) filter (where status in ('draft','pending_approval')
-                       and created_at < now() - make_interval(hours => $1::int))            as aging,
-    count(*) filter (where status = 'rejected'
-                       and coalesce(payload->>'archived','') <> 'true')                      as rejected
-  from public.cockpit_proposals`;
+import { AGING_HOURS, gatherProposalStats } from "../src/wolverine/proposal-hygiene-stats.js";
 
 export interface WolverineProposeResult {
   exitCode: number;
@@ -49,13 +38,7 @@ export async function runWolverinePropose(
   }
 
   try {
-    const res = await handle.query(HYGIENE_SQL, [AGING_HOURS]);
-    const row = (res.rows[0] ?? {}) as { aging?: unknown; rejected?: unknown };
-    const stats: ProposalStats = {
-      agingDraftCount: Number(row.aging ?? 0),
-      rejectedCount: Number(row.rejected ?? 0),
-      agingHours: AGING_HOURS,
-    };
+    const stats = await gatherProposalStats(handle);
     lines.push(`  spine: ${stats.agingDraftCount} aging draft(s) (>${AGING_HOURS}h), ${stats.rejectedCount} rejected (not archived)`);
 
     const report = wolverineAudit({ now, env, proposalStats: stats });
