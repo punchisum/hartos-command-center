@@ -135,19 +135,57 @@ describe("buildTasksView", () => {
     assert.equal(v.tasks[0]!.stageLabel, "approved — queued");
   });
 
-  it("counts + sorts running first, dismissed last", () => {
+  it("counts + sorts running first; terminal dismissed (rejected/expired) drop off the stream", () => {
     const v = buildTasksView(
       [
         job("done", "report", "executed", 10),
         job("run", "research.brief", "executing", 2),
         job("rej", "report", "rejected", 1),
+        job("exp", "report", "expired", 1),
         job("q", "claude.execute", "pending_approval", 4),
       ],
       NOW,
     );
-    assert.deepEqual(v.counts, { queued: 1, running: 1, done: 1, failed: 0, total: 4 });
+    // rejected + expired are cleared clutter — not "live operations" — so they are dropped entirely.
+    assert.deepEqual(v.counts, { queued: 1, running: 1, done: 1, failed: 0, total: 3 });
     assert.equal(v.tasks[0]!.stage, "running");
-    assert.equal(v.tasks[v.tasks.length - 1]!.id, "rej");
+    assert.equal(v.tasks.find((t) => t.id === "rej"), undefined, "rejected tasks must not appear in Live Ops");
+    assert.equal(v.tasks.find((t) => t.id === "exp"), undefined, "expired (cleared) tasks must not appear in Live Ops");
+  });
+
+  it("surfaces the per-task lifecycle trail (events) newest-first with plain-English labels", () => {
+    const row: TaskSourceRow = {
+      id: "t", title: "research dossier", status: "executed", domain: "system", updatedAt: ago(1),
+      payload: { actionType: "agent_job", proposedPayload: { jobKind: "research.brief", jobArg: "owning a golden dox" } },
+      auditEvents: [
+        { at: ago(9), event: "created", detail: "proposed by Hart" },
+        { at: ago(2), event: "executing" },
+        { at: ago(1), event: "executed", detail: "dossier filed to Obsidian" },
+      ],
+    };
+    const v = buildTasksView([row], NOW);
+    const t = v.tasks[0]!;
+    assert.equal(t.ask, "owning a golden dox", "the task surfaces what it was asked to do");
+    assert.equal(t.events.length, 3);
+    // Newest-first.
+    assert.equal(t.events[0]!.event, "executed");
+    assert.equal(t.events[0]!.label, "completed");
+    assert.equal(t.events[0]!.detail, "dossier filed to Obsidian");
+    assert.equal(t.events[2]!.event, "created");
+    assert.equal(t.events[2]!.label, "proposed");
+  });
+
+  it("no audit events ⇒ empty trail, never fabricated; junk events are skipped", () => {
+    const v = buildTasksView(
+      [{
+        id: "t", title: "x", status: "executing", updatedAt: ago(1),
+        actionType: "agent_job", proposedPayload: { jobKind: "research.brief" },
+        auditEvents: [null as unknown as { at: string; event: string }, { at: ago(1) }, { event: "executing" }],
+      }],
+      NOW,
+    );
+    assert.deepEqual(v.tasks[0]!.events, [], "malformed/partial events are skipped, not invented");
+    assert.equal(v.tasks[0]!.ask, "");
   });
 });
 

@@ -204,7 +204,23 @@ footer{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:14px 26px;
 .stg.done{color:#34F5A8;border-color:rgba(52,245,168,.4);background:rgba(52,245,168,.07)}
 .stg.failed{color:#FF5470;border-color:rgba(255,84,112,.45);background:rgba(255,84,112,.08)}
 .stg.dismissed{color:#695B89;border-color:rgba(140,100,230,.2)}
-.age{font-family:'JetBrains Mono';font-size:13px;color:#9C8CBC;text-align:right}
+.age{font-family:'JetBrains Mono';font-size:13px;color:#9C8CBC;text-align:right;display:flex;align-items:center;justify-content:flex-end;gap:7px}
+.age .chev{font-size:15px;color:#695B89;transition:transform .18s ease-out}
+.age .chev.up{transform:rotate(180deg);color:#A974FF}
+.tk.tko{border-color:rgba(165,116,255,0.42);border-bottom-left-radius:0;border-bottom-right-radius:0;margin-bottom:0}
+.tkx{background:#080513;border:1px solid rgba(165,116,255,0.42);border-top:1px solid rgba(140,100,230,0.14);border-bottom-left-radius:14px;border-bottom-right-radius:14px;padding:14px 18px 16px;margin:0 0 11px;animation:tkxin .18s ease-out}
+@keyframes tkxin{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.tkx .ask{font-size:13.5px;color:#C9BBE6;margin-bottom:13px;line-height:1.5}
+.tkx .ask b{color:#695B89;font-weight:600;font-family:'JetBrains Mono';font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;display:block;margin-bottom:4px}
+.tl{position:relative;padding-left:19px}
+.tl:before{content:'';position:absolute;left:4px;top:6px;bottom:8px;width:1px;background:rgba(140,100,230,0.28)}
+.tlr{position:relative;padding:5px 0}
+.tlr:before{content:'';position:absolute;left:-19px;top:9px;width:8px;height:8px;border-radius:50%;background:#A974FF;box-shadow:0 0 7px #A974FF}
+.tlr.cur:before{background:#22E8FF;box-shadow:0 0 9px #22E8FF;animation:bp 1.6s ease-in-out infinite}
+.tlr .e{color:#ECE4F8;font-weight:600;font-size:13.5px}
+.tlr .d{color:#9C8CBC;font-size:12px;margin-top:2px;line-height:1.45}
+.tlr .a{float:right;font-family:'JetBrains Mono';font-size:11px;color:#695B89;margin-left:10px}
+.tkx .none{color:#9C8CBC;font-size:13px;line-height:1.5}
 .run-pulse{width:9px;height:9px;border-radius:50%;background:#22E8FF;box-shadow:0 0 11px #22E8FF;animation:bp 1.6s ease-in-out infinite}
 @keyframes bp{0%,100%{opacity:.35}50%{opacity:1}}
 .empty{color:#695B89;text-align:center;padding:40px 0;font-size:14px}
@@ -449,7 +465,7 @@ function h(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'
 ${connectomeScript()}
 (function(){
 var D=window.HV,P=document.getElementById('page');
-var selSyn=0,curPage='overview';
+var selSyn=0,curPage='overview',EXP={};
 function el(t){return '<i class="ti '+t+'"></i>';}
 function eegPath(sig){var d='M0 34',spikes=Math.max(2,Math.min(8,sig||3));for(var x=0;x<=414;x+=4){var n=34+Math.sin(x/7)*1.6;if(x%Math.floor(414/spikes)<6){n=34-(20+(x%9));}d+=' L'+x+' '+n.toFixed(1);}return d;}
 function vit(l,n,c,s){return '<div class="vit"><div class="l">'+l+'</div><div class="n" style="color:'+c+'">'+n+(s?'<span style="font-size:14px;color:#9C8CBC"> '+s+'</span>':'')+'</div></div>';}
@@ -464,14 +480,29 @@ function overview(){
   '<div class="panel" style="flex:1;min-height:0;padding:15px 17px;display:flex;flex-direction:column"><div class="phd">'+el('ti-activity')+' signal stream<span class="ct">cognitive loop</span></div><div class="feed" style="overflow:auto">'+ev+'</div></div>'+
   '<div class="panel" style="padding:15px 17px;flex:0 0 auto"><div class="phd">'+el('ti-plug-connected')+' pending synapses<span class="ct">authorize</span></div><div style="margin-top:11px">'+syn+'</div></div></div></div>';
 }
+function taskDetail(k){
+  var ask=k.ask?'<div class="ask"><b>what it'+"'"+'s doing</b>'+h(k.ask)+'</div>':'';
+  var body;
+  if(k.events&&k.events.length){
+    body='<div class="tl">'+k.events.map(function(e,i){
+      return '<div class="tlr'+(i===0?' cur':'')+'"><span class="a">'+h(e.ageLabel)+'</span><div class="e">'+h(e.label)+'</div>'+(e.detail?'<div class="d">'+h(e.detail)+'</div>':'')+'</div>';
+    }).join('')+'</div>';
+  }else{
+    // Honest fallback when the spine recorded no step-by-step trail for this task.
+    body='<div class="none">No step-by-step trail recorded yet. Current state: <b style="color:#ECE4F8">'+h(k.stageLabel||k.stage)+'</b>'+(k.ageLabel&&k.ageLabel!=='—'?' · updated '+h(k.ageLabel)+' ago':'')+'.</div>';
+  }
+  return '<div class="tkx">'+ask+body+'</div>';
+}
 function ops(){
   var t=D.tasks,c=t.counts;
   var cards=(t.tasks||[]).map(function(k){
     var pulse=k.stage==='running'?'<span class="run-pulse"></span>':'';
-    return '<div class="tk"><div class="ic" style="border-color:'+k.color+';color:'+k.color+'">'+el(k.stage==='running'?'ti-loader-2':k.stage==='done'?'ti-check':k.stage==='failed'?'ti-x':'ti-clock')+'</div>'+
+    var open=!!EXP[k.id];
+    var card='<div class="tk'+(open?' tko':'')+'" data-task="'+h(k.id)+'" title="click for progress detail"><div class="ic" style="border-color:'+k.color+';color:'+k.color+'">'+el(k.stage==='running'?'ti-loader-2':k.stage==='done'?'ti-check':k.stage==='failed'?'ti-x':'ti-clock')+'</div>'+
       '<div><div class="ti2">'+h(k.title)+'</div><div class="sub"><span class="verb">'+h(k.agent)+' · '+h(k.verb)+'</span>'+(k.stage==='done'&&k.kind==='research.brief'?' · <a href="obsidian://open?vault=HartOS-Vault&file=HartOS%2FMaps%2FResearch%20Dossiers%20MOC" style="color:#A974FF" title="open your research dossiers in Obsidian">'+el('ti-file-text')+' open dossier ↗</a>':'')+'</div></div>'+
       '<div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">'+pulse+'<span class="stg '+h(k.stage)+'">'+h(k.stageLabel||k.stage)+'</span></div>'+
-      '<div class="age">'+h(k.ageLabel)+'</div></div>';
+      '<div class="age">'+h(k.ageLabel)+el('ti-chevron-down chev'+(open?' up':''))+'</div></div>';
+    return card+(open?taskDetail(k):'');
   }).join('');
   if(!t.available)cards='<div class="empty">'+ (t.note||'Live Operations unavailable.') +'</div>';
   else if(!(t.tasks||[]).length)cards='<div class="empty">No tasks in flight. Approve a job in Synapses and it appears here the moment the daemon picks it up.</div>';
@@ -588,6 +619,11 @@ document.getElementById('page').addEventListener('click',function(e){var t=e.tar
   if(t.getAttribute('data-act')){synAct(t.getAttribute('data-act'),t.getAttribute('data-rid'),t);return;}
   var ds=t.getAttribute('data-syn');if(ds!==null&&ds!==undefined){selSyn=parseInt(ds,10)||0;go('synapses');return;}
   if(t.getAttribute('data-goto')){var gp=t.getAttribute('data-goto');location.hash=gp;go(gp);return;}
+  var dt=t.getAttribute('data-task');if(dt!==null&&dt!==undefined){
+    // A link inside the card (e.g. "open dossier ↗") navigates — don't also toggle the panel.
+    if(e.target&&e.target.closest&&e.target.closest('a'))return;
+    EXP[dt]=!EXP[dt];go('ops');return;
+  }
   if(t.getAttribute('data-id')){
     // heartbeat: a neuron tap pulses the WHOLE connectome before the drawer opens
     var sv=document.querySelector('.cwrap svg');if(sv){sv.classList.remove('hbeat');void sv.getBoundingClientRect();sv.classList.add('hbeat');}

@@ -16,6 +16,20 @@
 
 export type TaskStage = "queued" | "running" | "done" | "failed" | "dismissed";
 
+/** One step in a task's lifecycle trail — what it did and when, for the Live Ops detail panel. */
+export interface TaskEvent {
+  /** Raw event name from the spine (e.g. "created", "executing", "executed"). */
+  event: string;
+  /** Plain-English rendering of `event` — what reaches the UI. */
+  label: string;
+  /** Optional free-form detail the spine recorded with the event. */
+  detail?: string;
+  /** ISO timestamp of the event. */
+  at: string;
+  /** Human age of the event ("now" / "3m" / "2h"). */
+  ageLabel: string;
+}
+
 export interface TaskRow {
   id: string;
   /** The originating agent (display name) + its Neural-Deck color token. */
@@ -31,6 +45,10 @@ export interface TaskRow {
   /** "2m" / "1h" — age since last update. */
   ageLabel: string;
   updatedAt: string | null;
+  /** What the task was actually asked to do (the agent_job's jobArg / source intent), if known. */
+  ask: string;
+  /** The append-only lifecycle trail, newest-first — the per-task progress Live Ops expands to show. */
+  events: TaskEvent[];
 }
 
 export interface TasksView {
@@ -52,9 +70,12 @@ export interface TaskSourceRow {
   title?: string;
   status?: string;
   domain?: string;
+  sourceIntent?: string;
   updatedAt?: string | null;
   actionType?: unknown;
   proposedPayload?: { jobKind?: unknown; jobArg?: unknown };
+  /** The append-only lifecycle trail (ProposalQueueItem.auditEvents) — {at,event,detail?}. */
+  auditEvents?: Array<{ at?: unknown; event?: unknown; detail?: unknown }>;
   payload?: {
     actionType?: unknown;
     proposedPayload?: { jobKind?: unknown; jobArg?: unknown };
@@ -97,6 +118,55 @@ function stageOf(status: string): { stage: TaskStage; label: string } {
   }
 }
 
+/**
+ * Plain-English rendering of a raw spine event name — what reaches the Live Ops detail panel.
+ * An unknown event name falls back to itself with underscores spaced (never fabricated meaning).
+ */
+const EVENT_LABEL: Record<string, string> = {
+  created: "proposed",
+  pending_approval: "sent for your approval",
+  simulated_approved: "approved — queued",
+  approved_for_execution: "approved — queued",
+  executing: "started running",
+  executed: "completed",
+  execution_failed: "failed",
+  failed: "failed",
+  runtime_provisioned: "runtime provisioned",
+  rejected: "rejected",
+  expired: "cleared",
+  dry_run: "dry-run (simulated)",
+  execution_authorization_revoked: "authorization revoked",
+};
+
+function eventLabel(event: string): string {
+  return EVENT_LABEL[event] ?? event.replace(/_/g, " ");
+}
+
+/** Build the newest-first lifecycle trail for one task from its raw audit events (skips junk). */
+function buildEvents(
+  raw: TaskSourceRow["auditEvents"] | undefined,
+  nowIso: string,
+): TaskEvent[] {
+  if (!Array.isArray(raw)) return [];
+  const events: TaskEvent[] = [];
+  for (const e of raw) {
+    if (!e || typeof e !== "object") continue;
+    const at = typeof e.at === "string" ? e.at : "";
+    const event = typeof e.event === "string" ? e.event : "";
+    if (!at || !event) continue;
+    events.push({
+      event,
+      label: eventLabel(event),
+      ...(typeof e.detail === "string" && e.detail ? { detail: e.detail } : {}),
+      at,
+      ageLabel: ageLabel(at, nowIso),
+    });
+  }
+  // Newest-first; ISO timestamps sort lexicographically the same as chronologically.
+  events.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  return events;
+}
+
 /** Human age: "now" / "3m" / "2h" / "5d". */
 export function ageLabel(updatedAt: string | null | undefined, nowIso: string): string {
   if (!updatedAt) return "—";
@@ -113,8 +183,9 @@ export function ageLabel(updatedAt: string | null | undefined, nowIso: string): 
 /**
  * Build the Live Operations view from the proposal queue. Three actionTypes are tasks: agent_job
  * (jobKind-driven), council_plan (a Council deliberation), and build_agent_plan (a Factory build);
- * everything else (typed mutations, fitness deltas) is out of scope here. Newest first; dismissed
- * rows sink to the end. NEVER throws.
+ * everything else (typed mutations, fitness deltas) is out of scope here. Newest first; terminal
+ * dismissed rows (rejected/expired) are DROPPED — Live Ops shows what is in flight or recently
+ * done, not cleared clutter. NEVER throws.
  */
 export function buildTasksView(rows: TaskSourceRow[] | undefined, nowIso: string): TasksView {
   // NEVER throw: any non-array input (undefined, a single un-arrayed row, a number from a malformed
@@ -161,6 +232,14 @@ export function buildTasksView(rows: TaskSourceRow[] | undefined, nowIso: string
     }
 
     const st = stageOf(typeof r.status === "string" ? r.status : "");
+    // CLEARED/terminal-dismissed tasks (rejected, expired) are neither in flight nor recent
+    // activity — they are not "live operations", so they drop off the stream entirely. This is
+    // also what makes "clear Live Ops" durable: expiring a row removes its card.
+    if (st.stage === "dismissed") continue;
+    const rawAsk =
+      r.proposedPayload?.jobArg ??
+      r.payload?.proposedPayload?.jobArg ??
+      r.sourceIntent;
     tasks.push({
       id: r.id,
       agent,
@@ -172,6 +251,8 @@ export function buildTasksView(rows: TaskSourceRow[] | undefined, nowIso: string
       stageLabel: st.label,
       ageLabel: ageLabel(r.updatedAt ?? null, nowIso),
       updatedAt: r.updatedAt ?? null,
+      ask: typeof rawAsk === "string" ? rawAsk : "",
+      events: buildEvents(r.auditEvents, nowIso),
     });
   }
   const rank: Record<TaskStage, number> = { running: 0, queued: 1, failed: 2, done: 3, dismissed: 4 };
