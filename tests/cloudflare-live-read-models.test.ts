@@ -248,8 +248,9 @@ describe("hosted fleet view — unified cross-agent render surfaced in the live 
     assert.match(body.rendered, /ops \(ops\)/);
   });
 
-  it("GET / (hosted HTML) renders a fleet card per agent (Style 5), with verdict + approval gating", async () => {
-    const res = await handleCockpitRequest(new Request("https://c/"), env, await liveCtx());
+  it("GET /?v5=0 (legacy hosted HTML) renders a fleet card per agent (Style 5), with verdict + approval gating", async () => {
+    // v5 Neural Deck is now the default at /; the legacy fleet-card page is the ?v5=0 escape hatch.
+    const res = await handleCockpitRequest(new Request("https://c/?v5=0"), env, await liveCtx());
     assert.equal(res.status, 200);
     const html = await res.text();
     // V2 — each agent is a real card linking to its full dashboard (works w/o JS).

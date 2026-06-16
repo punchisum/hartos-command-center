@@ -67,6 +67,13 @@ export interface MetaAgent {
   /** Source modules implementing it (links, not imports). */
   sourceModules: string[];
   isOrgan: boolean;
+  /**
+   * External / detachable asset (e.g. Hunt.sg) — registered + mirrored for visibility but NOT a core
+   * HartOS organ: it runs on its own org + Supabase, HartOS is build-time builder only. Its liveness
+   * lives in ITS infra, so the truth layer must not assert/measure it (left as-authored). Rendered
+   * set-apart in the cockpit (outside the core ring, dashed).
+   */
+  external?: boolean;
 }
 
 export interface MetaRegistryCounts {
@@ -298,6 +305,33 @@ const CATALOG: MetaAgent[] = [
     statusReason: "Cockpit summarizes existing dossiers from the pack; a NEW research run needs a local runner (gated network+LLM). Proven live (67-source war/economy brief).",
     sourceModules: ["src/research/research-synthesis.ts", "src/research/research-gatherer.ts", "scripts/research-run.ts"],
     isOrgan: false,
+  },
+  {
+    id: "hunt-sg-mirror",
+    displayName: "Hunt.sg (external · detachable asset)",
+    category: "domain",
+    role: "External predictive-M&A deal-intent engine",
+    description: "Hart's Hunt.sg startup — a detachable asset mirrored into the fleet for visibility. Runs on its OWN org + Supabase; HartOS is build-time builder only, with zero runtime dependency. Its liveness/state live in Hunt.sg's own infra, not HartOS.",
+    parentId: "hart",
+    reportsTo: "hart",
+    dependsOn: [],
+    supportedIntents: [],
+    commandExamples: [],
+    inputContract: "n/a — external, detachable; HartOS does not drive it at runtime",
+    outputContract: "n/a — outputs land in Hunt.sg's own Supabase (SOT), not HartOS",
+    readOnlyCapabilities: [],
+    proposalCapabilities: [],
+    executionCapabilities: [],
+    cockpitCallable: false,
+    cliOnly: false,
+    requiresLocalRunner: false,
+    requiresApproval: false,
+    safetyTier: "read_only",
+    status: "local_only",
+    statusReason: "External / detachable asset — registered + mirrored for visibility only. Liveness is tracked in Hunt.sg's own Supabase (separate org); HartOS neither measures nor asserts it.",
+    sourceModules: [],
+    isOrgan: false,
+    external: true,
   },
   {
     id: "beezulbub",

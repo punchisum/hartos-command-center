@@ -28,6 +28,8 @@ export interface V5Agent {
   description: string;
   /** Whether a dedicated /agent/<id>/ui dashboard exists (fitness/ops today). */
   hasDashboard: boolean;
+  /** External/detachable asset (e.g. Hunt.sg) — rendered set apart from the core HartOS ring. */
+  external?: boolean;
 }
 
 export interface V5Proposal {
@@ -91,6 +93,16 @@ const esc = (s: unknown): string =>
 const LAYOUT: Record<string, [number, number]> = {
   orchestrator: [-90, 330], sentinel: [-54, 300], research: [-18, 352], factory: [18, 302], fitness: [54, 346],
   ops: [90, 300], beezulbub: [126, 350], prophet: [162, 300], wolverine: [198, 352], rinnegan: [234, 305],
+};
+
+/**
+ * External / detachable assets — registered + mirrored in the fleet but deliberately NOT core HartOS
+ * organs (separate org + Supabase; HartOS is build-time builder only). They sit OUTSIDE the core ring
+ * (larger radius) and render set-apart (dashed, muted) so the detachable boundary stays visible.
+ * [angle°, radius] — radius > the ring's ~352 places them clear of the cognitive core.
+ */
+const EXTERNAL_LAYOUT: Record<string, [number, number]> = {
+  "hunt-sg-mirror": [-128, 458],
 };
 
 const CSS = `*{box-sizing:border-box;margin:0;padding:0}
@@ -260,16 +272,17 @@ function connectomeScript(): string {
   return `function conn(agents){
     const cx=450,cy=540,core=92,W=900,H=1010,d2r=Math.PI/180;
     const col={firing:'#fff',healthy:'#34F5A8',watch:'#FFC24B',idle:'#A974FF',down:'#FF5470'};
-    const L={orchestrator:[-90,330],sentinel:[-54,300],research:[-18,352],factory:[18,302],fitness:[54,346],ops:[90,300],beezulbub:[126,350],prophet:[162,300],wolverine:[198,352],rinnegan:[234,305]};
+    const L={orchestrator:[-90,330],sentinel:[-54,300],research:[-18,352],factory:[18,302],fitness:[54,346],ops:[90,300],beezulbub:[126,350],prophet:[162,300],wolverine:[198,352],rinnegan:[234,305],'hunt-sg-mirror':[-128,458]};
     let ax='',nd='';
     for(const a of agents){const p=L[a.id]||[0,300];const ang=p[0]*d2r,r=p[1];
-      const x=cx+Math.cos(ang)*r,y=cy+Math.sin(ang)*r;const c=a.color||'#A974FF';const fire=a.status==='firing';const dn=a.status==='down';
+      const x=cx+Math.cos(ang)*r,y=cy+Math.sin(ang)*r;const c=a.color||'#A974FF';const fire=a.status==='firing';const dn=a.status==='down';const ext=a.external;
       const mx=cx+(x-cx)*0.55,my=cy+(y-cy)*0.55-40;
       const pd='M'+cx+' '+cy+' Q'+mx.toFixed(1)+' '+my.toFixed(1)+' '+x.toFixed(1)+' '+y.toFixed(1);
-      ax+='<path d="'+pd+'" fill="none" stroke="'+c+'" stroke-width="'+(fire?2.4:1.5)+'" opacity="'+(dn?0.16:fire?0.92:0.5)+'" filter="url(#gl)"/>';
+      // External/detachable assets get a DASHED, dimmed axon — a severable link, not a hardwired one.
+      ax+='<path d="'+pd+'" fill="none" stroke="'+c+'" stroke-width="'+(fire?2.4:1.5)+'" opacity="'+(ext?0.34:dn?0.16:fire?0.92:0.5)+'"'+(ext?' stroke-dasharray="6 9"':'')+' filter="url(#gl)"/>';
       if(fire)ax+='<circle r="3.4" fill="#fff" opacity="0.95" filter="url(#gl)"><animateMotion dur="2.4s" repeatCount="indefinite" path="'+pd+'"/></circle>';
       if(fire)nd+='<circle class="fire" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="47" fill="'+c+'" opacity="0.16" filter="url(#glbig)"/>';
-      nd+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="31" fill="#0A0619" stroke="'+c+'" stroke-width="'+(fire?2.6:1.8)+'" opacity="'+(dn?0.5:1)+'" filter="url(#gl)"/>';
+      nd+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="31" fill="#0A0619" stroke="'+c+'" stroke-width="'+(fire?2.6:1.8)+'" opacity="'+(dn?0.5:1)+'"'+(ext?' stroke-dasharray="4 5"':'')+' filter="url(#gl)"/>';
       nd+='<text x="'+x.toFixed(1)+'" y="'+(y+5).toFixed(1)+'" text-anchor="middle" font-family="Orbitron" font-weight="700" font-size="18" fill="'+c+'" opacity="'+(dn?0.5:1)+'">'+h(a.initials)+'</text>';
       const side=x<cx-20?'end':x>cx+20?'start':'middle';const lx=side==='end'?x-40:side==='start'?x+40:x;
       nd+='<text x="'+lx.toFixed(1)+'" y="'+(y-40).toFixed(1)+'" text-anchor="'+side+'" font-family="Rajdhani" font-weight="600" font-size="18" fill="#ECE4F8">'+h(a.name)+'</text>';
@@ -295,10 +308,13 @@ function connectomeScript(): string {
 const AGENT_COLOR: Record<string, string> = {
   orchestrator: "#22E8FF", sentinel: "#FFC24B", research: "#A974FF", factory: "#FF2D9E", fitness: "#34F5A8",
   ops: "#34F5A8", beezulbub: "#22E8FF", prophet: "#A974FF", wolverine: "#34F5A8", rinnegan: "#22E8FF",
+  // External/detachable: a muted slate-teal, clearly NOT one of the vivid core-organ hues.
+  "hunt-sg-mirror": "#7FA8B8",
 };
 const INITIALS: Record<string, string> = {
   orchestrator: "CM", sentinel: "SN", research: "RS", factory: "FC", fitness: "FT",
   ops: "OP", beezulbub: "BZ", prophet: "PR", wolverine: "WV", rinnegan: "RN",
+  "hunt-sg-mirror": "HS",
 };
 
 /** A minimal agent shape (subset of MetaAgent) — keeps this module decoupled from the registry. */
@@ -353,25 +369,32 @@ export function buildCockpitV5Data(
     tasks.tasks.filter((t) => t.stage === "running").map((t) => t.agent.toLowerCase()),
   );
 
-  const fleet = agents.filter((a) => (a.category ?? "") !== "human" && (LAYOUT[a.id] || INITIALS[a.id]));
+  const fleet = agents.filter(
+    (a) => (a.category ?? "") !== "human" && (LAYOUT[a.id] || INITIALS[a.id] || EXTERNAL_LAYOUT[a.id]),
+  );
   const v5agents: V5Agent[] = fleet.map((a) => {
     const firing = firingAgents.has(a.displayName.toLowerCase()) || firingAgents.has(a.id);
+    const external = !!EXTERNAL_LAYOUT[a.id];
     return {
       id: a.id,
       name: a.displayName.replace(/^HartOS\s+/i, "").split(/[\/(]/)[0]!.trim() || a.id,
       initials: INITIALS[a.id] ?? a.id.slice(0, 2).toUpperCase(),
       role: a.role,
-      metric: a.status === "live" ? "online" : a.status === "partial" ? "propose-only" : a.status,
+      metric: external ? "external · detachable" : a.status === "live" ? "online" : a.status === "partial" ? "propose-only" : a.status,
       color: AGENT_COLOR[a.id] ?? "#A974FF",
       status: mapStatus(a.status, firing),
       statusReason: a.statusReason ?? "",
       description: a.description ?? a.role,
       hasDashboard: DASHBOARD_AGENTS.has(a.id),
+      ...(external ? { external: true } : {}),
     };
   });
 
-  const live = v5agents.filter((a) => a.status !== "down" && a.status !== "idle").length;
-  const total = v5agents.length || 1;
+  // Fleet health reflects CORE HartOS organs only — an external/detachable asset (Hunt.sg) is mirrored
+  // for visibility but must not move the HartOS fleet-health number up or down.
+  const core = v5agents.filter((a) => !a.external);
+  const live = core.filter((a) => a.status !== "down" && a.status !== "idle").length;
+  const total = core.length || 1;
   // Truth-layer health (computed from real liveness) wins; fall back to the asserted count only
   // when the caller has no truth-layer figure to pass.
   const healthPct = opts.liveHealthPct ?? Math.round((live / total) * 100);
@@ -419,7 +442,7 @@ export function buildCockpitV5Data(
     now: opts.now,
     buildSha: opts.buildSha,
     fleetFitness: String(healthPct),
-    verify: `${live} / ${v5agents.filter((a) => a.status === "down").length}`,
+    verify: `${live} / ${core.filter((a) => a.status === "down").length}`,
     signalPerMin: tasks.counts.total,
     corticalLoad: Math.round((tasks.counts.running / total) * 100),
     agents: v5agents,

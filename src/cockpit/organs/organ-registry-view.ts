@@ -267,6 +267,9 @@ export function applyOrganStatusToRegistry(
 
   const agents: MetaAgent[] = reg.agents.map((a) => {
     if (a.id === reg.rootId) return a; // the human gate is not an organ; leave it as authored.
+    // External/detachable assets (e.g. Hunt.sg) run on their own infra — HartOS has no evidence and
+    // must not assert their liveness. Leave as authored (local_only), not "not in agent_registry".
+    if (a.external) return a;
     const v = byId.get(a.id);
     if (v) return { ...a, status: organToAgentStatus(v.status), statusReason: statusReasonFor(v) };
     // No organ row for this node. Never let its hardcoded catalog status feed liveness:
