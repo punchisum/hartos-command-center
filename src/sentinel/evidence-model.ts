@@ -21,6 +21,8 @@ export interface RawEvidence {
   evidenceSource: string;
   /** An upstream freshness system already judged this source stale; carry it through. */
   upstreamStale?: boolean;
+  /** The observation came from a host-bound source (dies when Hart's machine is off). */
+  hostBound?: boolean;
 }
 
 export function normalizeEvidence(raw: RawEvidence, now: string): AgentHeartbeat {
@@ -35,5 +37,6 @@ export function normalizeEvidence(raw: RawEvidence, now: string): AgentHeartbeat
     lastEvidenceAt: trustworthy ? raw.observedAt : null,
     evidenceSource: raw.evidenceSource,
     ...(raw.upstreamStale ? { upstreamStale: true } : {}),
+    ...(raw.hostBound ? { hostBound: true } : {}),
   };
 }
