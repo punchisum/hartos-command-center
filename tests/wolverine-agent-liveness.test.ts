@@ -65,6 +65,17 @@ describe("detectAgentLiveness", () => {
     }
   });
 
+  it("does NOT raise findings for agents whose silence is host-offline (offlineExpected)", () => {
+    // Two host-bound agents, both stale ⇒ the host-offline gate flags them offlineExpected.
+    const fleet = fleetWith([
+      { agentId: "research", lastEvidenceAt: hoursAgo(40), evidenceSource: "research-reports/", hostBound: true },
+      { agentId: "beezulbub", lastEvidenceAt: hoursAgo(50), evidenceSource: "beezulbub-reports/", hostBound: true },
+    ]);
+    const findings = detectAgentLiveness({ now: NOW, fleetLiveness: fleet });
+    assert.ok(!findings.some((f) => f.id.startsWith("agent-liveness:research")), "research suppressed");
+    assert.ok(!findings.some((f) => f.id.startsWith("agent-liveness:beezulbub")), "beezulbub suppressed");
+  });
+
   it("is registered in DEFAULT_DETECTORS and a down agent turns the audit AMBER/RED", () => {
     assert.ok(DEFAULT_DETECTORS.includes(detectAgentLiveness));
     const fleet = fleetWith([{ agentId: "ops", lastEvidenceAt: hoursAgo(100), evidenceSource: "t" }]);

@@ -23,6 +23,8 @@ export function detectAgentLiveness(inputs: WolverineInputs): WolverineFinding[]
 
   for (const v of fleet.verdicts) {
     if (v.state === "up") continue;
+    // Host was simply off ⇒ this silence is expected, surfaced once as a calm note elsewhere. Skip.
+    if (v.offlineExpected) continue;
     // Unknown agents that the catalog does not claim are running carry no risk signal.
     if (v.state === "unknown" && v.catalogStatus !== "live" && v.catalogStatus !== "partial") continue;
 
