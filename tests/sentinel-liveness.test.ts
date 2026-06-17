@@ -98,4 +98,57 @@ describe("assessFleetLiveness", () => {
     assert.match(text, /Sentinel — fleet liveness AMBER/);
     assert.match(text, /\[UNKNOWN\]/);
   });
+
+  it("host-offline: all host-bound evidence stale ⇒ those silences flagged offlineExpected + one note", () => {
+    const fleet = assessFleetLiveness(
+      REG,
+      [
+        { agentId: "research", lastEvidenceAt: hoursAgo(40), evidenceSource: "research-reports/", hostBound: true },
+        { agentId: "beezulbub", lastEvidenceAt: hoursAgo(50), evidenceSource: "beezulbub-reports/", hostBound: true },
+      ],
+      NOW,
+    );
+    const research = fleet.verdicts.find((v) => v.agentId === "research")!;
+    const beezulbub = fleet.verdicts.find((v) => v.agentId === "beezulbub")!;
+    assert.equal(research.offlineExpected, true);
+    assert.equal(beezulbub.offlineExpected, true);
+    assert.ok(fleet.hostOffline, "hostOffline note populated");
+    assert.equal(fleet.hostOffline!.since, hoursAgo(40)); // freshest host-bound evidence
+    assert.ok(fleet.hostOffline!.agents.includes("Research Agent"));
+    assert.match(fleet.hostOffline!.reason, /offline/i);
+  });
+
+  it("host-on: one host-bound agent fresh ⇒ no host-offline gate; a separate stale agent stays organic", () => {
+    const fleet = assessFleetLiveness(
+      REG,
+      [
+        { agentId: "research", lastEvidenceAt: hoursAgo(1), evidenceSource: "research-reports/", hostBound: true },
+        { agentId: "beezulbub", lastEvidenceAt: hoursAgo(40), evidenceSource: "beezulbub-reports/", hostBound: true },
+      ],
+      NOW,
+    );
+    assert.equal(fleet.hostOffline, null);
+    const beezulbub = fleet.verdicts.find((v) => v.agentId === "beezulbub")!;
+    assert.equal(beezulbub.state, "stale");
+    assert.ok(!beezulbub.offlineExpected, "stale-while-host-on is organic, not offlineExpected");
+  });
+
+  it("cloud-only heartbeats (no hostBound) never trigger the host-offline gate", () => {
+    const fleet = assessFleetLiveness(
+      REG,
+      [{ agentId: "ops", lastEvidenceAt: hoursAgo(100), evidenceSource: "ops read-model" }],
+      NOW,
+    );
+    assert.equal(fleet.hostOffline, null);
+    assert.ok(!fleet.verdicts.find((v) => v.agentId === "ops")!.offlineExpected);
+  });
+
+  it("describeFleetLiveness prints a calm host-offline line when the host was off", () => {
+    const fleet = assessFleetLiveness(
+      REG,
+      [{ agentId: "research", lastEvidenceAt: hoursAgo(40), evidenceSource: "research-reports/", hostBound: true }],
+      NOW,
+    );
+    assert.match(describeFleetLiveness(fleet), /Host appears OFFLINE/i);
+  });
 });
