@@ -43,6 +43,13 @@ describe("heartbeatsFromReadModels", () => {
     const hb = heartbeatsFromReadModels({ staleSources: [], enabledSources: [] }, NOW, null);
     assert.ok(!hb.some((h) => h.agentId === "fitness" || h.agentId === "ops"));
   });
+
+  it("never marks cloud evidence host-bound (Worker self-beat + read-models)", () => {
+    const hb = heartbeatsFromReadModels({ staleSources: ["ops"], enabledSources: ["fitness", "ops"] }, NOW, NOW);
+    for (const h of hb) {
+      assert.notEqual(h.hostBound, true, `${h.agentId} is cloud, not host-bound`);
+    }
+  });
 });
 
 describe("heartbeat alert policy", () => {

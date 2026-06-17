@@ -49,6 +49,7 @@ export function gatherLocalHeartbeats(env: Record<string, string | undefined>): 
       agentId,
       lastEvidenceAt: t === null ? null : new Date(t).toISOString(),
       evidenceSource: `${dir}/ newest artifact`,
+      hostBound: true,
     });
   }
   const memPath = env["HARTOS_MEMORY_CAPTURE"];
@@ -59,12 +60,14 @@ export function gatherLocalHeartbeats(env: Record<string, string | undefined>): 
         agentId: "executive-memory",
         lastEvidenceAt: new Date(st.mtimeMs).toISOString(),
         evidenceSource: "memory-capture file",
+        hostBound: true,
       });
     } catch {
       heartbeats.push({
         agentId: "executive-memory",
         lastEvidenceAt: null,
         evidenceSource: "memory-capture file (missing)",
+        hostBound: true,
       });
     }
   }
