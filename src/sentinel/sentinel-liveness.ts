@@ -200,8 +200,11 @@ export function assessFleetLiveness(
         ? Math.round(((nowMs - freshestMs) / 36e5) * 10) / 10
         : null;
     const hostOff = freshestMs === null || hostAgeHours === null || hostAgeHours > staleHours;
-    if (hostOff) {
-      const quiet = hostBoundVerdicts.filter((v) => v.state === "down" || v.state === "stale");
+    // Only down/stale agents are the investigation noise this gate exists to suppress; `unknown`
+    // host-bound agents never raise a down/stale synapse, so a note with no suppressed agents would
+    // be spurious — require at least one quiet agent before declaring the host offline.
+    const quiet = hostBoundVerdicts.filter((v) => v.state === "down" || v.state === "stale");
+    if (hostOff && quiet.length > 0) {
       for (const v of quiet) v.offlineExpected = true;
       const since = freshestMs === null ? null : new Date(freshestMs).toISOString();
       hostOffline = {

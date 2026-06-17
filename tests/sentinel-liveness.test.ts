@@ -118,6 +118,27 @@ describe("assessFleetLiveness", () => {
     assert.match(fleet.hostOffline!.reason, /offline/i);
   });
 
+  it("host-offline with only null-timestamp host-bound evidence ⇒ note with null since + honest reason", () => {
+    const fleet = assessFleetLiveness(
+      REG,
+      [
+        {
+          agentId: "fitness",
+          lastEvidenceAt: null,
+          evidenceSource: "fitness read-model diagnostics",
+          upstreamStale: true,
+          hostBound: true,
+        },
+      ],
+      NOW,
+    );
+    assert.ok(fleet.hostOffline, "note still fires (the agent is stale, just with no timestamp)");
+    assert.equal(fleet.hostOffline!.since, null);
+    assert.equal(fleet.hostOffline!.ageHours, null);
+    assert.ok(fleet.hostOffline!.agents.includes("Fitness Agent"));
+    assert.match(fleet.hostOffline!.reason, /no host-bound agent has produced any evidence/i);
+  });
+
   it("host-on: one host-bound agent fresh ⇒ no host-offline gate; a separate stale agent stays organic", () => {
     const fleet = assessFleetLiveness(
       REG,
