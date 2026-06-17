@@ -83,4 +83,29 @@ describe("heartbeat alert policy", () => {
   it("heartbeatLogLine is a single structured observability line", () => {
     assert.match(heartbeatLogLine(fleet([])), /^\[sentinel-heartbeat\] (GREEN|AMBER|RED) — up \d+ stale \d+ down \d+ unknown \d+/);
   });
+
+  it("does NOT alert when every down/stale agent is host-offline (expected)", () => {
+    const f = fleet([
+      { agentId: "research", lastEvidenceAt: hoursAgo(40), evidenceSource: "research-reports/", hostBound: true },
+      { agentId: "beezulbub", lastEvidenceAt: hoursAgo(50), evidenceSource: "beezulbub-reports/", hostBound: true },
+    ]);
+    assert.ok(f.hostOffline, "fixture is a host-offline fleet");
+    assert.equal(heartbeatShouldAlert(f), false);
+  });
+
+  it("STILL alerts when the host is on and an agent is organically stale", () => {
+    const f = fleet([
+      { agentId: "research", lastEvidenceAt: hoursAgo(1), evidenceSource: "research-reports/", hostBound: true },
+      { agentId: "beezulbub", lastEvidenceAt: hoursAgo(40), evidenceSource: "beezulbub-reports/", hostBound: true },
+    ]);
+    assert.equal(f.hostOffline, null);
+    assert.equal(heartbeatShouldAlert(f), true);
+  });
+
+  it("heartbeatLogLine notes the host-offline condition for observability", () => {
+    const f = fleet([
+      { agentId: "research", lastEvidenceAt: hoursAgo(40), evidenceSource: "research-reports/", hostBound: true },
+    ]);
+    assert.match(heartbeatLogLine(f), /host offline/i);
+  });
 });

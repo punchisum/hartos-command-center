@@ -23,9 +23,9 @@ export interface HeartbeatAlert {
   at: string;
 }
 
-/** Fire an alert only on a real freshness failure (down or stale), never on honest "unknown". */
+/** Fire only on a REAL freshness failure (down/stale) that is NOT a known host-offline silence. */
 export function heartbeatShouldAlert(fleet: FleetLiveness): boolean {
-  return fleet.counts.down > 0 || fleet.counts.stale > 0;
+  return fleet.verdicts.some((v) => (v.state === "down" || v.state === "stale") && !v.offlineExpected);
 }
 
 /** Shape the fact-only alert payload from the liveness rollup. */
@@ -44,5 +44,8 @@ export function buildHeartbeatAlert(fleet: FleetLiveness): HeartbeatAlert {
 /** One structured log line for Worker observability (wrangler tail / CF dashboard). */
 export function heartbeatLogLine(fleet: FleetLiveness): string {
   const c = fleet.counts;
-  return `[sentinel-heartbeat] ${fleet.overall} — up ${c.up} stale ${c.stale} down ${c.down} unknown ${c.unknown} (of ${c.assessed}) · ${fleet.overallReason}`;
+  const offline = fleet.hostOffline
+    ? ` · host offline since ${fleet.hostOffline.since ?? "unknown"} (${fleet.hostOffline.agents.length} agent(s) quiet — expected)`
+    : "";
+  return `[sentinel-heartbeat] ${fleet.overall} — up ${c.up} stale ${c.stale} down ${c.down} unknown ${c.unknown} (of ${c.assessed}) · ${fleet.overallReason}${offline}`;
 }
