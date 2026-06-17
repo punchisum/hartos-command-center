@@ -10,6 +10,11 @@
  * advisory (executable:false, requiredApproval:"Hart"). "Automatic eyes, gated hands" —
  * Wolverine detects + proposes, it never restarts an agent on its own.
  *
+ * When Sentinel's host-offline gate fires (the whole machine was simply off), the per-agent
+ * findings are suppressed (`offlineExpected`) and replaced by ONE calm, fixed-id
+ * `wolverine-host-offline` acknowledgement card — so a normal shutdown does not spam the
+ * approval board.
+ *
  * PURE: `sentinelWolverineProposals` is a deterministic function of (fleet, now). The id is
  * stable per (agentId, state), so re-running upserts the same row — idempotent, no duplicates.
  */
@@ -35,7 +40,9 @@ function livenessProposalId(agentId: string, state: string): string {
 
 /**
  * Build advisory Wolverine FixProposals from a Sentinel fleet snapshot. One per down/stale
- * expected-live agent. PURE — never throws; `now` is injected.
+ * expected-live agent — EXCEPT host-offline silences (`offlineExpected`), which are collapsed
+ * into a single fixed-id `wolverine-host-offline` acknowledgement card instead of per-agent
+ * findings. PURE — never throws; `now` is injected.
  */
 export function sentinelWolverineProposals(fleet: FleetLiveness, now: string): ProposalQueueItem[] {
   const out: ProposalQueueItem[] = [];
@@ -96,7 +103,7 @@ export function sentinelWolverineProposals(fleet: FleetLiveness, now: string): P
         ? `Fleet was quiet — host offline since ${note.since} (no action needed)`
         : "Fleet was quiet — host appears offline (no action needed)",
       description:
-        `Sentinel saw every host-bound agent go silent together (${note.agents.length}: ${note.agents.join(", ")}). ` +
+        `Sentinel saw every host-bound agent go silent together (${note.agents.length} agents: ${note.agents.join(", ")}). ` +
         `${note.reason} No per-agent investigations were raised. Authorize to dismiss; nothing executes.`,
       sourceIntent: "sentinel:liveness:host-offline",
       proposedPayload: { since: note.since, ageHours: note.ageHours, quietAgents: note.agents },
