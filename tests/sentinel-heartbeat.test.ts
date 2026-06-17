@@ -102,6 +102,16 @@ describe("heartbeat alert policy", () => {
     assert.equal(heartbeatShouldAlert(f), true);
   });
 
+  it("buildHeartbeatAlert excludes host-offline (offlineExpected) agents, keeps organic ones", () => {
+    const f = fleet([
+      { agentId: "research", lastEvidenceAt: hoursAgo(40), evidenceSource: "research-reports/", hostBound: true },
+      { agentId: "ops", lastEvidenceAt: null, evidenceSource: "ops read-model diagnostics", upstreamStale: true },
+    ]);
+    const alert = buildHeartbeatAlert(f);
+    assert.ok(alert.agents.some((a) => /Ops Agent/.test(a)), "organic stale ops is alerted");
+    assert.ok(!alert.agents.some((a) => /Research Agent/.test(a)), "host-offline research is excluded");
+  });
+
   it("heartbeatLogLine notes the host-offline condition for observability", () => {
     const f = fleet([
       { agentId: "research", lastEvidenceAt: hoursAgo(40), evidenceSource: "research-reports/", hostBound: true },

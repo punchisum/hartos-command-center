@@ -108,6 +108,11 @@ describe("livenessTransitionAlerts (pure edge-trigger)", () => {
     assert.deepEqual(livenessTransitionAlerts(fleet([verdict("x", "up", "live")]), fleet([verdict("x", "unknown", "live")])), []);
     assert.deepEqual(livenessTransitionAlerts(fleet([verdict("y", "up", "unavailable")]), fleet([verdict("y", "down", "unavailable")])), []);
   });
+  it("does NOT alert a worsening transition when the silence is host-offline (offlineExpected)", () => {
+    const prev = fleet([verdict("research", "up", "live")]);
+    const cur = fleet([{ ...verdict("research", "down", "live"), offlineExpected: true }]);
+    assert.deepEqual(livenessTransitionAlerts(prev, cur), []);
+  });
 });
 
 describe("runLivenessAlertPass", () => {

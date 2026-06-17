@@ -22,8 +22,9 @@ import { telegramNotifyConfig, sendAlerts, type Alert, type AlertBusState } from
 
 const RANK: Record<LivenessState, number> = { up: 0, unknown: 1, stale: 2, down: 3 };
 
-/** Alert only on a registry-expected agent that is actually down/stale (exclude expected-dormant). */
+/** Alert only on a registry-expected agent that is actually down/stale, and not a known host-offline silence. */
 function isAlertable(v: LivenessVerdict): boolean {
+  if (v.offlineExpected) return false;
   return (v.state === "down" || v.state === "stale") && (v.catalogStatus === "live" || v.catalogStatus === "partial");
 }
 

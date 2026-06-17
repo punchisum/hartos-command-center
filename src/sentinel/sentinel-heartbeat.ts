@@ -30,7 +30,7 @@ export function heartbeatShouldAlert(fleet: FleetLiveness): boolean {
 
 /** Shape the fact-only alert payload from the liveness rollup. */
 export function buildHeartbeatAlert(fleet: FleetLiveness): HeartbeatAlert {
-  const flagged = fleet.verdicts.filter((v) => v.state === "down" || v.state === "stale");
+  const flagged = fleet.verdicts.filter((v) => (v.state === "down" || v.state === "stale") && !v.offlineExpected);
   return {
     text: `Sentinel heartbeat ${fleet.overall}: ${fleet.overallReason}`,
     overall: fleet.overall,
