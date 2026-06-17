@@ -16,8 +16,15 @@
 import type { ProposalQueueItem } from "../cockpit/proposals/proposal-types.js";
 import type { FleetLiveness, LivenessVerdict } from "../sentinel/sentinel-liveness.js";
 
-/** Only expected-live agents that are actually down/stale (mirrors the Telegram alert gate). */
+/** now + hours as ISO, or null when `now` is unparseable (stays pure — no clock). */
+function isoPlusHours(now: string, hours: number): string | null {
+  const ms = Date.parse(now);
+  return Number.isFinite(ms) ? new Date(ms + hours * 36e5).toISOString() : null;
+}
+
+/** Only expected-live agents that are actually down/stale — and not a known host-offline silence. */
 function isAlertable(v: LivenessVerdict): boolean {
+  if (v.offlineExpected) return false;
   return (v.state === "down" || v.state === "stale") && (v.catalogStatus === "live" || v.catalogStatus === "partial");
 }
 
@@ -77,6 +84,45 @@ export function sentinelWolverineProposals(fleet: FleetLiveness, now: string): P
       afterState: {},
       rollbackOrCorrectionNote:
         "Advisory only; nothing to roll back. Resolves when the agent recovers or Hart dismisses it.",
+    });
+  }
+  if (fleet?.hostOffline) {
+    const note = fleet.hostOffline;
+    out.push({
+      id: "wolverine-host-offline",
+      domain: "system",
+      actionType: "sync_repair_plan",
+      title: note.since
+        ? `Fleet was quiet — host offline since ${note.since} (no action needed)`
+        : "Fleet was quiet — host appears offline (no action needed)",
+      description:
+        `Sentinel saw every host-bound agent go silent together (${note.agents.length}: ${note.agents.join(", ")}). ` +
+        `${note.reason} No per-agent investigations were raised. Authorize to dismiss; nothing executes.`,
+      sourceIntent: "sentinel:liveness:host-offline",
+      proposedPayload: { since: note.since, ageHours: note.ageHours, quietAgents: note.agents },
+      expectedEffect:
+        "Acknowledge that the fleet was quiet because the host was offline. Advisory — no repair, nothing to execute.",
+      riskLevel: "low",
+      requiredApproval: "Hart",
+      status: "pending_approval",
+      executable: false,
+      blockedReason: "Informational host-offline notice — there is nothing to repair; the silence was expected.",
+      expiresAt: isoPlusHours(now, 48),
+      safetyNotes: [
+        "Raised in place of per-agent 'down' findings when Sentinel inferred the host was simply offline.",
+        "Advisory: authorizing only dismisses this notice; nothing executes.",
+      ],
+      dryRunResult: null,
+      createdAt: now,
+      updatedAt: now,
+      auditEvents: [{ at: now, event: "created", detail: "Sentinel→Wolverine: host-offline (fleet quiet)" }],
+      tier: "T0",
+      targetId: "host",
+      targetName: "Host (Hart's machine)",
+      beforeState: { hostOfflineSince: note.since },
+      afterState: {},
+      rollbackOrCorrectionNote:
+        "Advisory only; nothing to roll back. Auto-expires, or dismiss by authorizing/rejecting.",
     });
   }
   return out;

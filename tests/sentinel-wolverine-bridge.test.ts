@@ -60,6 +60,50 @@ describe("sentinelWolverineProposals", () => {
     assert.equal(a[0]!.id, "wolverine-liveness-research-down");
   });
 
+  it("host-offline: emits ZERO per-agent cards and ONE calm acknowledgement card", () => {
+    const f: FleetLiveness = {
+      ...fleet([
+        v({ agentId: "research", displayName: "Research Agent", state: "down", offlineExpected: true }),
+        v({ agentId: "beezulbub", displayName: "Beezulbub", state: "stale", offlineExpected: true }),
+      ]),
+      hostOffline: {
+        since: "2026-06-13T00:00:00.000Z",
+        ageHours: 58,
+        agents: ["Research Agent", "Beezulbub"],
+        reason: "the host appears to have been offline",
+      },
+    };
+    const out = sentinelWolverineProposals(f, NOW);
+    assert.equal(out.length, 1);
+    const card = out[0]!;
+    assert.equal(card.id, "wolverine-host-offline");
+    assert.equal(card.riskLevel, "low");
+    assert.equal(card.status, "pending_approval");
+    assert.equal(card.executable, false);
+    assert.ok(card.expiresAt, "ack card auto-expires");
+    assert.ok(/offline/i.test(card.title));
+  });
+
+  it("host-offline ack card id is stable (idempotent upsert)", () => {
+    const f: FleetLiveness = {
+      ...fleet([v({ agentId: "research", state: "down", offlineExpected: true })]),
+      hostOffline: { since: null, ageHours: null, agents: ["Research Agent"], reason: "offline" },
+    };
+    const a = sentinelWolverineProposals(f, NOW)[0]!;
+    const b = sentinelWolverineProposals(f, "2026-06-15T00:00:00.000Z")[0]!;
+    assert.equal(a.id, b.id);
+    assert.equal(a.id, "wolverine-host-offline");
+  });
+
+  it("a down agent flagged offlineExpected is NOT raised as a per-agent investigation", () => {
+    // hostOffline unset here ⇒ only the per-agent path runs; the offlineExpected verdict is skipped.
+    const out = sentinelWolverineProposals(
+      fleet([v({ agentId: "research", state: "down", offlineExpected: true })]),
+      NOW,
+    );
+    assert.equal(out.length, 0);
+  });
+
   it("never throws on a malformed fleet", () => {
     // @ts-expect-error malformed
     assert.doesNotThrow(() => sentinelWolverineProposals({}, NOW));
