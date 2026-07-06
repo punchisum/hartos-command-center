@@ -9,6 +9,7 @@ Coordinate specialist skills without becoming a mega-skill.
 
 ## Flow
 
+0. Use `problem-solving` to frame the task before any step below.
 1. Clarify idea and business problem.
 2. Complete intake.
 3. Use `system-architect` for architecture.
