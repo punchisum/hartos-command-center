@@ -4,6 +4,7 @@
 
 This repo was scaffolded from HartOS Agent Factory.
 
+- Follow `.agents/skills/problem-solving/SKILL.md` for any non-trivial task: frame the problem, gather evidence before acting, test one hypothesis at a time, act in small reversible steps.
 - Inspect relevant files before editing.
 - Keep changes small and reversible.
 - Never hardcode secrets.
